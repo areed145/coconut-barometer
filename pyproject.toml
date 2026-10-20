@@ -22,5 +22,8 @@ flickr-organizer = "flickr_organizer.cli:main"
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["flickr_organizer", "flickr_organizer.vision"]
+[tool.setuptools.packages.find]
+include = ["flickr_organizer*"]
+
+[tool.setuptools.package-data]
+"flickr_organizer.review" = ["static/*"]
