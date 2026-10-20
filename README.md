@@ -70,6 +70,7 @@ Every API route except login needs a session. It's built to be reachable from th
 |---|---|
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | login (returns the CSRF token) |
 | `GET /api/photos?q=&sort=&media=&album=&limit=&offset=`, `/api/photos/{id}`, `/api/albums`, `/api/albums/{id}` | gallery: image sizes up to 2048 px, EXIF, albums, engagement |
+| `GET /api/analytics/overview`, `/photos?kind=`, `/tags`, `/tags/{tag}`, `/places`, `/gear`, `/audience`, `/groups`, `/impact` | the Analytics tabs (all from the local database) |
 | `GET /api/map/points?album=&year_from=&year_to=`, `POST /api/map/cards` | the Map page: every geotagged photo (compact, gzipped), then the cards for a cluster you open |
 | `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/decide`, `POST /items/{id}/process`, `/jobs`, `/find` | the review queue |
 | `/api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves, comments over time |

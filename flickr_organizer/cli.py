@@ -291,11 +291,27 @@ def cmd_settings(cfg, store, args):
         source = read_raw(args.file or args.config)
         changes = {p: S.get_path(source, p) for p in S.leaves()
                    if S.get_path(source, p) is not None and p not in S.LOCKED and p not in S.SECRETS}
+        # Settings you changed on the admin page win, unless --overwrite.
+        kept = sorted(p for p in changes if p in store.admin_settings()
+                      and store.admin_settings()[p] != changes[p]) if not args.overwrite else []
+        for p in kept:
+            changes.pop(p)
         out = S.save(args.config, {}, store, changes, [], "cli")
-        keys = [p for p in S.SECRETS if S.get_path(source, p)]
-        for path in keys:
+        keys = []
+        rows = store.secret_rows()
+        for path in (p for p in S.SECRETS if S.get_path(source, p)):
+            row = rows.get(path)
+            stored = S.decrypt(path, row["nonce"], row["ciphertext"]) if row else None
+            if stored == S.get_path(source, path):
+                continue                                   # already the same
+            if stored and not args.overwrite:
+                kept.append(path)                          # set on the admin page: it wins
+                continue
             S.set_secret(store, path, S.get_path(source, path), "cli")
+            keys.append(path)
         print(f"Stored {len(out['changed'])} setting(s) and {len(keys)} key(s) (encrypted) in {cfg['database']}.")
+        if kept:
+            print(f"Kept what the admin page has for: {', '.join(kept)} (--overwrite takes the file's).")
         skipped = [p for p in S.LOCKED if S.get_path(source, p) is not None]
         if skipped:
             print(f"Not stored (server settings; set them in the environment): {', '.join(skipped)}")
@@ -512,6 +528,8 @@ def main(argv=None):
     p.add_argument("action", choices=["show", "import-file", "import-secrets", "new-key"])
     p.add_argument("file", nargs="?", help="with import-file: the YAML to import (default: the config file)")
     p.add_argument("--blank", action="store_true", help="with import-secrets: also blank the keys in config.yaml")
+    p.add_argument("--overwrite", action="store_true",
+                   help="with import-file: also replace settings you changed on the admin page")
     p = sub.add_parser("backup", help="back up the database now (safe while the app runs)")
     p.add_argument("--list", action="store_true", help="list backups instead")
     p = sub.add_parser("restore", help="replace the database with a backup (stop serve first)")

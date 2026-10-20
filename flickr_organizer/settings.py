@@ -202,8 +202,11 @@ def save(cfg_path, file_raw: dict, store, changes: dict[str, object], removed: l
     for path in removed:
         proposed.pop(path, None)
     underlying = _merge(DEFAULTS, file_raw)
-    for path in list(proposed):     # same as config.yaml/defaults: drop the override
-        if proposed[path] == get_path(underlying, path):
+    # Same as the built-in default: drop the override. One that matches config.yaml stays:
+    # the database carries every setting, so a server (no config.yaml) restored from a
+    # backup runs the same as here.
+    for path in list(proposed):
+        if proposed[path] == get_path(DEFAULTS, path):
             proposed.pop(path)
     trial = copy.deepcopy(file_raw)
     for path, value in proposed.items():

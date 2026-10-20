@@ -70,7 +70,7 @@ function Shell({ session, onLogout }) {
   if (tab === "albums" && route[1]) page = html`<${AlbumView} id=${route[1]} />`;
   else if (tab === "albums") page = html`<${Albums} />`;
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
-  else if (tab === "analytics") page = html`<${Analytics} />`;
+  else if (tab === "analytics") page = html`<${Analytics} tab=${route[1]} />`;
   else if (tab === "map") page = html`<${MapPage} at=${route[1]} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;

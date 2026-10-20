@@ -1,4 +1,5 @@
-"""Views, faves and comments over time; top photos, gainers, breakdowns."""
+"""The Analytics tabs: overview, photos, tags, places, gear, audience, albums and groups,
+and whether this tool's changes helped (see insights.py)."""
 from __future__ import annotations
 
 import datetime as dt
@@ -6,6 +7,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 
+from ... import insights as I
 from ..deps import session, store
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(session)])
@@ -22,10 +24,79 @@ def _since(days: int) -> str:
 
 @router.get("/overview")
 def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
-    since = _since(days)
-    return {"since": since, "totals": db.totals(), "series": db.daily_series(since),
-            "top": _with_sizes(db, db.top_photos(since, limit=12)),
-            "top_faved": _with_sizes(db, db.top_photos(since, limit=12, by="favorites"))}
+    """The period's daily series, the period before it (for "vs before"), and highlights."""
+    since, before = _since(days), _since(2 * days)
+    series = db.daily_series(before)
+    current = [r for r in series if r["day"] >= since]
+    previous = [r for r in series if r["day"] < since]
+    total = lambda rows, k: sum(r[k] or 0 for r in rows)
+    recent_faves = [dict(r) for r in db.db.execute(
+        "SELECT f.photo_id, p.title, COALESCE(NULLIF(f.real_name, ''), f.username) who, f.date_faved at FROM faves f "
+        "JOIN photos p ON p.id = f.photo_id ORDER BY f.date_faved DESC LIMIT 8")]
+    recent_comments = [dict(r) for r in db.db.execute(
+        "SELECT c.photo_id, p.title, COALESCE(NULLIF(c.real_name, ''), c.author_name) who, c.date_created at, c.text "
+        "FROM comments c JOIN photos p ON p.id = c.photo_id ORDER BY c.date_created DESC LIMIT 5")]
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    return {"since": since, "totals": db.totals(), "series": current,
+            "period": {k: total(current, k) for k in ("views", "faves", "comments")},
+            "previous": {k: total(previous, k) for k in ("views", "faves", "comments")} if previous else None,
+            "highlights": {"gaining": _with_sizes(db, db.gainers(min(days, 7), today, 3)),
+                           "faves": _with_sizes(db, recent_faves), "comments": _with_sizes(db, recent_comments)},
+            "days_collected": I._days_collected(db)}
+
+
+@router.get("/photos")
+def photo_lists(kind: Literal["views", "faves", "comments", "engagement", "sleepers", "overlooked", "gaining"] = "views",
+                days: int = Query(30, ge=1, le=3650), limit: int = Query(24, ge=1, le=100),
+                min_views: int = Query(100, ge=1, le=100000), db=Depends(store)):
+    if kind == "gaining":
+        today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+        rows = [{**r, "value": r["gain"]} for r in db.gainers(min(days, 90), today, limit)]
+    else:
+        rows = I.photo_lists(db, kind, days, limit, min_views)
+    return _with_sizes(db, rows)
+
+
+@router.get("/tags")
+def tags(source: Literal["all", "yours", "added"] = "all", hide: str = Query("date,common", max_length=60),
+         min_photos: int = Query(3, ge=1, le=1000), sort: str = Query("photos", max_length=20),
+         limit: int = Query(400, ge=1, le=2000), db=Depends(store)):
+    """hide: comma-separated kinds to leave out (date, place, camera, common)."""
+    kinds = tuple(k for k in hide.split(",") if k in ("date", "place", "camera", "common"))
+    return I.tag_table(db, source, kinds, min_photos, limit, sort)
+
+
+@router.get("/tags/{tag}")
+def tag(tag: str, db=Depends(store)):
+    out = I.tag_detail(db, tag[:100])
+    cards = db.cards(out["top"])
+    out["top"] = [cards[i] for i in out["top"] if i in cards]
+    return out
+
+
+@router.get("/places")
+def places(level: Literal["country", "state", "city"] = "country", db=Depends(store)):
+    return I.places(db, level)
+
+
+@router.get("/gear")
+def gear(db=Depends(store)):
+    return I.gear(db)
+
+
+@router.get("/audience")
+def audience(db=Depends(store)):
+    return I.audience(db)
+
+
+@router.get("/groups")
+def albums_and_groups(db=Depends(store)):
+    return I.albums_and_groups(db)
+
+
+@router.get("/impact")
+def impact(window: int = Query(14, ge=3, le=60), db=Depends(store)):
+    return I.impact(db, window)
 
 
 @router.get("/gainers")

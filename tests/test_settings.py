@@ -70,11 +70,31 @@ class LayersTest(Base):
             with self.assertRaises(S.SettingsError):
                 S.save(self.cfg_path, self.file_raw(), self.store, {path: "x"}, [], "owner")
 
-    def test_setting_back_to_the_file_value_drops_the_override_and_everything_is_logged(self):
+    def test_file_values_stay_in_the_database_and_defaults_drop_out(self):
+        """A server has no config.yaml: the database must carry the setting even when it
+        matches the file. Only a value equal to the built-in default is dropped."""
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "other"}, [], "owner")
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-file"}, [], "owner")
-        self.assertEqual(self.store.admin_settings(), {})
-        self.assertEqual([r["path"] for r in self.store.settings_log()], ["vision.model", "vision.model"])
+        self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file"})
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 9}, [], "owner")
+        self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file", "vision.concurrency": 9})
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 4}, [], "owner")   # the default
+        self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file"})
+        self.assertEqual([r["path"] for r in self.store.settings_log()][:2], ["vision.concurrency", "vision.concurrency"])
+
+    def test_import_file_keeps_page_changes(self):
+        import argparse, contextlib, io
+        from flickr_organizer.cli import cmd_settings
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-page"}, [], "owner")
+        args = argparse.Namespace(action="import-file", file=None, config=self.cfg_path, overwrite=False, blank=False)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cmd_settings({"database": self.store.path}, self.store, args)
+        self.assertEqual(self.store.admin_settings()["vision.model"], "from-page")
+        self.assertIn("Kept what the admin page has for: vision.model", out.getvalue())
+        args.overwrite = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_settings({"database": self.store.path}, self.store, args)
+        self.assertEqual(self.store.admin_settings()["vision.model"], "from-file")
 
     def test_every_setting_has_a_label(self):
         self.assertEqual([p for p in S.leaves() if p not in META], [])

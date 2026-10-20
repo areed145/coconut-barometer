@@ -148,8 +148,9 @@ class WebTest(unittest.TestCase):
         self.store.save_stats_day("2026-10-19", {"total": 50}, [{"photo_id": "1", "views": 40, "comments": 1,
                                                                   "favorites": 2}])
         self.login()
-        overview = self.c.get("/api/analytics/overview", params={"days": 3650}).json()
-        self.assertEqual(overview["top"][0]["photo_id"], "1")
+        top = self.c.get("/api/analytics/photos", params={"kind": "views", "days": 3000}).json()   # not "All": the daily stats
+        self.assertEqual((top[0]["photo_id"], top[0]["value"]), ("1", 40))
+        self.assertIn("highlights", self.c.get("/api/analytics/overview", params={"days": 3650}).json())
         self.assertEqual(self.c.get("/api/analytics/breakdown", params={"by": "year", "days": 3650}).json()[0]["views"], 40)
         self.assertEqual(self.c.get("/api/analytics/photos/1").json()["daily"][0]["views"], 40)
         self.assertEqual(self.c.get("/api/analytics/breakdown", params={"by": "secrets"}).status_code, 422)

@@ -1,84 +1,100 @@
-// Views, faves and comments over time; top photos, gainers and breakdowns.
-import { html, useState, useEffect, useMemo, api, num, pick } from "./lib.js";
+// Analytics, in tabs (#/analytics/<tab>): Overview, Photos, Tags, Places, Gear, Audience,
+// Albums & groups, and "Did it help?". Each tab loads its own data when opened.
+import { html, useState, useEffect, useMemo, api, num, ago, plain } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Lightbox } from "./gallery.js";
+import { Kpi, TopGrid, usePhotoBox } from "./viz.js";
+import { TagsTab } from "./analytics_tags.js";
+import { PlacesTab, GearTab, AudienceTab, GroupsTab, ImpactTab } from "./analytics_more.js";
 
+const TABS = [["overview", "Overview"], ["photos", "Photos"], ["tags", "Tags"], ["places", "Places"], ["gear", "Gear & technique"],
+              ["audience", "Audience"], ["groups", "Albums & groups"], ["impact", "Did it help?"]];
 const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"], [3650, "All"]];
-const asPhoto = (r) => ({ id: r.photo_id, title: r.title, sizes: r.sizes || {}, views: r.views, faves: r.favorites, comments: r.comments });
 
-function TopGrid({ rows, metric, onOpen }) {
-  if (!rows?.length) return html`<p class="muted">No stats in this range yet.</p>`;
-  return html`<div class="toplist">${rows.map((r, i) => html`<button class="tile" key=${r.photo_id} onClick=${() => onOpen(rows, i)}
-      aria-label=${r.title || "Untitled photo"}>
-    <img loading="lazy" alt="" src=${pick(r.sizes, ["n", "w", "q"])} />
-    <span class="cap">${num(r[metric])} ${metric === "favorites" ? "faves" : "views"}</span></button>`)}</div>`;
+function Range({ days, setDays }) {
+  return html`<span class="range">${RANGES.map(([d, label]) => html`<button class=${days === d ? "primary" : ""}
+      onClick=${() => setDays(d)}>${label}</button>`)}</span>`;
 }
 
-function Bars({ rows }) {
-  if (!rows?.length) return html`<p class="muted">No stats in this range yet.</p>`;
-  const max = Math.max(...rows.map((r) => r.views || 0), 1);
-  return html`<div class="bars">${rows.map((r) => html`<div class="bar" title=${`${num(r.views)} views · ${num(r.faves)} faves · ${num(r.photos)} photos`}>
-    <span class="label">${r.label}</span>
-    <span class="track"><span class="fill" style=${`width:${(100 * (r.views || 0)) / max}%`}></span></span>
-    <span class="n">${num(r.views)}</span></div>`)}</div>`;
-}
-
-export function Analytics() {
-  const [days, setDays] = useState(30);
-  const [by, setBy] = useState("album");
-  const [data, setData] = useState(null);
-  const [gainers, setGainers] = useState(null);
-  const [breakdown, setBreakdown] = useState(null);
-  const [open, setOpen] = useState(null);   // {photos, index}
-  useEffect(() => {
-    setData(null);
-    api("/api/analytics/overview", { params: { days } }).then(setData);
-    api("/api/analytics/gainers", { params: { days: Math.min(days, 90), limit: 12 } }).then(setGainers);
-  }, [days]);
-  useEffect(() => { api("/api/analytics/breakdown", { params: { by, days, limit: 15 } }).then(setBreakdown); }, [by, days]);
-
-  const series = data?.series || [];
-  const dayList = useMemo(() => series.map((r) => r.day), [data]);
-  const viewSeries = useMemo(() => [{ label: "views", values: series.map((r) => r.views), color: "--chart-1" }], [data]);
-  const socialSeries = useMemo(() => [
+function Overview({ days, setDays }) {
+  const [d, setD] = useState(null);
+  const [box, open] = usePhotoBox();
+  useEffect(() => { setD(null); api("/api/analytics/overview", { params: { days } }).then(setD); }, [days]);
+  const series = d?.series || [];
+  const dayList = useMemo(() => series.map((r) => r.day), [d]);
+  const views = useMemo(() => [{ label: "views", values: series.map((r) => r.views), color: "--chart-1" }], [d]);
+  const social = useMemo(() => [
     { label: "faves", values: series.map((r) => r.faves), color: "--chart-2", bars: true },
-    { label: "comments", values: series.map((r) => r.comments), color: "--chart-3", bars: true }], [data]);
-  const sum = (k) => series.reduce((a, r) => a + (r[k] || 0), 0);
-  const openRows = (rows, index) => setOpen({ photos: rows.map(asPhoto), index });
-
-  return html`
-    <div class="toolbar">
-      <h1 class="title" style="margin:0 12px 0 0">Analytics</h1>
-      ${RANGES.map(([d, label]) => html`<button class=${days === d ? "primary" : ""} onClick=${() => setDays(d)}>${label}</button>`)}
+    { label: "comments", values: series.map((r) => r.comments), color: "--chart-3", bars: true }], [d]);
+  if (!d) return html`<${Range} days=${days} setDays=${setDays} /><div class="boot">Loading…</div>`;
+  const prev = d.previous;
+  const h = d.highlights;
+  return html`<${Range} days=${days} setDays=${setDays} />
+    <div class="kpis">
+      <${Kpi} label="Views" now=${d.period.views} before=${prev?.views} note=${days >= 3650 ? "in the days collected" : `in ${days} days`} />
+      <${Kpi} label="Faves received" now=${d.period.faves} before=${prev?.faves} />
+      <${Kpi} label="Comments received" now=${d.period.comments} before=${prev?.comments} />
+      <${Kpi} label="All-time views" now=${d.totals.views} note=${`on ${num(d.totals.photos)} photos`} />
     </div>
-    ${!data ? html`<div class="boot">Loading…</div>` : html`
-      <div class="kpis">
-        <div class="kpi"><span>Views</span><b>${num(sum("views"))}</b><small> in ${days >= 3650 ? "all days collected" : `${days} days`}</small></div>
-        <div class="kpi"><span>Faves received</span><b>${num(sum("faves"))}</b></div>
-        <div class="kpi"><span>Comments received</span><b>${num(sum("comments"))}</b></div>
-        <div class="kpi"><span>All-time views</span><b>${num(data.totals.views)}</b><small> on ${num(data.totals.photos)} photos</small></div>
-      </div>
-      <div class="cols">
-        <div class="card"><h2>Views per day</h2><${Chart} days=${dayList} series=${viewSeries} /></div>
-        <div class="card"><h2>Faves and comments per day</h2><${Chart} days=${dayList} series=${socialSeries} /></div>
-      </div>
-      <div class="cols">
-        <div class="card"><h2>Most viewed</h2><${TopGrid} rows=${data.top} metric="views" onOpen=${openRows} /></div>
-        <div class="card"><h2>Most faved</h2><${TopGrid} rows=${data.top_faved} metric="favorites" onOpen=${openRows} /></div>
-      </div>
-      <div class="cols">
-        <div class="card"><h2>Gaining views <span class="muted">(last ${Math.min(days, 90)} days vs the ${Math.min(days, 90)} before)</span></h2>
-          ${!gainers?.length ? html`<p class="muted">Not enough days collected yet.</p>`
-            : gainers.map((g, i) => html`<div class="gainer" key=${g.photo_id} onClick=${() => openRows(gainers, i)}>
-                <img alt="" loading="lazy" src=${pick(g.sizes, ["q", "n"])} />
-                <span class="t">${g.title || "Untitled"}</span>
-                <span class="up">+${num(g.gain)}</span></div>`)}
-        </div>
-        <div class="card"><h2>Views by <select value=${by} onChange=${(e) => setBy(e.target.value)} aria-label="Group by">
-            <option value="album">album</option><option value="camera">camera</option>
-            <option value="year">year taken</option><option value="media">photo / video</option></select></h2>
-          <${Bars} rows=${breakdown} /></div>
-      </div>`}
-    ${open && html`<${Lightbox} photos=${open.photos} index=${open.index} onIndex=${(i) => setOpen({ ...open, index: i })}
-        onClose=${() => setOpen(null)} />`}`;
+    <div class="cols">
+      <div class="card"><h2>Views per day</h2><${Chart} days=${dayList} series=${views} /></div>
+      <div class="card"><h2>Faves and comments per day</h2><${Chart} days=${dayList} series=${social} /></div>
+    </div>
+    <h2 class="section">This week's highlights</h2>
+    <div class="cols3">
+      <div class="card"><h2>Gaining fastest</h2>
+        <${TopGrid} rows=${h.gaining} caption=${(r) => `+${num(r.gain)} views`} onOpen=${open} empty="Not enough days collected yet." /></div>
+      <div class="card"><h2>New faves</h2>${h.faves.map((f, i) => html`<div class="feed" key=${i} onClick=${() => open(h.faves, i)}>
+          <img alt="" loading="lazy" src=${f.sizes.q || ""} /><span><b>${f.who}</b> faved <i>${f.title || "Untitled"}</i>
+          <span class="muted"> · ${ago(f.at)}</span></span></div>`)}</div>
+      <div class="card"><h2>New comments</h2>${h.comments.map((c, i) => html`<div class="feed" key=${i} onClick=${() => open(h.comments, i)}>
+          <img alt="" loading="lazy" src=${c.sizes.q || ""} /><span><b>${c.who}</b> on <i>${c.title || "Untitled"}</i>
+          <span class="muted"> · ${ago(c.at)}</span><br /><span class="quote">${plain(c.text).slice(0, 140)}</span></span></div>`)}</div>
+    </div>
+    <p class="muted small">Per-day numbers cover the ${num(d.days_collected)} days collected so far; they grow by one each day.</p>
+    ${box}`;
 }
+
+const LISTS = [
+  ["views", "Most viewed", "Views in the period (all-time totals for All)."],
+  ["faves", "Most faved", "Faves in the period."],
+  ["comments", "Most commented", "Comments in the period."],
+  ["gaining", "Gaining", "Views in the last period against the period before it (up to 90 days)."],
+  ["sleepers", "Sleepers", "Photos over a year old getting far more views lately than their lifetime average (last 30 days)."],
+  ["engagement", "Best engagement", "Faves per 1,000 views, all time, among photos with 100+ views."],
+  ["overlooked", "Overlooked", "Well liked (top quarter for faves per view) but seen less than most, and in no group: worth sharing to groups."],
+];
+
+function Photos({ days, setDays }) {
+  const [kind, setKind] = useState("views");
+  const [rows, setRows] = useState(null);
+  const [box, open] = usePhotoBox();
+  useEffect(() => { setRows(null); api("/api/analytics/photos", { params: { kind, days, limit: 36 } }).then(setRows); }, [kind, days]);
+  const about = LISTS.find((l) => l[0] === kind);
+  const usesRange = ["views", "faves", "comments", "gaining"].includes(kind);
+  const caption = (r) => kind === "sleepers" ? `${r.value}× usual · ${num(r.recent)} views`
+    : ["engagement", "overlooked"].includes(kind) ? `${r.value} faves / 1k views · ${num(r.views)} views`
+    : kind === "gaining" ? `+${num(r.value)} views` : `${num(r.value)} ${kind}`;
+  return html`<div class="toolbar">
+      <span class="seg">${LISTS.map(([k, label]) => html`<button class=${kind === k ? "primary" : ""} onClick=${() => setKind(k)}>${label}</button>`)}</span>
+      ${usesRange && html`<${Range} days=${days} setDays=${setDays} />`}
+    </div>
+    <p class="muted">${about[2]}</p>
+    ${!rows ? html`<div class="boot">Loading…</div>` : html`<div class="card"><${TopGrid} rows=${rows} caption=${caption} onOpen=${open} /></div>`}
+    ${box}`;
+}
+
+export function Analytics({ tab = "overview" }) {
+  const [days, setDays] = useState(30);
+  const current = TABS.some(([t]) => t === tab) ? tab : "overview";
+  const page = {
+    overview: html`<${Overview} days=${days} setDays=${setDays} />`, photos: html`<${Photos} days=${days} setDays=${setDays} />`,
+    tags: html`<${TagsTab} />`, places: html`<${PlacesTab} />`, gear: html`<${GearTab} />`, audience: html`<${AudienceTab} />`,
+    groups: html`<${GroupsTab} />`, impact: html`<${ImpactTab} />`,
+  }[current];
+  return html`<div class="analytics">
+    <nav class="subtabs" aria-label="Analytics">${TABS.map(([t, label]) => html`<a href=${"#/analytics/" + t}
+        class=${t === current ? "on" : ""}>${label}</a>`)}</nav>
+    ${page}
+  </div>`;
+}
+
