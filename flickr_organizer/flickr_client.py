@@ -15,6 +15,9 @@ PHOTO_EXTRAS = ("description,tags,geo,media,date_taken,date_upload,last_update,u
                 "views,count_faves,count_comments,license,o_dims")
 
 
+REQUEST_TIMEOUT = 60  # seconds per Flickr API request
+
+
 class FlickrCallError(Exception):
     def __init__(self, method: str, code: int | None, message: str):
         super().__init__(f"{method}: [{code}] {message}")
@@ -42,7 +45,10 @@ class FlickrClient:
         import flickrapi  # lazy so tests don't need it
 
         self._flickrapi = flickrapi
-        self.api = flickrapi.FlickrAPI(api_key, api_secret, format="parsed-json", store_token=True)
+        # flickrapi has no timeout by default, so one connection that goes quiet blocks a
+        # long fetch forever; with one, the retry loop in call() takes over.
+        self.api = flickrapi.FlickrAPI(api_key, api_secret, format="parsed-json", store_token=True,
+                                       timeout=REQUEST_TIMEOUT)
         self._min_interval = 1.0 / calls_per_second if calls_per_second > 0 else 0
         self._last = 0.0
         self._lock = threading.Lock()
