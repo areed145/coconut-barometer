@@ -40,6 +40,15 @@ flickr-organizer user add <name>     # the login (password prompt; 12+ character
 flickr-organizer serve               # http://127.0.0.1:8000
 ```
 
+Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and uPlot, stored in `flickr_organizer/web/static/vendor`), so there's no build step:
+
+- **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
+- **Albums**: covers and counts; open one for its photos.
+- **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
+- **Review**: the reviewer, as in `review`, with the count of photos waiting in the tab.
+- **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
+- The top bar shows when the last sync ran and the next is due, with **Sync now**.
+
 A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (approvals and processing, as in `review`) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
 
 Every API route except login needs a session. It's built to be reachable from the internet (behind HTTPS):

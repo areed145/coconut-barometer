@@ -45,6 +45,13 @@ class GalleryStore(Database):
                                f"LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
         return {"total": total, "offset": offset, "photos": [photo_card(r) for r in rows]}
 
+    def cards(self, photo_ids: list[str]) -> dict[str, dict]:
+        """photo_id -> card (title, counts, image sizes) for a list of photos."""
+        if not photo_ids:
+            return {}
+        marks = ",".join("?" * len(photo_ids))
+        return {r["id"]: photo_card(r) for r in self.db.execute(f"SELECT * FROM photos WHERE id IN ({marks})", photo_ids)}
+
     def album_list(self) -> list[dict]:
         return [{"id": r["id"], "title": r["title"], "description": r["description"], "count": r["count"],
                  "date_update": r["date_update"], "cover_url": r["cover_url"]}

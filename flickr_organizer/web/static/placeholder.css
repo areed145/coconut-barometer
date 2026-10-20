@@ -1,5 +1,0 @@
-:root { --bg: #f6f5f3; --fg: #1c1917; --muted: #78716c; }
-@media (prefers-color-scheme: dark) { :root { --bg: #171513; --fg: #f5f5f4; --muted: #a8a29e; } }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
-main { max-width: 40rem; margin: 15vh auto; padding: 0 16px; }
-p { color: var(--muted); }

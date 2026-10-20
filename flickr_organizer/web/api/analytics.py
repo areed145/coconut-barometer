@@ -11,6 +11,11 @@ from ..deps import session, store
 router = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(session)])
 
 
+def _with_sizes(db, rows: list[dict]) -> list[dict]:
+    cards = db.cards([r["photo_id"] for r in rows])
+    return [{**r, "sizes": (cards.get(r["photo_id"]) or {}).get("sizes", {})} for r in rows]
+
+
 def _since(days: int) -> str:
     return (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=days)).isoformat()
 
@@ -19,13 +24,14 @@ def _since(days: int) -> str:
 def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
     since = _since(days)
     return {"since": since, "totals": db.totals(), "series": db.daily_series(since),
-            "top": db.top_photos(since, limit=12), "top_faved": db.top_photos(since, limit=12, by="favorites")}
+            "top": _with_sizes(db, db.top_photos(since, limit=12)),
+            "top_faved": _with_sizes(db, db.top_photos(since, limit=12, by="favorites"))}
 
 
 @router.get("/gainers")
 def gainers(days: int = Query(7, ge=1, le=365), limit: int = Query(20, ge=1, le=100), db=Depends(store)):
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
-    return db.gainers(days, today, limit)
+    return _with_sizes(db, db.gainers(days, today, limit))
 
 
 @router.get("/breakdown")
