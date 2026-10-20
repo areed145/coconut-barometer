@@ -84,7 +84,10 @@ label.check { display: inline-flex; gap: var(--s1); align-items: center; font-si
 .problem { color: var(--warn); margin: 0; }
 
 /* surfaces */
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); min-width: 0;
+  margin-bottom: var(--s4); }
+/* cards in grids and stacked lists are spaced by the container's gap instead */
+:is(.cols, .cols3, .qlanes, .setup-choices, .panel, .settings, .kpis) > .card { margin-bottom: 0; }
 .card h2, h2.group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 0 0 var(--s3); }
 h1.title { font-size: var(--text-xl); margin: var(--s1) 0 var(--s2); letter-spacing: -.01em; }
 h2.section { font-size: var(--text-base); margin: var(--s5) 0 var(--s3); }
@@ -115,7 +118,6 @@ a.status { cursor: pointer; }
 /* layout pieces */
 .toolbar { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; margin-bottom: var(--s3); }
 .toolbar input[type=search] { flex: 1 1 220px; max-width: 360px; }
-.toolbar + .toolbar { margin-top: calc(-1 * var(--s1)); }
 .spacer { flex: 1; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: var(--s4); margin-bottom: var(--s4); }
 .cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--s4); }
@@ -311,8 +313,10 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .tagpage h2 span { display: inline-flex; gap: var(--s3); align-items: center; font-weight: 400; text-transform: none; letter-spacing: 0; }
 .tagbars { columns: 2 420px; column-gap: 28px; }
 .tagbars .bars { display: block; }
-.tagbars .bar { grid-template-columns: minmax(110px, 28%) minmax(0, 1fr) 7em; gap: var(--s2); break-inside: avoid; margin-bottom: 6px; }
+.tagbars .bar { grid-template-columns: minmax(110px, 28%) minmax(0, 1fr) 4.5em 1em; gap: var(--s2); break-inside: avoid; margin-bottom: 6px; }
 .tagbars .bar .n { text-align: right; }
+.bar .after { font-size: var(--text-2xs); }
+.group-inline { display: inline-flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: center; }
 .impact .kpis.small { grid-template-columns: repeat(2, 1fr); }
 .corners { display: flex; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; margin: var(--s1) 0 0; }
 svg.scatter { width: 100%; height: auto; display: block; }
@@ -449,7 +453,7 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .kpi b { font-size: var(--text-lg); }
   .bars { grid-template-columns: minmax(80px, 38%) minmax(0, 1fr) auto; }
-  .tagbars .bar { grid-template-columns: minmax(90px, 36%) 1fr auto; }
+  .tagbars .bar { grid-template-columns: minmax(90px, 34%) minmax(0, 1fr) 4.5em 1em; }
   .card { padding: var(--s3); }
   .login { margin: 4vh var(--s3); padding: var(--s4); }
   h1.title { font-size: var(--text-lg); }

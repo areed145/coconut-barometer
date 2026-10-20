@@ -64,8 +64,8 @@ export function TagsTab() {
     <div class="toolbar">
       <select value=${source} onChange=${(e) => setSource(e.target.value)} aria-label="Which tags">
         ${SOURCES.map(([k, label]) => html`<option value=${k}>${label}</option>`)}</select>
-      <span class="muted">Hide:</span>
-      ${KINDS.map(([k, label]) => html`<label class="check"><input type="checkbox" checked=${hide.includes(k)} onChange=${() => toggle(k)} /> ${label}</label>`)}
+      <span class="group-inline"><span class="muted">Hide:</span>
+        ${KINDS.map(([k, label]) => html`<label class="check"><input type="checkbox" checked=${hide.includes(k)} onChange=${() => toggle(k)} /> ${label}</label>`)}</span>
       <label class="check">at least <select value=${min} onChange=${(e) => setMin(+e.target.value)} aria-label="Minimum photos">
         ${[1, 3, 5, 10, 25, 100].map((n) => html`<option value=${n}>${n}</option>`)}</select> photos</label>
       <span class="spacer"></span><span class="muted">${data ? `${num(data.total)} tags` : ""}</span>
@@ -74,7 +74,7 @@ export function TagsTab() {
     ${!data ? html`<div class="boot">Loading…</div>` : html`
       <div class="card"><h2>Top 40 by ${m[1].toLowerCase()} <span class="muted">· ${m[2]}</span></h2>
         <div class="tagbars"><${Bars} rows=${ranked} value=${metric} onPick=${(r) => pick(r.tag)}
-          right=${(t) => html`${fmt(t)}<span class=${t.trend > 0.15 ? "up" : t.trend < -0.15 ? "down" : ""}>${arrow(t)}</span>`}
+          right=${fmt} after=${(t) => html`<span class=${t.trend > 0.15 ? "up" : t.trend < -0.15 ? "down" : ""}>${arrow(t).trim()}</span>`}
           title=${(t) => `${t.tag}: ${m[3](t)} · ${num(t.photos)} photos${t.trend != null ? ` · ${pct(t.trend)} views in 14 days` : ""}`} /></div>
         <p class="muted small">Bar colour follows Settings → Colours. ▲ ▼: views rising or falling over the last 14 days against the 14 before
           (of the ${num(data.days_collected)} days collected). Click a tag for its page.</p>

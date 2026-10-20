@@ -28,7 +28,8 @@ export function TopGrid({ rows, caption, onOpen, empty = "Nothing here yet." }) 
 // rows: [{label, ...}], value: the key bars are sized by; right: text shown at the end.
 // Length is linear; colour runs along the gradient from the smallest bar to the largest, on a
 // log scale like the map's clusters, so the differences show even when all the values are big.
-export function Bars({ rows, value = "views", right, title, onPick, empty = "No data yet.", sorted = false }) {
+// after(r): an optional extra column at the very end (e.g. a trend mark).
+export function Bars({ rows, value = "views", right, after, title, onPick, empty = "No data yet.", sorted = false }) {
   if (!rows?.length) return html`<p class="muted">${empty}</p>`;
   const list = sorted ? [...rows].sort((a, b) => (b[value] || 0) - (a[value] || 0)) : rows;
   const max = Math.max(...list.map((r) => r[value] || 0), 1e-9);
@@ -39,7 +40,7 @@ export function Bars({ rows, value = "views", right, title, onPick, empty = "No 
         title=${title ? title(r) : ""} onClick=${onPick ? () => onPick(r) : undefined}>
       <span class="label">${r.label}</span>
       <span class="track"><span class="fill" style=${`width:${(100 * v) / max}%;background:${shade(logShare(v, max, min))}`}></span></span>
-      <span class="n">${right ? right(r) : num(r[value])}</span></div>`;
+      <span class="n">${right ? right(r) : num(r[value])}</span>${after && html`<span class="after">${after(r)}</span>`}</div>`;
   })}</div>`;
 }
 
