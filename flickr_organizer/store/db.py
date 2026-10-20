@@ -134,14 +134,23 @@ SCHEMA_VERSION = len(MIGRATIONS)
 class Database:
     """The connection plus meta key/values. The other store classes build on this."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, migrate: bool = True, any_thread: bool = False):
+        """any_thread: allow this connection to be used from a thread other than the one
+        that opened it. Only for a connection used by one caller at a time (the web app's
+        one-per-request connection: FastAPI runs a request's dependencies and handler on
+        different pool threads, one after another). migrate=False skips the upgrade check
+        (the web app runs it once at startup)."""
         self.path = path
         # The review tool's background worker opens its own connection to the same file;
         # WAL lets the page keep reading while it writes, and the timeout waits out locks.
-        self.db = sqlite3.connect(path, timeout=30)
+        self.db = sqlite3.connect(path, timeout=30, check_same_thread=not any_thread)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
-        self.migrate()
+        if migrate:
+            self.migrate()
+
+    def close(self) -> None:
+        self.db.close()
 
     def migrate(self) -> None:
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")

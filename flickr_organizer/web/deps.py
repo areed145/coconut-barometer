@@ -12,8 +12,15 @@ def runtime(request: Request) -> Runtime:
     return request.app.state.runtime
 
 
-def store(rt: Runtime = Depends(runtime)) -> Store:
-    return rt.store()
+def store(rt: Runtime = Depends(runtime)):
+    """One connection per request, closed when it ends. FastAPI runs a request's
+    dependencies and its handler on different pool threads (one after another, never at
+    once), so the connection may move between threads but is never shared by two requests."""
+    db = Store(rt.db_path, migrate=False, any_thread=True)
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def session(request: Request, db: Store = Depends(store)) -> dict:
