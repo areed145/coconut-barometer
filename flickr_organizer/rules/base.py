@@ -58,10 +58,7 @@ class Context:
 
     @cached_property
     def fingerprint(self) -> str | None:
-        vcfg = self.cfg["vision"]
-        if vcfg["enabled"] and self.provider_key and vcfg["categories"]:
-            return fingerprint(vcfg, self.provider_key)
-        return None
+        return fingerprint(self.cfg["vision"], self.provider_key) if self.provider_key else None
 
     def vision(self, photo_id: str) -> dict | None:
         """The cached vision result for the current settings, if there is one."""

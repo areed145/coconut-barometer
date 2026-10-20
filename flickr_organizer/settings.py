@@ -196,7 +196,8 @@ def save(cfg_path, file_raw: dict, store, changes: dict[str, object], removed: l
             errors.append(f"{path}: API keys are set separately")
     if errors:
         raise SettingsError(errors)
-    current = store.admin_settings()
+    stored = store.admin_settings()
+    current = {p: v for p, v in stored.items() if p in known}    # retired settings: dropped below
     proposed = {**current, **changes}
     for path in removed:
         proposed.pop(path, None)
@@ -214,7 +215,7 @@ def save(cfg_path, file_raw: dict, store, changes: dict[str, object], removed: l
     log = [(p, json.dumps(effective(current, p))[:500], json.dumps(effective(proposed, p))[:500])
            for p in sorted(set(current) | set(proposed)) if effective(current, p) != effective(proposed, p)]
     store.save_admin_settings({p: v for p, v in proposed.items() if current.get(p) != v},
-                              [p for p in current if p not in proposed], username, log)
+                              [p for p in stored if p not in proposed], username, log)
     return {"changed": [p for p, _, _ in log]}
 
 
@@ -235,7 +236,11 @@ def _kind(path: str, default) -> dict:
     if path in SECRETS:
         return {"kind": "secret"}
     if tpath in CHOICES:
-        return {"kind": "choice", "options": list(CHOICES[tpath])}
+        from .settings_meta import META
+
+        labels = META.get(path, {}).get("options", {})
+        return {"kind": "choice", "options": list(CHOICES[tpath]),
+                "option_labels": {o: labels.get(o, o) for o in CHOICES[tpath]}}
     if path == "vision.categories":
         return {"kind": "categories"}
     if tpath in FREE_MAPS:
@@ -262,11 +267,13 @@ def describe(cfg: dict, sources: dict[str, str], store) -> list[dict]:
     secret_rows = store.secret_rows() if store is not None else {}
     env = env_paths()
     out = []
-    for path in leaves():
+    order = {p: i for i, p in enumerate(META)}
+    for path in sorted(leaves(), key=lambda p: order.get(p, len(order))):   # the page's order
         default = get_path(DEFAULTS, path)
         meta = META.get(path, {})
         item = {"path": path, "section": meta.get("section") or path.split(".")[0], "label": meta.get("label", path),
-                "help": meta.get("help", ""), **_kind(path, default), "source": sources.get(path, "default"),
+                "help": meta.get("help", ""), "group": meta.get("group", ""), **_kind(path, default),
+                "source": sources.get(path, "default"),
                 "locked": LOCKED.get(path) or (f"set by the environment ({env[path]})" if path in env else None)}
         if path in SECRETS:
             value = get_path(cfg, path)

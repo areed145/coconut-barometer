@@ -44,7 +44,7 @@ The encryption key lives at `/var/data/secret.key` on the disk. It's made when y
 - `FLICKR_ORGANIZER_ALLOWED_HOSTS`: a custom domain (see below). The `onrender.com` name is allowed automatically.
 - `FLICKR_ORGANIZER_SECRET_KEY`, `FLICKR_API_KEY`, `FLICKR_API_SECRET`, `ANTHROPIC_API_KEY`: these win over the disk and the Settings page, and show as locked there. If an earlier Blueprint set `FLICKR_ORGANIZER_SECRET_KEY`, delete it, or a restored backup's API keys can't be read.
 
-The scheduler then keeps itself up to date: an incremental sync every hour (~4 calls), every photo re-read daily, a full sync weekly, per-day stats with backfill, and a backup every 24 h. A fresh start's first sync is a full one (~180 calls, a few minutes). Queue photos for review with **Review → Not processed → Process now**, or set **Settings → Web app → Queue new photos after each sync**.
+The scheduler then keeps itself up to date: an incremental sync every hour (~4 calls), every photo re-read daily, a full sync weekly, per-day stats with backfill, and a backup every 24 h. A fresh start's first sync is a full one (~180 calls, a few minutes). Photos uploaded after that land under **Review → To review** after each sync: processed when you open each one, or straight away with **Settings → Sync → New photos**. Older photos are under **Review → Not processed**.
 
 ## Custom domain
 

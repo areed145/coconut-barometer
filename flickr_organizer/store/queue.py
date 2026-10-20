@@ -27,6 +27,19 @@ class QueueStore(Database):
             "SELECT p.id FROM photos p WHERE p.id NOT IN (SELECT photo_id FROM queue) "
             f"ORDER BY {self.SORTS.get(sort, self.SORTS['newest'])}")]
 
+    def latest_upload(self) -> int | None:
+        return self.db.execute("SELECT MAX(date_upload) FROM photos").fetchone()[0]
+
+    def queue_new_photos(self, uploaded_after: int) -> list[str]:
+        """Photos uploaded after that time and not in the queue yet go in as "new" (To review,
+        processed when opened). Returns their ids, newest first."""
+        ids = [r[0] for r in self.db.execute(
+            "SELECT id FROM photos WHERE date_upload > ? AND id NOT IN (SELECT photo_id FROM queue) "
+            "ORDER BY date_upload DESC", (uploaded_after,))]
+        for pid in ids:
+            self.queue_put(pid, "new", [])
+        return ids
+
     def queue_item(self, photo_id: str) -> dict | None:
         r = self.db.execute("SELECT * FROM queue WHERE photo_id=?", (photo_id,)).fetchone()
         if not r:

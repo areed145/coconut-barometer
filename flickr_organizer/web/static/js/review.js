@@ -2,6 +2,7 @@
 // processing run in the server's background worker; this page polls for outcomes.
 import { html, useState, useEffect, useRef, api, num, day, plain, toast } from "./lib.js";
 
+// "To review" also holds new photos, processed when you reach them ("new").
 const LABELS = { pending: "To review", applying: "Applying", failed: "Failed", applied: "Applied", rejected: "Rejected",
                  none: "Nothing to change", unprocessed: "Not processed" };
 
@@ -33,7 +34,7 @@ function Change({ c, ch, i, editable, out, onChange }) {
       <input type="text" value=${ch.value} disabled=${!editable} onInput=${(e) => set({ value: e.target.value })} /></div></div>`;
   if (c.action === "set_description")
     return html`<div class="row">${box}<div class="what">Description${status}
-      ${c.old && html`<div class="replaces">re-worded; replaces: ${plain(c.old)}</div>`}
+      ${c.old && html`<div class="replaces">replaces: ${plain(c.old)}</div>`}
       <textarea value=${ch.value} disabled=${!editable} onInput=${(e) => set({ value: e.target.value })}></textarea></div></div>`;
   return html`<div class="row"><div class="what">${c.action}: ${String(c.new)}</div></div>`;
 }
@@ -73,15 +74,20 @@ export function Reviewer({ onCount }) {
   const seq = useRef(0);
   const current = useRef(null);
 
-  const loadSummary = () => api("/api/review/summary").then((s) => { setSummary(s); onCount?.(s.pending); });
-  const loadItem = async (id) => {
+  const loadSummary = () => api("/api/review/summary").then((s) => { setSummary(s); onCount?.(s.to_review); });
+  const processIfNew = (id) => api(`/api/review/items/${id}/process`, { method: "POST", params: { if_new: true } }).catch(() => {});
+  const loadItem = async (id, list = ids, at = idx) => {
     if (!id) { setItem(null); current.current = null; return; }
-    const it = await api(`/api/review/items/${id}`);
-    setItem(it); setChoices(initialChoices(it)); current.current = it.photo_id;
+    current.current = id;
+    let it = await api(`/api/review/items/${id}`);
+    if (it.status === "new") { await processIfNew(id); it = { ...it, status: "processing" }; }
+    if (current.current !== id) return;           // moved on meanwhile
+    setItem(it); setChoices(initialChoices(it));
+    for (const next of list.slice(at + 1, at + 3)) processIfNew(next);   // get the next ones ready
   };
   useEffect(() => { loadSummary(); }, []);
   useEffect(() => {
-    api("/api/review/queue", { params: { status, sort } }).then((list) => { setIds(list); setIdx(0); loadItem(list[0]); });
+    api("/api/review/queue", { params: { status, sort } }).then((list) => { setIds(list); setIdx(0); loadItem(list[0], list, 0); });
   }, [status, sort]);
 
   // Background work: outcomes of approvals and processing.
@@ -93,7 +99,7 @@ export function Reviewer({ onCount }) {
         for (const f of j.finished) {
           if (f.kind === "sync") continue;
           if (f.status === "failed") toast(`⚠ ${f.title}: ${f.error || f.failed + " change(s) failed"}`);
-          else if (f.kind === "process") toast(`Processed ${f.title}: ${f.status === "pending" ? "changes ready" : "nothing to change"}`);
+          else if (f.kind === "process" && f.photo_id === current.current) toast(`Processed ${f.title}: ${f.status === "pending" ? "changes ready" : "nothing to change"}`);
           if (f.photo_id === current.current) loadItem(f.photo_id);
         }
         if (j.finished.length) loadSummary();
@@ -102,10 +108,10 @@ export function Reviewer({ onCount }) {
     poll(); const t = setInterval(poll, 1500); return () => clearInterval(t);
   }, []);
 
-  const move = (d) => { if (!ids.length) return; const n = (idx + d + ids.length) % ids.length; setIdx(n); loadItem(ids[n]); };
+  const move = (d) => { if (!ids.length) return; const n = (idx + d + ids.length) % ids.length; setIdx(n); loadItem(ids[n], ids, n); };
   const removeCurrent = () => {
     const rest = ids.filter((_, i) => i !== idx); const n = Math.min(idx, Math.max(0, rest.length - 1));
-    setIds(rest); setIdx(n); loadItem(rest[n]);
+    setIds(rest); setIdx(n); loadItem(rest[n], rest, n);
   };
   const decide = async (approve) => {
     if (!item || busy) return; setBusy(true);
@@ -156,7 +162,7 @@ export function Reviewer({ onCount }) {
   return html`
     <div class="toolbar">
       <select value=${status} onChange=${(e) => setStatus(e.target.value)} aria-label="Show">
-        ${Object.entries(LABELS).map(([k, label]) => html`<option value=${k}>${label}${summary ? ` (${num(summary[k])})` : ""}</option>`)}
+        ${Object.entries(LABELS).map(([k, label]) => html`<option value=${k}>${label}${summary ? ` (${num(k === "pending" ? summary.to_review : summary[k])})` : ""}</option>`)}
       </select>
       <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Sort">
         <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
@@ -179,6 +185,7 @@ export function Reviewer({ onCount }) {
           ${item.changes.map((c, i) => html`<${Change} key=${i} c=${c} ch=${choices[i]} i=${i} editable=${editable}
               out=${item.result?.changes?.[i]} onChange=${(k, v) => setChoices(choices.map((x, j) => (j === k ? v : x)))} />`)}
           ${item.status === "unprocessed" && html`<p class="why">Not processed yet. Process it to fetch EXIF, classify and plan its changes.</p>`}
+          ${item.status === "new" && html`<p class="why">New from the last sync; processing it now…</p>`}
           ${item.status === "processing" && html`<p class="why"><span class="spin">⟳</span> Processing in the background…</p>`}
           ${!item.changes.length && !["unprocessed", "processing"].includes(item.status) && html`<p class="why">Nothing to change.</p>`}
         </div>
@@ -186,7 +193,7 @@ export function Reviewer({ onCount }) {
           ${editable && html`<button class="primary" onClick=${() => decide(true)} disabled=${busy}>Approve selected</button>
             <button class="danger" onClick=${() => decide(false)} disabled=${busy}>Reject all</button>`}
           <button onClick=${() => move(1)}>${editable ? "Skip" : "Next"}</button>
-          ${!busyNow && html`<button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>`}
+          ${!busyNow && item.status !== "new" && html`<button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>`}
         </div>
         <div class="card"><h2>On Flickr now</h2><dl class="kv">
           <dt>Title</dt><dd>${p.title || html`<span class="muted">(blank)</span>`}</dd>

@@ -59,7 +59,7 @@ function Shell({ session, onLogout }) {
   const route = useRoute();
   const [pending, setPending] = useState(null);
   useEffect(() => {
-    const load = () => api("/api/review/summary").then((s) => setPending(s.pending)).catch(() => {});
+    const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
     load(); const t = setInterval(load, 30000); return () => clearInterval(t);
   }, []);
   const tab = route[0];

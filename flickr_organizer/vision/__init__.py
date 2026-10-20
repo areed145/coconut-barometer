@@ -31,7 +31,7 @@ def make_provider(vcfg: dict) -> VisionProvider:
         kwargs["api_key"] = kwargs["api_key"] or "ollama"
     else:
         if not kwargs["api_key"]:
-            raise SystemExit(f"Missing vision.api_key in config.yaml (required for provider '{name}').")
+            raise SystemExit(f"Missing the vision API key (vision.api_key), needed for provider '{name}'.")
         if vcfg["base_url"]:
             kwargs["base_url"] = vcfg["base_url"]
     return PROVIDERS[name](**kwargs)

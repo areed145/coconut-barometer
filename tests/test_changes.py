@@ -40,20 +40,11 @@ class SettledTest(unittest.TestCase):
         self.assertFalse(s.album("1", "C"))
         self.assertTrue(s.title("1", "Proposed"))
 
-    def test_blank_description_gets_one_proposal_ever(self):
+    def test_descriptions_are_settled_per_proposal(self):
         self.store.record("1", "set_description", "Some text", "rejected")
-        self.assertTrue(Settled(self.store).blank_description("1"))
-        self.assertFalse(Settled(self.store).blank_description("2"))
-
-    def test_rewording_needs_our_text_unedited_and_a_newer_proposal(self):
-        self.store.record("1", "set_description", "Old words.", "applied")
-        at = self.store.applied("set_description")["1"][1]
-        s = Settled(self.store)
-        self.assertTrue(s.may_reword("1", "Old words.", "New words.", at + 1))
-        self.assertFalse(s.may_reword("1", "My own words.", "New words.", at + 1))   # you edited it
-        self.assertFalse(s.may_reword("1", "Old words.", "New words.", at))          # not newer
-        self.assertFalse(s.may_reword("1", "Old words.", "Old words.", at + 1))      # same text
-
+        self.assertTrue(Settled(self.store).description("1", "Some text"))
+        self.assertFalse(Settled(self.store).description("1", "Other text"))   # a new brief's text: proposed
+        self.assertFalse(Settled(self.store).description("2", "Some text"))
 
 if __name__ == "__main__":
     unittest.main()

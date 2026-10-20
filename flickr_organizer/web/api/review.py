@@ -58,9 +58,9 @@ def decide(photo_id: str, body: Decision, rt=Depends(runtime)):
 
 
 @router.post("/items/{photo_id}/process")
-def process(photo_id: str, rt=Depends(runtime)):
+def process(photo_id: str, if_new: bool = False, rt=Depends(runtime)):
     try:
-        return rt.review.process(photo_id)
+        return rt.review.process(photo_id, if_new=if_new)
     except KeyError:
         raise HTTPException(404, "not in your library")
 

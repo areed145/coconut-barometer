@@ -14,14 +14,15 @@ from .sync import refresh_photo
 
 def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = None, limit: int | None = None,
             rebuild: bool = False, refresh_each: bool = False, log=print, geocoder=None, downloader=None,
-            include_videos: bool | None = None, media: str | None = None) -> dict:
-    """include_videos: classify videos (from their preview frame) regardless of vision.include_videos.
-    media: only "photo" or only "video"."""
-    vcfg = cfg["vision"] if include_videos is None else {**cfg["vision"], "include_videos": include_videos}
-    use_vision = provider is not None and vcfg["enabled"] and bool(vcfg["categories"])
+            media: str | None = None) -> dict:
+    """media: only "photo" or only "video" (videos are classified from their preview frame).
+    Without a vision provider, only the proposals that don't need it are made."""
+    vcfg = cfg["vision"]
+    use_vision = provider is not None
     fp = fingerprint(vcfg, provider.key) if use_vision else None
     # Never touch a photo the review tool is applying right now; otherwise skip queued ones unless rebuilding.
-    skip = set(store.queue_ids(["applying"])) | (set() if rebuild else set(store.queue_ids()))
+    # ("new" photos are queued only to be processed: always fair game.)
+    skip = set(store.queue_ids(["applying"])) | (set() if rebuild else set(store.queue_ids()) - set(store.queue_ids(["new"])))
     todo = [p["id"] for p in store.photos() if p["id"] not in skip and (not photo_ids or p["id"] in photo_ids)
             and (not media or p["media"] == media)]
     todo = todo[:limit] if limit else todo

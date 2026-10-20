@@ -9,13 +9,9 @@ isn't proposed again. Failed changes never count: they're proposed again next ti
   add_to_album      settled per (photo, album) once applied or rejected
   add_tags          settled per (photo, tag) once applied or rejected; dropping a tag
                     in review rejects just that tag
-  set_title         settled per (photo, proposed title) - a different proposal (after you
-                    change the title brief) can still come; the planner only proposes
-                    while the current title is replaceable, so an applied title ends it
-  set_description   blank descriptions: one proposal per photo, ever (applied or rejected)
-                    re-wording (describe.reword): a description this tool wrote and you
-                    haven't edited gets one new proposal per brief change - its new text
-                    must be newer than when the old one was applied
+  set_title         settled per (photo, proposed title): a different proposal (after you
+                    change the title brief) can still come
+  set_description   settled per (photo, proposed text), the same way
 
 Statuses in the decisions table: applied (written to Flickr, recorded against the text
 written), rejected, failed, and edited - the proposal you changed before approving it
@@ -92,8 +88,6 @@ class Settled:
     def __init__(self, store):
         self.store = store
         self.done = {k: s for k, s in store.decisions().items() if s in SETTLED}
-        self.described = {pid for (pid, action, _) in self.done if action == "set_description"}
-        self._written: dict[str, tuple[str, int]] | None = None
 
     def album(self, photo_id: str, title: str) -> bool:
         return (photo_id, "add_to_album", title) in self.done
@@ -104,13 +98,5 @@ class Settled:
     def title(self, photo_id: str, title: str) -> bool:
         return (photo_id, "set_title", title) in self.done
 
-    def blank_description(self, photo_id: str) -> bool:
-        return photo_id in self.described
-
-    def may_reword(self, photo_id: str, current: str, proposal: str, written_at_least: int) -> bool:
-        """A description this tool wrote, still as written, re-worded by a newer proposal."""
-        if self._written is None:
-            self._written = self.store.applied("set_description")
-        ours = self._written.get(photo_id)
-        return bool(ours and same_text(ours[0], current) and not same_text(proposal, current)
-                    and written_at_least > ours[1] and (photo_id, "set_description", proposal) not in self.done)
+    def description(self, photo_id: str, text: str) -> bool:
+        return (photo_id, "set_description", text) in self.done

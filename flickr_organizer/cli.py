@@ -255,7 +255,7 @@ def cmd_serve(cfg, store, args):
         if not web["secure_cookies"]:
             sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
     vcfg = cfg["vision"]
-    provider = (lambda: _provider(cfg)) if vcfg["enabled"] and vcfg["categories"] else None
+    provider = lambda: _provider(cfg)   # made on first use, from the settings at the time
     client = _new_client(cfg)
     if client is None:
         print("! No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
@@ -348,8 +348,6 @@ def cmd_classify(cfg, store, args):
     from .classify import classify_photos, fingerprint, pending_photos
 
     vcfg = cfg["vision"]
-    if not vcfg["categories"]:
-        sys.exit("No vision.categories configured.")
     provider = _provider(cfg)
     fp = fingerprint(vcfg, provider.key)
     todo = pending_photos(store, vcfg, fp, limit=args.limit, photo_ids=args.photo)
@@ -377,9 +375,7 @@ def cmd_plan(cfg, store, args):
 
     if not store.get_meta("last_sync"):
         sys.exit("No local data yet — run `sync` first.")
-    provider_key = None
-    if cfg["vision"]["enabled"] and cfg["vision"]["categories"]:
-        provider_key = f"{_provider_name(cfg)}:{cfg['vision']['model']}"
+    provider_key = f"{_provider_name(cfg)}:{cfg['vision']['model']}"
     changes = build_plan(cfg, store, provider_key, photo_ids=set(args.photo) if args.photo else None)
     if not changes:
         print("Nothing to propose — the library already matches the rules.")
@@ -411,9 +407,9 @@ def cmd_process(cfg, store, args):
     client = _client(cfg)
     if not args.no_sync:
         _quick_sync(cfg, store, client)
-    vcfg = cfg["vision"]
-    provider = _provider(cfg) if vcfg["enabled"] and vcfg["categories"] else None
-    skip = set(store.queue_ids(["applying"])) | (set() if args.rebuild else set(store.queue_ids()))
+    provider = _provider(cfg)
+    skip = set(store.queue_ids(["applying"])) | (
+        set() if args.rebuild else set(store.queue_ids()) - set(store.queue_ids(["new"])))
     todo = [p["id"] for p in store.photos() if p["id"] not in skip and (not args.photo or p["id"] in args.photo)
             and (not args.media or p["media"] == args.media)]
     todo = todo[:args.limit] if args.limit else todo
@@ -424,7 +420,7 @@ def cmd_process(cfg, store, args):
     calls = exif_calls + (2 * len(todo) if args.refresh_each else 0)
     minutes = calls / cfg["flickr"]["calls_per_second"] / 60
     print(f"{len(todo)} photo(s) to process: ~{calls} Flickr call(s) (~{minutes:.0f} min)"
-          + (f", vision on up to {len(todo)} (~${len(todo) * 0.0006:.2f} on Haiku 5.5)" if provider else "")
+          + f", vision on up to {len(todo)} (~${len(todo) * 0.0006:.2f} on Haiku 5.5)"
           + ". Safe to stop and resume.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return

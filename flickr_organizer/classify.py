@@ -74,21 +74,14 @@ def build_schema(vcfg: dict) -> dict:
         },
         "caption": {"type": "string"},
     }
-    required = ["scores", "caption"]
-    if vcfg["extra_tags"]["enabled"]:
-        props["tags"] = {"type": "array", "items": {"type": "string"}, "maxItems": vcfg["extra_tags"]["max"]}
-        required.append("tags")
-    if vcfg["describe"]["enabled"]:
-        props["description"] = {"type": "string"}
-        required.append("description")
-    if vcfg["title"]["enabled"]:
-        props["title"] = {"type": "string"}
-        required.append("title")
-    return {"type": "object", "properties": props, "required": required}
+    props["tags"] = {"type": "array", "items": {"type": "string"}, "maxItems": vcfg["extra_tags"]["max"]}
+    props["description"] = {"type": "string"}
+    props["title"] = {"type": "string"}
+    return {"type": "object", "properties": props, "required": ["scores", "caption", "tags", "description", "title"]}
 
 
 def build_prompt(vcfg: dict, photo, location: str = "") -> str:
-    extra = EXTRA_TAGS.format(max=vcfg["extra_tags"]["max"]) if vcfg["extra_tags"]["enabled"] else ""
+    extra = EXTRA_TAGS.format(max=vcfg["extra_tags"]["max"])
     context = ""
     if vcfg["use_photo_text"]:
         bits = []
@@ -111,16 +104,20 @@ def build_prompt(vcfg: dict, photo, location: str = "") -> str:
 
 
 def _brief(cfg: dict, default: str, rules: str) -> str:
-    if not cfg["enabled"]:
-        return ""
     text = (cfg["instructions"] or default).strip().format(max_words=cfg["max_words"])
     return f"\n{text}\n{rules}\n"
 
 
+# Switches that are gone, at the values every result so far was made with: kept in the
+# fingerprints so those results stay valid (otherwise every photo would be classified again).
+_LEGACY = {"describe": {"enabled": True, "reword": True}, "title": {"enabled": True, "replace": "generic_or_place"},
+           "extra_tags": {"enabled": True}}
+
+
 def text_fingerprint(vcfg: dict) -> str:
     """The description/title briefs. Kept out of fingerprint() so editing them re-runs
-    only the model call, and turning them off keeps every cached result."""
-    blob = json.dumps({k: vcfg[k] for k in ("describe", "title") if vcfg[k].get("enabled")}, sort_keys=True)
+    only the model call."""
+    blob = json.dumps({k: {**vcfg[k], **_LEGACY[k]} for k in ("describe", "title")}, sort_keys=True)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
 
@@ -130,7 +127,7 @@ def fingerprint(vcfg: dict, provider_key: str) -> str:
         "v": PROMPT_VERSION,
         "provider": provider_key,
         "cats": {k: v["description"] for k, v in sorted(vcfg["categories"].items())},
-        "tags": vcfg["extra_tags"],
+        "tags": {**vcfg["extra_tags"], **_LEGACY["extra_tags"]},
         "thumb": vcfg["thumbnail"],
         "location": vcfg["use_location"],
     }, sort_keys=True)
@@ -139,17 +136,14 @@ def fingerprint(vcfg: dict, provider_key: str) -> str:
 
 def pending_photos(store, vcfg: dict, fp: str, limit: int | None = None, photo_ids: list[str] | None = None):
     done = store.classified_ids(fp)
-    if vcfg["describe"]["enabled"] or vcfg["title"]["enabled"]:
-        # Results written under different (or no) description/title briefs: classify again.
-        tfp = text_fingerprint(vcfg)
-        done = {pid for pid in done if (store.classification(pid, fp) or {}).get("text_fp") == tfp}
+    # Results written under different description/title briefs: classify again.
+    tfp = text_fingerprint(vcfg)
+    done = {pid for pid in done if (store.classification(pid, fp) or {}).get("text_fp") == tfp}
     out = []
     for p in store.photos():
         if photo_ids and p["id"] not in photo_ids:
             continue
-        if p["id"] in done or not p["thumb_url"]:
-            continue
-        if p["media"] == "video" and not vcfg["include_videos"]:
+        if p["id"] in done or not p["thumb_url"]:   # videos too, from their preview frame
             continue
         out.append(p)
         if limit and len(out) >= limit:

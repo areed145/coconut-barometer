@@ -145,5 +145,53 @@ class QueueReviewTest(unittest.TestCase):
         self.assertIn("1", self.fl.sets["102"]["photos"])
 
 
+class NewPhotosTest(unittest.TestCase):
+    """After a sync, photos uploaded since go under To review: processed now, or when opened."""
+
+    def setUp(self):
+        self.cfg = from_dict(CFG)
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.fl = FakeFlickr()
+        self.app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: FakeVision("m1"),
+                             process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        self.app._sync(self.store, "full")              # the first sync: the whole library
+
+    def upload(self, pid, at):
+        self.fl.photos.append({**photo(pid, title="IMG_9"), "dateupload": str(at)})
+        return self.app._sync(self.store, "full")
+
+    def test_the_first_sync_queues_nothing(self):
+        self.assertEqual(self.store.queue_counts(), {})
+        self.assertEqual(self.app.summary()["unprocessed"], 5)          # the backlog stays under Not processed
+
+    def test_queue_mode_processes_each_when_opened(self):
+        self.assertEqual(self.upload("9", 1700000500)["new_photos"], 1)
+        self.assertEqual(self.store.queue_item("9")["status"], "new")
+        self.assertEqual(self.app.summary()["to_review"], 1)
+        self.assertEqual(self.app.queue("pending"), ["9"])
+        self.assertEqual(self.app.process("1", if_new=True), {"status": "unprocessed"})   # not new: left alone
+        self.assertEqual(self.app.process("9", if_new=True)["status"], "pending")
+        actions = {c["action"] for c in self.store.queue_item("9")["changes"]}
+        self.assertTrue({"set_title", "set_description"} <= actions)
+        self.assertEqual(self.upload("10", 1700000400)["new_photos"], 0)  # older than the last new one
+
+    def test_process_mode_processes_them_after_the_sync(self):
+        self.cfg["schedule"]["new_photos"] = "process"
+        self.upload("9", 1700000500)
+        self.assertEqual(self.store.queue_item("9")["status"], "pending")
+        self.assertEqual(self.app.queue("pending"), ["9"])
+
+    def test_without_a_vision_key_they_wait(self):
+        self.cfg["schedule"]["new_photos"] = "process"
+
+        def no_key():
+            raise SystemExit("Missing the vision API key (vision.api_key), needed for provider 'claude'.")
+        self.app._provider_factory = no_key
+        self.upload("9", 1700000500)
+        self.assertEqual(self.store.queue_item("9")["status"], "new")
+        with self.assertRaises(RuntimeError):                            # not SystemExit: the worker survives
+            self.app._process(self.store, "9")
+
+
 if __name__ == "__main__":
     unittest.main()

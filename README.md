@@ -3,12 +3,10 @@
 Adds your Flickr photos to the right albums and tags, using:
 
 - **Geotags**: country albums, US state albums, and a few city albums (matched by distance from the city center)
-- **A vision LLM**: subject albums like Food, Landscapes, Animals, plus optional descriptive tags. Claude is the default; OpenAI or a local Ollama model also work.
+- **A vision LLM**: subject albums like Food, Landscapes, Animals, descriptive tags, a title and a description. Claude is the default; OpenAI or a local Ollama model also work.
+- **Your conventions**: standard tags (dates, places, camera, your name…) and camera albums.
 
-- **Renames (optional, off by default)**: photos that still have a camera-default or blank title (`IMG_1234`, `DSC01234.JPG`, `PXL_2024…`, `20240101_123456`, "Untitled") get retitled with their location, e.g. "Houston, TX" or "Luanda, Angola". Turn it on with `rename.enabled: true`.
-- **Descriptions (optional, off by default)**: photos with a blank description get a 1–2 sentence one written by the vision model. Turn it on with `vision.describe.enabled: true`.
-
-Apart from renaming generic titles and filling blank descriptions, it only ever **adds**. It never removes a tag or takes a photo out of an album. Every change waits in a queue until you approve it.
+Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. Apart from titles and descriptions it only ever **adds**: it never removes a tag or takes a photo out of an album, and nothing changes on Flickr until you approve it.
 
 ## Setup
 
@@ -85,7 +83,7 @@ python -m flickr_organizer review               # opens http://127.0.0.1:8765
 
 `process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through photos in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into the queue. It can be stopped and resumed; queued photos are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans everything (`--media video` or `--media photo` to limit it; photos the review tool is applying are never touched); applied and rejected changes still never come back.
 
-`review` shows one photo at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then **Approve** (Enter), **Reject all** (R), or **Skip** (→). Approving doesn't wait for Flickr: the photo goes to a background worker that makes the calls in order (at the usual rate limit) while you carry on, and the header shows how many are still applying. Failures pop up and land under "Failed" to retry. Photos and videos that `process` hasn't reached yet are under "Not processed": press **Process now** (P) to fetch EXIF, classify and plan that one in the background, then review it right there. Videos are classified from their preview frame, even with `include_videos: false`. **Re-process** re-plans a queued photo with your current settings, and the **Go to** box jumps to any photo by ID or Flickr URL. Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if you stop the tool mid-way, unfinished photos are applied the next time you run `review`. Before writing a title or description it re-reads the photo from Flickr, so a change you made there since the queue was built isn't overwritten. Failed changes stay under "Failed" to retry. The server only listens on 127.0.0.1 and needs a per-run token, so other web pages can't use it.
+`review` shows one photo at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then **Approve** (Enter), **Reject all** (R), or **Skip** (→). Approving doesn't wait for Flickr: the photo goes to a background worker that makes the calls in order (at the usual rate limit) while you carry on, and the header shows how many are still applying. Failures pop up and land under "Failed" to retry. Photos and videos that `process` hasn't reached yet are under "Not processed": press **Process now** (P) to fetch EXIF, classify and plan that one in the background, then review it right there. Videos are classified from their preview frame. **Re-process** re-plans a queued photo with your current settings, and the **Go to** box jumps to any photo by ID or Flickr URL. Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if you stop the tool mid-way, unfinished photos are applied the next time you run `review`. Before writing a title or description it re-reads the photo from Flickr, so a change you made there since the queue was built isn't overwritten. Failed changes stay under "Failed" to retry. The server only listens on 127.0.0.1 and needs a per-run token, so other web pages can't use it.
 
 ## Preview without queueing
 
@@ -111,23 +109,12 @@ Everything lives in a local SQLite file (`flickr_organizer.db`):
 - `vision.model`: the default is a small, cheap Claude model. Swap in a larger one if its judgement isn't good enough.
 - `geo.min_accuracy`: Flickr's geo accuracy runs 1 (world) to 16 (street). States need 6+ and cities need 11+ by default.
 
-### Renames
+### Titles and descriptions
 
-- A title is replaced only if it matches a generic pattern. Anything you typed yourself is never touched. You can add your own patterns with `rename.extra_generic_patterns`.
-- The city name comes from the nearest town in the geocoder's data. A city in `geo.cities` takes priority, so a photo in a suburb still reads "Austin, TX". Give that entry a `name:` if the title should differ from the album name.
-- City-level precision is required by default. Set `fallback_to_region: true` to title less precise photos "Texas" or "Bavaria, Germany" instead.
-- In the review page you can edit each proposed title or skip it.
-- When applying, a photo you retitled yourself since the last `sync` is left alone.
-- Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there.
-
-### Descriptions
-
-- Only photos whose description is blank get one. Anything you wrote yourself is never touched.
-- The description comes from the same model call as the categories, so it adds only a few output tokens per photo. Turning it on re-classifies photos that were cached without a description, once. Turning it off keeps the cache.
-- The writing brief is `vision.describe.instructions` in config.yaml: plain English, edit it freely (the default asks for a short, understated gallery-caption style). Whatever it says, the model is also told never to guess a location or name a person. Editing it re-runs the model once for the photos it applies to; other settings keep their cached results. With `describe.reword: true` (the default), descriptions this tool already wrote, if they're still exactly as written, get a re-worded proposal after you change the brief, shown in the review tool with the text it replaces. Descriptions you wrote, or edited after the tool wrote them, are never touched, and rejected ones stay rejected.
-- `vision.title` proposes titles the same way, with its own `instructions`. `replace` decides which titles it may replace: `generic` (camera file names, blank), `generic_or_place` (also titles that just name the place, like "Seattle, WA" or "Bellagio 175"), or `all`. Titles with words of your own are kept unless it's `all`, and every proposal goes through review. A model title wins over the rename section's "City, ST".
-- In the review page you can edit each proposed description or skip it. Each photo gets one proposal: once you apply or reject it, it isn't proposed again.
-- When applying, a photo whose description changed on Flickr since the proposal (say, you wrote one) is left alone.
+- Both come from the same model call as the categories, so they add only a few output tokens per photo.
+- Every photo gets a proposal, including ones you titled or described yourself: the reviewer shows what it would replace, and you decide. Once you apply, edit or decline a proposal, it isn't proposed again.
+- The briefs are `vision.title.instructions` and `vision.describe.instructions` (Settings → Titles / Descriptions): plain English, edit them freely. Whatever they say, the model is also told never to guess a location or name a person. Editing one re-runs the model once for the photos it applies to, and the new text is proposed; other settings keep their cached results.
+- Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there. If you changed the title or description on Flickr since the proposal, it's left alone (and counts as declined).
 
 ### Standard tags
 

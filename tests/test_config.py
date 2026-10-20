@@ -30,10 +30,10 @@ class ValidateTest(unittest.TestCase):
         self.assertIn("vision.categories.x.tag: unknown setting (did you mean tags?)", errors)
 
     def test_types_choices_and_ranges(self):
-        errors, _ = problems({"vision": {"describe": {"enabled": "yes"}, "provider": "gemini", "min_confidence": 75,
+        errors, _ = problems({"vision": {"use_location": "yes", "provider": "gemini", "min_confidence": 75,
                                          "concurrency": 2.5}, "geo": None})
         joined = "\n".join(errors)
-        for expected in ("vision.describe.enabled: should be true or false", "isn't one of claude",
+        for expected in ("vision.use_location: should be true or false", "isn't one of claude",
                          "vision.min_confidence: 75 is outside 0..1", "vision.concurrency: should be a number",
                          "geo: is empty"):
             self.assertIn(expected, joined)
@@ -51,6 +51,19 @@ class ValidateTest(unittest.TestCase):
                          "geo.cities[0].radius: unknown setting", "geo.cities[0]: lat, lon and radius_km should be numbers"):
             self.assertIn(expected, joined)
         self.assertNotIn("y{year}", joined)
+
+    def test_retired_settings_are_dropped(self):
+        path = os.path.join(tempfile.mkdtemp(), "config.yaml")
+        with open(path, "w") as f:
+            f.write("vision:\n  enabled: true\n  include_videos: false\n  describe: {enabled: false, reword: true}\n"
+                    "  title: {enabled: true, replace: all}\nrename: {enabled: true}\ngeo: {enabled: false}\n"
+                    "web: {process_new: true}\n")
+        from flickr_organizer.config import read_raw
+        raw = read_raw(path)
+        self.assertEqual(problems(raw)[0], [])
+        self.assertEqual(raw["schedule"], {"new_photos": "process"})            # process_new: true carried over
+        self.assertNotIn("rename", raw)
+        self.assertEqual(raw["vision"], {"describe": {}, "title": {}})
 
     def test_warnings_dont_stop_loading(self):
         errors, warnings = problems({"flickr": {"calls_per_second": 2}})

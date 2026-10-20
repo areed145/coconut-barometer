@@ -16,12 +16,14 @@ class RulesTest(unittest.TestCase):
         self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
         sync(FakeFlickr(), self.store, log=lambda *a: None)
 
-    def test_rules_that_are_off_never_geocode(self):
-        cfg = from_dict({**CFG, "geo": {**CFG["geo"], "enabled": False}, "vision": {**CFG["vision"], "enabled": False}})
+    def test_no_geotags_never_geocode(self):
+        for row in self.store.photos():
+            self.store.db.execute("UPDATE photos SET lat=NULL, lon=NULL WHERE id=?", (row["id"],))
+        self.store.db.commit()
 
         def geocoder(points):
-            raise AssertionError("geocoded although no rule needs places")
-        self.assertEqual(build_plan(cfg, self.store, None, geocoder=geocoder), [])
+            raise AssertionError("geocoded although no photo has a place")
+        build_plan(from_dict(CFG), self.store, None, geocoder=geocoder)
 
     def test_first_want_wins_and_tags_respect_the_cap(self):
         cfg = from_dict({**CFG, "standard_tags": {"max_tags_per_photo": 2}})

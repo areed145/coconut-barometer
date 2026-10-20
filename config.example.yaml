@@ -13,8 +13,8 @@ albums:
   # albums whose title it can find. Set true to also propose creating missing ones.
   create_missing: false
 
+# Location albums (and, with add_tags, tags) from each photo's geotag.
 geo:
-  enabled: true
   # Flickr geo accuracy: 1=world, 3=country, 6=region, 11=city, 16=street (phone GPS).
   min_accuracy:
     country: 1
@@ -91,24 +91,9 @@ geo:
       radius_km: 15
   add_tags: false         # also add tags like "japan", "texas", "austin"
 
-# Optional: retitle photos that still have a generic name (IMG_1234, DSC01234,
-# PXL_2024…, 20240101_123456, "Untitled", blank) with where they were taken.
-# Photos you've titled yourself are never touched.
-rename:
-  enabled: true
-  min_accuracy: 11              # needs city-level geotag precision
-  us_format: "{city}, {state_abbr}"     # "Houston, TX"
-  intl_format: "{city}, {country}"      # "Luanda, Angola"
-  # Available fields: {city} {state} {state_abbr} {region} {country} {cc}
-  # Cities defined under geo.cities win over the nearest town, so a photo in a
-  # suburb reads "Austin, TX". Give a city `name:` if it should differ from its album.
-  fallback_to_region: false     # if precision is only region-level, use the formats below
-  us_region_format: "{state}"
-  intl_region_format: "{region}, {country}"
-  extra_generic_patterns: []    # more regexes for titles you consider generic, e.g. "Trip \\d+"
-
+# The model that looks at each photo. Every photo gets a proposed title, description,
+# tags and albums from it; you accept or decline each one in the reviewer.
 vision:
-  enabled: true
   provider: claude        # claude | openai | ollama
   model: claude-haiku-5-5 # cheapest; use claude-sonnet-5-5 for harder judgement calls
   api_key: ""            # Anthropic or OpenAI key (https://console.anthropic.com/); not needed for ollama
@@ -118,23 +103,16 @@ vision:
   min_confidence: 0.6    # categories below this are not proposed
   use_photo_text: true    # give the model your title/description/tags as context
   use_location: true      # give it the town/state/country from the geotag (helps name landmarks)
-  include_videos: true    # classify videos from their preview frame
-  extra_tags:
-    enabled: true         # let the model suggest descriptive tags (e.g. "ramen", "heron")
+  extra_tags:              # descriptive tags from the model (e.g. "ramen", "heron")
     max: 8                # room for landmarks, aircraft types and species
     prefix: ""            # e.g. "ai:" if you want to tell them apart later
-  # Write a description for photos whose description is blank. Photos with any
-  # description of yours are never touched.
+  # The description it writes. Proposed for every photo, yours included: you decide.
   # `instructions` is the brief the model gets; edit it freely ({max_words} is filled
   # in). Delete it to use the built-in default. Whatever it says, the model is also told
   # never to guess a location or name a person. Editing it re-runs the model once for
-  # the photos it applies to (~$0.0006 each); turning this off keeps the cache.
+  # the photos it applies to (~$0.0006 each), and proposes the new text.
   describe:
-    enabled: true
     max_words: 40
-    # Re-word descriptions this tool wrote earlier (still exactly as written) once the
-    # instructions change. Ones you wrote or edited yourself are never touched.
-    reword: true
     instructions: >
       Write the description for the photo's Flickr page, like a short caption beside a
       print in a gallery: 1-2 sentences, at most {max_words} words. Notice what makes
@@ -144,17 +122,9 @@ vision:
       superlatives or travel-brochure words ("stunning", "breathtaking", "majestic",
       "nestled", "vibrant", "hidden gem", "tapestry"), no exclamation marks, and don't
       start with "This photo", "This image" or "A view of".
-  # Propose a better title. `replace` decides which existing titles it may replace:
-  #   generic           only camera file names and blank titles (IMG_1234, DSC01234.JPG)
-  #   generic_or_place  also titles that just name the place, maybe numbered
-  #                     ("Seattle, WA", "Luanda, Angola", "Bellagio 175")
-  #   all               every photo (you still approve each one)
-  # Titles with words of your own ("Ramen in Tokyo") are kept unless replace is "all".
-  # When the model proposes a title, it wins over the rename section's "City, ST".
+  # The title it proposes, for every photo (you approve or decline each one).
   title:
-    enabled: true
     max_words: 8
-    replace: generic_or_place
     instructions: >
       Propose a title for the photo, like the title of a print in an exhibition: 2 to
       {max_words} words, specific and quietly evocative, naming the subject, the moment
@@ -384,8 +354,13 @@ schedule:
   photo_list_every_hours: 24    # every photo re-read: view counts + the daily snapshot (~22 calls)
   stats: true                   # per-day stats from Flickr (Pro): yesterday, plus backfill
   backfill_days_per_run: 7      # older days per run, until Flickr has none (~6 calls a day)
+  # Photos uploaded since the last sync go under Review → To review, either way:
+  #   queue    processed when you open each one (vision is paid for as you go)
+  #   process  processed right after the sync
+  new_photos: queue
 
-# The web app (`flickr-organizer serve`). Create the login first: `flickr-organizer user add <name>`.
+# The web app (`flickr-organizer serve`). With no login yet it opens on a setup page
+# (or: `flickr-organizer user add <name>`).
 # On a server keep host 127.0.0.1 and put Caddy (HTTPS) in front; secrets can come from the
 # environment instead of this file: FLICKR_API_KEY, FLICKR_API_SECRET, ANTHROPIC_API_KEY.
 web:
@@ -395,6 +370,5 @@ web:
   secure_cookies: true          # false only for http://localhost testing
   session_days: 14
   sync_every_minutes: 60        # 0 turns the scheduler off
-  process_new: false            # also queue new photos for review after each sync (vision costs)
   api_docs: false               # /api/docs, behind the login
   trusted_proxies: [127.0.0.1]  # where X-Forwarded-For / -Proto are believed from (Caddy)

@@ -133,6 +133,22 @@ class AdminApiTest(Base):
         self.assertEqual((key["value"], key["set"], key["kind"]), (None, True, "secret"))
         self.assertTrue(self.setting(r.json(), "web.allowed_hosts")["locked"])
 
+    def test_retired_settings_in_the_database_dont_block_saving(self):
+        self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])
+        r = self.c.put("/api/admin/settings", json={"changes": {"schedule.new_photos": "process"}}, headers=self.h)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(set(self.store.admin_settings()), {"schedule.new_photos"})     # stale rows gone
+        choice = self.setting(r.json(), "schedule.new_photos")
+        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "After a sync", "sync"))
+        self.assertIn("right away", choice["option_labels"]["process"])
+        self.assertEqual(self.app.state.runtime.cfg["schedule"]["new_photos"], "process")
+
+    def test_no_switches_for_the_proposals(self):
+        paths = {s["path"] for s in self.c.get("/api/admin/settings").json()["settings"]}
+        for gone in ("vision.enabled", "vision.describe.enabled", "vision.title.enabled", "vision.title.replace",
+                     "vision.extra_tags.enabled", "geo.enabled", "rename.enabled", "web.process_new"):
+            self.assertNotIn(gone, paths)
+
     def test_saving_applies_without_a_restart(self):
         r = self.c.put("/api/admin/settings", json={"changes": {"web.sync_every_minutes": 15, "vision.model": "m2"}},
                        headers=self.h)

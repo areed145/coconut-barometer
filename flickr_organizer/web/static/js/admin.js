@@ -94,7 +94,7 @@ function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
   else if (s.kind === "int" || s.kind === "float") input = html`<input type="number" step=${s.kind === "int" ? 1 : "any"} value=${value ?? ""} disabled=${disabled}
       onInput=${(e) => onChange(e.target.value === "" ? null : s.kind === "int" ? parseInt(e.target.value, 10) : parseFloat(e.target.value))} />`;
   else if (s.kind === "choice") input = html`<select value=${value} disabled=${disabled} onChange=${(e) => onChange(e.target.value)}>
-      ${s.options.map((o) => html`<option value=${o}>${o}</option>`)}</select>`;
+      ${s.options.map((o) => html`<option value=${o}>${s.option_labels?.[o] || o}</option>`)}</select>`;
   else if (s.kind === "text") input = html`<textarea rows="6" value=${value || ""} disabled=${disabled} placeholder="(the built-in brief)"
       onInput=${(e) => onChange(e.target.value.trim() ? e.target.value : null)}></textarea>`;
   else if (s.kind === "list") input = html`<${ListField} value=${value} onChange=${onChange} disabled=${disabled} />`;
@@ -220,7 +220,8 @@ export function Admin() {
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "keys" && html`<${FlickrPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
-        ${shown.map((s) => html`<${Field} key=${s.path} s=${s} albums=${data.albums}
+        ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}
+          <${Field} key=${s.path} s=${s} albums=${data.albums}
             value=${edits[s.path] !== undefined ? edits[s.path] : s.value} dirty=${edits[s.path] !== undefined}
             onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded} />`)}`}
     </div>

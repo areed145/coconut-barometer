@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from .geo import country_names, haversine_km
-from .rename import US_STATES
+from .geo import US_STATES
 from .util import norm_tag, norm_title
 
 SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",

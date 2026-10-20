@@ -14,7 +14,9 @@ from ..apply import apply_changes, outcomes
 from ..changes import META_ACTIONS, Change, split_tags
 from ..planner import photo_page
 
-STATUSES = ("pending", "applying", "failed", "applied", "rejected", "none", "unprocessed")
+# "new": synced in, waiting to be processed; shown under To review with the pending ones.
+STATUSES = ("pending", "new", "applying", "failed", "applied", "rejected", "none", "unprocessed")
+TO_REVIEW = ("pending", "new")
 
 
 class ReviewApp:
@@ -69,10 +71,15 @@ class ReviewApp:
     def summary(self) -> dict:
         counts = self.store.queue_counts()
         counts["unprocessed"] = len(self.store.unqueued_ids())
-        return {s: counts.get(s, 0) for s in STATUSES}
+        out = {s: counts.get(s, 0) for s in STATUSES}
+        out["to_review"] = out["pending"] + out["new"]
+        return out
 
     def queue(self, status: str = "pending", sort: str = "newest") -> list[str]:
-        return self.store.unqueued_ids(sort) if status == "unprocessed" else self.store.queue_ids([status], sort)
+        """status "pending" is To review: ready ones and new ones still to be processed."""
+        if status == "unprocessed":
+            return self.store.unqueued_ids(sort)
+        return self.store.queue_ids(TO_REVIEW if status == "pending" else [status], sort)
 
     def _licenses(self) -> dict[str, str]:
         """License id -> name, from Flickr once, then cached in the database."""
@@ -133,11 +140,14 @@ class ReviewApp:
         self.jobs.put(("apply", photo_id))
         return {"status": "applying"}
 
-    def process(self, photo_id: str) -> dict:
-        """(Re-)process one photo or video now: EXIF, classify, plan. Returns at once."""
+    def process(self, photo_id: str, if_new: bool = False) -> dict:
+        """(Re-)process one photo or video now: EXIF, classify, plan. Returns at once.
+        if_new: only if it's waiting to be processed (the reviewer asks ahead for the next ones)."""
         if not self.store.photo(photo_id):
             raise KeyError(photo_id)
         q = self.store.queue_item(photo_id)
+        if if_new and not (q and q["status"] == "new"):
+            return {"status": q["status"] if q else "unprocessed"}
         if (q and q["status"] == "applying") or photo_id in self.processing:
             return {"status": "busy"}
         if self.cfg is None:
@@ -188,28 +198,54 @@ class ReviewApp:
 
         self.syncing = True
         try:
+            before = store.latest_upload()
             out = run_due(self.cfg, self.client, store, force=mode, log=self.log)
-            if self.cfg["web"]["process_new"] and self._provider_factory:
-                new = store.unqueued_ids()[:200]   # newest first; the rest next time
-                if new:
-                    if self._provider is None:
-                        self._provider = self._provider_factory()
-                    out["processed"] = process(self.cfg, store, self.client, self._provider, photo_ids=new,
-                                               log=lambda *a: None, **self.process_kw)
+            out["new_photos"] = self._queue_new(store, before)
             store.set_meta("last_sync_result", json.dumps({**out, "at": int(time.time())}, default=str))
         finally:
             self.syncing = False
         return {"status": "done", **out}
 
+    def _queue_new(self, store, before: int | None) -> int:
+        """Photos uploaded since the last sync go under To review. With schedule.new_photos:
+        process, they're processed now too (up to 200; any left, or any that fail, are processed
+        when you open them). The first sync of an empty library queues nothing: that's the
+        backlog, under Not processed."""
+        from ..pipeline import process
+
+        mark = store.get_meta("new_photos_after")
+        mark = int(mark) if mark is not None else before
+        latest = store.latest_upload()
+        if latest is not None:
+            store.set_meta("new_photos_after", max(latest, mark or 0))
+        if mark is None:
+            return 0
+        new = store.queue_new_photos(mark)
+        if new and self.cfg["schedule"]["new_photos"] == "process" and self._provider_factory:
+            try:
+                provider = self._vision()
+            except RuntimeError:          # no vision key yet: they wait under To review
+                return len(new)
+            process(self.cfg, store, self.client, provider, photo_ids=new[:200], rebuild=True,
+                    log=lambda *a: None, **self.process_kw)
+        return len(new)
+
+    def _vision(self):
+        """The vision provider, made on first use. A missing key is a RuntimeError here, not
+        the CLI's SystemExit (which would stop this worker thread for good)."""
+        if self._provider is None and self._provider_factory:
+            try:
+                self._provider = self._provider_factory()
+            except SystemExit as e:
+                raise RuntimeError(f"{e.code} Set it in Settings → API keys.")
+        return self._provider
+
     def _process(self, store, photo_id: str) -> dict:
         from ..pipeline import process
 
         try:
-            vcfg = self.cfg["vision"]
-            if self._provider is None and self._provider_factory and vcfg["enabled"] and vcfg["categories"]:
-                self._provider = self._provider_factory()
-            stats = process(self.cfg, store, self.client, self._provider, photo_ids=[photo_id], rebuild=True,
-                            include_videos=True, log=lambda *a: None, **self.process_kw)
+            stats = process(self.cfg, store, self.client, self._vision(), photo_ids=[photo_id], rebuild=True,
+                            log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)
         if stats["retry_later"]:

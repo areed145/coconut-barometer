@@ -23,26 +23,13 @@ DEFAULTS: dict[str, Any] = {
     "database": "flickr_organizer.db",
     "albums": {"create_missing": False},
     "geo": {
-        "enabled": True,
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
         "countries": {"auto_match": True, "aliases": {}},
         "us_states": {"enabled": True, "title": "{state}"},
         "cities": [],
         "add_tags": False,
     },
-    "rename": {
-        "enabled": False,
-        "min_accuracy": 11,
-        "us_format": "{city}, {state_abbr}",
-        "intl_format": "{city}, {country}",
-        "fallback_to_region": False,
-        "us_region_format": "{state}",
-        "intl_region_format": "{region}, {country}",
-        "generic_patterns": None,
-        "extra_generic_patterns": [],
-    },
     "vision": {
-        "enabled": True,
         "provider": "claude",
         "model": "claude-haiku-5-5",
         "api_key": None,
@@ -52,10 +39,9 @@ DEFAULTS: dict[str, Any] = {
         "min_confidence": 0.75,
         "use_photo_text": True,
         "use_location": True,
-        "include_videos": False,
-        "extra_tags": {"enabled": True, "max": 6, "prefix": ""},
-        "describe": {"enabled": False, "max_words": 40, "instructions": None, "reword": True},
-        "title": {"enabled": False, "max_words": 8, "replace": "generic_or_place", "instructions": None},
+        "extra_tags": {"max": 6, "prefix": ""},
+        "describe": {"max_words": 40, "instructions": None},
+        "title": {"max_words": 8, "instructions": None},
         "categories": {},
     },
     "schedule": {
@@ -63,6 +49,8 @@ DEFAULTS: dict[str, Any] = {
         "photo_list_every_hours": 24,  # every photo re-read: view counts + the daily snapshot (~22 calls)
         "stats": True,               # per-day stats (Flickr Pro): yesterday, plus backfill
         "backfill_days_per_run": 7,  # older days fetched per run until Flickr has none (~6 calls/day)
+        "new_photos": "queue",       # after a sync, new photos: "process" now (vision costs), or "queue" for
+                                     # To review, processed when you open them
     },
     "backup": {
         "every_hours": 24,            # the web app's scheduler makes one this often; 0 = off
@@ -76,7 +64,6 @@ DEFAULTS: dict[str, Any] = {
         "secure_cookies": True,       # cookies only over HTTPS; false only for http://localhost testing
         "session_days": 14,
         "sync_every_minutes": 60,     # the scheduler runs `sync` (whatever's due) this often; 0 = off
-        "process_new": False,         # after each sync, queue new photos for review (vision costs)
         "api_docs": False,            # /api/docs (OpenAPI); only after login when on
         "trusted_proxies": ["127.0.0.1"],   # where X-Forwarded-For/-Proto are believed from
     },
@@ -99,14 +86,14 @@ FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standa
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
-            ("vision", "title", "instructions"): str, ("rename", "generic_patterns"): list}
+            ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("vision", "thumbnail"): ("url_q", "url_n", "url_m", "url_z"),
-           ("vision", "title", "replace"): ("generic", "generic_or_place", "all")}
+           ("schedule", "new_photos"): ("process", "queue")}
 RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"): (1, 32),
           ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
-          ("standard_tags", "max_tags_per_photo"): (1, 75), ("rename", "min_accuracy"): (1, 16),
+          ("standard_tags", "max_tags_per_photo"): (1, 75),
           ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
@@ -120,13 +107,33 @@ PLACEHOLDERS = {
     ("vision", "describe", "instructions"): {"max_words"},
     ("vision", "title", "instructions"): {"max_words"},
     ("geo", "us_states", "title"): {"state"},
-    ("rename", "us_format"): {"city", "state", "state_abbr", "region", "country", "cc"},
-    ("rename", "intl_format"): {"city", "state", "state_abbr", "region", "country", "cc"},
-    ("rename", "us_region_format"): {"state", "state_abbr", "region", "country", "cc"},
-    ("rename", "intl_region_format"): {"state", "state_abbr", "region", "country", "cc"},
 }
 LIST_PLACEHOLDERS = {("standard_tags", "date", "formats"): {"year", "month", "day", "season"},
                      ("standard_tags", "coords", "formats"): {"lat", "lon"}}
+# Settings that no longer exist. Old config files and databases may still have them; they're
+# dropped on reading (nothing to fix by hand). Every photo now gets every proposal (title,
+# description, tags, albums), and you accept or decline each in the reviewer.
+RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "include_videos"),
+           ("vision", "extra_tags", "enabled"), ("vision", "describe", "enabled"), ("vision", "describe", "reword"),
+           ("vision", "title", "enabled"), ("vision", "title", "replace"), ("web", "process_new")}
+
+
+def retire(raw: dict) -> dict:
+    """raw without RETIRED settings (a copy). web.process_new: true becomes schedule.new_photos: process."""
+    import copy
+
+    raw = copy.deepcopy(raw)
+    if (raw.get("web") or {}).get("process_new") is True and "new_photos" not in (raw.get("schedule") or {}):
+        raw.setdefault("schedule", {})["new_photos"] = "process"
+    for path in RETIRED:
+        node = raw
+        for k in path[:-1]:
+            node = node.get(k) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(path[-1], None)
+    return raw
+
+
 ITEM_KEYS = {("geo", "cities"): ({"album", "lat", "lon"}, {"radius_km", "name", "tag"}),
              ("standard_tags", "camera", "rules"): ({"match"}, {"tags"}),
              ("standard_tags", "camera", "albums"): ({"match", "album"}, set())}
@@ -241,9 +248,7 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
     checks.append(city_numbers)
 
     def regexes():
-        patterns = [("rename.extra_generic_patterns", p) for p in get(("rename", "extra_generic_patterns"))]
-        patterns += [("rename.generic_patterns", p) for p in get(("rename", "generic_patterns")) or []]
-        patterns += [(f"standard_tags.camera.{kind}[{i}].match", r.get("match", ""))
+        patterns = [(f"standard_tags.camera.{kind}[{i}].match", r.get("match", ""))
                      for kind in ("rules", "albums") for i, r in enumerate(get(("standard_tags", "camera", kind)))
                      if isinstance(r, dict)]
         for where, pat in patterns:
@@ -268,7 +273,7 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
     checks.append(categories)
 
     def credentials():
-        if get(("vision", "enabled")) and get(("vision", "provider")) != "ollama" and not get(("vision", "api_key")):
+        if get(("vision", "provider")) != "ollama" and not get(("vision", "api_key")):
             warnings.append("vision.api_key: empty; classify/process will stop until it's set")
         if not get(("flickr", "api_key")) or not get(("flickr", "api_secret")):
             warnings.append("flickr.api_key / api_secret: empty; nothing can reach Flickr until they're set")
@@ -335,7 +340,7 @@ def read_raw(path: str | os.PathLike) -> dict:
         raise SystemExit(f"{p} isn't valid YAML: {e}")
     if not isinstance(raw, dict):
         raise SystemExit(f"{p}: expected settings (key: value), got {type(raw).__name__}")
-    return raw
+    return retire(raw)
 
 
 def load_config(path: str | os.PathLike, admin: bool = True) -> dict:
@@ -416,4 +421,4 @@ def platform_paths(environ=os.environ) -> dict[str, str]:
 
 def from_dict(raw: dict) -> dict:
     """Build a config from a dict (used by tests)."""
-    return _merge(DEFAULTS, raw)
+    return _merge(DEFAULTS, retire(raw))

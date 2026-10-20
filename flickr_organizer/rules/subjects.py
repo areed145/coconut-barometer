@@ -25,6 +25,5 @@ def propose(ctx: Context) -> list:
             if c.get("album"):
                 wants.append(AlbumWant(pid, c["album"], f"vision:{cat}", f"{conf:.2f}", res.get("caption", "")))
             wants += [TagWant(pid, t, f"vision:{cat}") for t in c.get("tags", []) or []]
-        if extra["enabled"]:
-            wants += [TagWant(pid, prefix + t, "vision:tags") for t in (res.get("tags") or [])[: extra["max"]]]
+        wants += [TagWant(pid, prefix + t, "vision:tags") for t in (res.get("tags") or [])[: extra["max"]]]
     return wants
