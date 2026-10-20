@@ -84,6 +84,14 @@ CREATE TABLE IF NOT EXISTS account_daily (
 CREATE TABLE IF NOT EXISTS stats_days (
     day TEXT PRIMARY KEY, status TEXT, photos_viewed INTEGER, fetched_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY, password_hash TEXT, created_at INTEGER, updated_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY, username TEXT, csrf TEXT, created_at INTEGER, expires_at INTEGER,
+    last_seen INTEGER, ip TEXT, user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
 """
 
 
@@ -113,7 +121,13 @@ def _daily_stats(db: sqlite3.Connection) -> None:
     db.executescript(SCHEMA)   # creates the new tables; CREATE ... IF NOT EXISTS leaves the rest
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats]
+def _web_auth(db: sqlite3.Connection) -> None:
+    """3: the web app's owner login (users) and its sessions. Only a hash of each session
+    token is stored, so a copy of the database can't be used to log in."""
+    db.executescript(SCHEMA)
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats, _web_auth]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

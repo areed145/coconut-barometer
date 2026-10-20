@@ -7,6 +7,9 @@ One connection, methods grouped by area:
   queue.py       the review queue and decisions (applied / rejected / failed)
   engagement.py  account totals, groups and pools, comments, faves
   stats.py       per-day stats from Flickr: photo_daily, account_daily, stats_days
+  auth.py        the web app's users and sessions (session tokens stored hashed)
+  gallery.py     photostream and album listings, photo detail
+  analytics.py   daily series, gainers, breakdowns, per-photo timelines
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -22,6 +25,7 @@ Tables
   photo_daily      views / comments / faves per photo per day (Flickr stats, days in GMT)
   account_daily    the account's views per day, split by photos / photostream / albums ...
   stats_days       which days have been fetched completely ('done'), or have no stats ('none')
+  users, sessions  the web app's owner login; sessions by sha256 of their token
   queue            per-photo proposed changes for the review tool:
                    pending | applying | none (nothing to change) | applied | rejected | failed
   decisions        per (photo, action, target): applied / rejected / failed.
@@ -30,9 +34,12 @@ Tables
 """
 from __future__ import annotations
 
+from .analytics import AnalyticsStore
+from .auth import AuthStore
 from .cache import CacheStore
 from .db import SCHEMA_VERSION, Database
 from .engagement import EngagementStore
+from .gallery import GalleryStore
 from .library import LibraryStore
 from .queue import QueueStore
 from .stats import StatsStore
@@ -40,7 +47,8 @@ from .stats import StatsStore
 __all__ = ["Store", "Database", "SCHEMA_VERSION"]
 
 
-class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore):
+class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,
+            GalleryStore, AnalyticsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

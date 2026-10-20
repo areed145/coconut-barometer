@@ -63,6 +63,17 @@ DEFAULTS: dict[str, Any] = {
         "stats": True,               # per-day stats (Flickr Pro): yesterday, plus backfill
         "backfill_days_per_run": 7,  # older days fetched per run until Flickr has none (~6 calls/day)
     },
+    "web": {
+        "host": "127.0.0.1",          # behind a reverse proxy (Caddy) on a server; never 0.0.0.0 bare
+        "port": 8000,
+        "allowed_hosts": ["localhost", "127.0.0.1"],   # Host headers accepted (add your domain)
+        "secure_cookies": True,       # cookies only over HTTPS; false only for http://localhost testing
+        "session_days": 14,
+        "sync_every_minutes": 60,     # the scheduler runs `sync` (whatever's due) this often; 0 = off
+        "process_new": False,         # after each sync, queue new photos for review (vision costs)
+        "api_docs": False,            # /api/docs (OpenAPI); only after login when on
+        "trusted_proxies": ["127.0.0.1"],   # where X-Forwarded-For/-Proto are believed from
+    },
     "standard_tags": {
         "max_tags_per_photo": 75,   # Flickr's limit
         "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"], "skip_if_dated": True},
@@ -91,7 +102,13 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("standard_tags", "max_tags_per_photo"): (1, 75), ("rename", "min_accuracy"): (1, 16),
           ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
-          ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400)}
+          ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
+          ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60)}
+
+# Secrets can come from the environment instead of config.yaml (on a server, keep them there).
+ENV_OVERRIDES = {"FLICKR_API_KEY": ("flickr", "api_key"), "FLICKR_API_SECRET": ("flickr", "api_secret"),
+                 "ANTHROPIC_API_KEY": ("vision", "api_key"), "VISION_API_KEY": ("vision", "api_key"),
+                 "FLICKR_ORGANIZER_DATABASE": ("database",)}
 PLACEHOLDERS = {
     ("vision", "describe", "instructions"): {"max_words"},
     ("vision", "title", "instructions"): {"max_words"},
@@ -296,7 +313,7 @@ def read_raw(path: str | os.PathLike) -> dict:
 
 def load_config(path: str | os.PathLike) -> dict:
     p = Path(path)
-    raw = read_raw(p)
+    raw = apply_env(read_raw(p))
     cfg = _merge(DEFAULTS, raw)
     errors, _warnings = validate(raw, cfg)
     if errors:
@@ -308,6 +325,20 @@ def load_config(path: str | os.PathLike) -> dict:
         if not os.path.isabs(cfg[key]):
             cfg[key] = str(base / cfg[key])
     return cfg
+
+
+def apply_env(raw: dict, environ=os.environ) -> dict:
+    """Environment variables (ENV_OVERRIDES) win over the file. Empty ones are ignored."""
+    raw = copy.deepcopy(raw)
+    for var, path in ENV_OVERRIDES.items():
+        value = environ.get(var)
+        if not value:
+            continue
+        node = raw
+        for key in path[:-1]:
+            node = node.setdefault(key, {}) if isinstance(node.get(key), dict) or key not in node else node[key]
+        node[path[-1]] = value
+    return raw
 
 
 def from_dict(raw: dict) -> dict:

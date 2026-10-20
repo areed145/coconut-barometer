@@ -103,10 +103,10 @@ def cmd_check(config_path: str) -> int:
     """Validate the config, then check it against your library. Exit code 1 on errors."""
     from pathlib import Path
 
-    from .config import DEFAULTS, _merge, read_raw, validate
+    from .config import DEFAULTS, _merge, apply_env, read_raw, validate
     from .util import norm_title
 
-    raw = read_raw(config_path)
+    raw = apply_env(read_raw(config_path))
     cfg = _merge(DEFAULTS, raw)
     errors, warnings = validate(raw, cfg)
     notes: list[str] = []
@@ -145,6 +145,58 @@ def cmd_check(config_path: str) -> int:
             print(f"\n{title}:")
             print("\n".join(f"  - {x}" for x in items))
     return 1 if errors else 0
+
+
+def cmd_user(cfg, store, args):
+    """The web app's login: add/passwd prompt for a password (twice, hidden)."""
+    import getpass
+
+    from .web.security import MIN_PASSWORD, hash_password
+
+    if args.action == "list":
+        print("\n".join(store.usernames()) or "No users yet. `user add <name>` creates the login.")
+        return
+    if not args.name:
+        sys.exit("Give a username.")
+    if args.action == "remove":
+        store.delete_user(args.name)
+        print(f"Removed {args.name} (and signed out their sessions).")
+        return
+    if args.action == "passwd" and args.name not in store.usernames():
+        sys.exit(f"No user {args.name!r}. `user add {args.name}` creates it.")
+    if args.action == "add" and args.name in store.usernames():
+        sys.exit(f"{args.name!r} exists; use `user passwd {args.name}`.")
+    first = getpass.getpass(f"Password for {args.name} (at least {MIN_PASSWORD} characters): ")
+    if getpass.getpass("Again: ") != first:
+        sys.exit("The passwords didn't match.")
+    try:
+        store.set_password_hash(args.name, hash_password(first))
+    except ValueError as e:
+        sys.exit(str(e))
+    print(f"Saved. {'Any existing sessions for this user were signed out.' if args.action == 'passwd' else ''}")
+
+
+def cmd_serve(cfg, store, args):
+    """The web app: API + frontend, the review worker and the sync scheduler."""
+    import uvicorn
+
+    from .web.app import create_app
+
+    web = cfg["web"]
+    if not store.usernames():
+        sys.exit("No login yet. Create one first:  flickr-organizer user add <name>")
+    host, port = args.host or web["host"], args.port or web["port"]
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"! Listening on {host}: anyone who can reach it gets the login page. "
+              "On a server, keep 127.0.0.1 and put Caddy (HTTPS) in front.")
+        if not web["secure_cookies"]:
+            sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
+    vcfg = cfg["vision"]
+    provider = (lambda: _provider(cfg)) if vcfg["enabled"] and vcfg["categories"] else None
+    app = create_app(cfg, _client(cfg), provider_factory=provider)
+    print(f"Serving on http://{host}:{port}  (sync every {web['sync_every_minutes']} min; Ctrl-C stops)")
+    uvicorn.run(app, host=host, port=port, proxy_headers=True, server_header=False,
+                forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info")
 
 
 def cmd_status(cfg, store, args):
@@ -322,6 +374,12 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="only this many photos' comments/faves")
     p.add_argument("--no-sync", action="store_true", help="skip the bulk sync at the start")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
+    p = sub.add_parser("user", help="the web app's login: add | passwd | list | remove")
+    p.add_argument("action", choices=["add", "passwd", "list", "remove"])
+    p.add_argument("name", nargs="?")
+    p = sub.add_parser("serve", help="run the web app (API, frontend, review worker, sync scheduler)")
+    p.add_argument("--host")
+    p.add_argument("--port", type=int)
     p = sub.add_parser("review", help="open the review tool: approve each photo's changes and apply them")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true", help="don't open a browser window")
@@ -335,7 +393,7 @@ def main(argv=None):
     cfg = load_config(args.config)
     store = Store(cfg["database"])
     {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
-     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
+     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 
 if __name__ == "__main__":

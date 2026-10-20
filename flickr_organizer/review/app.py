@@ -7,6 +7,7 @@ import json
 import queue
 import re
 import threading
+import time
 from collections import deque
 
 from ..apply import apply_changes, outcomes
@@ -21,16 +22,23 @@ class ReviewApp:
     background worker makes the Flickr (and vision) calls in order, so the rate limit
     holds, and records the outcome. Photos left "applying" when the tool stopped resume.
 
-    cfg/provider are needed only to process photos from the viewer; provider is a
-    zero-argument factory so the vision SDK loads on first use."""
+    cfg/provider are needed only to process photos and sync; provider is a zero-argument
+    factory so the vision SDK loads on first use.
+
+    Each thread gets its own connection to the database (sqlite connections belong to the
+    thread that opened them), so this can serve a threaded web server."""
 
     def __init__(self, store, client, log=lambda *a: None, background: bool = True,
                  cfg: dict | None = None, provider=None, process_kw: dict | None = None):
-        self.store, self.client, self.log = store, client, log
+        self._store_type, self._store_path = type(store), store.path
+        self._local = threading.local()
+        self._local.store = store
+        self.client, self.log = client, log
         self.background = background
         self.cfg, self._provider_factory, self._provider = cfg, provider, None
         self.process_kw = process_kw or {}
-        self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply" | "process", photo_id)
+        self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
+        self.syncing = False
         self.processing: set[str] = set()
         self.recent: deque[dict] = deque(maxlen=20)   # finished jobs, newest last
         self._seq = 0
@@ -39,6 +47,22 @@ class ReviewApp:
             threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
             for pid in reversed(store.queue_ids(["applying"])):   # oldest first
                 self.jobs.put(("apply", pid))
+
+    @property
+    def store(self):
+        s = getattr(self._local, "store", None)
+        if s is None:
+            s = self._local.store = self._store_type(self._store_path)
+        return s
+
+    def sync(self, mode: str | None = None) -> dict:
+        """Queue a sync (whatever's due, or mode: full | photo_list | incremental). Returns at once."""
+        if self.cfg is None:
+            raise RuntimeError("syncing isn't available in this session")
+        if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        self.jobs.put(("sync", mode or ""))
+        return {"status": "queued"}
 
     def summary(self) -> dict:
         counts = self.store.queue_counts()
@@ -124,32 +148,56 @@ class ReviewApp:
 
     def jobs_status(self, since: int = 0) -> dict:
         return {"applying": self.store.queue_counts().get("applying", 0), "processing": len(self.processing),
-                "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
+                "syncing": self.syncing, "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
     def wait(self) -> None:
         """Block until every queued job is done (tests, shutdown)."""
         self.jobs.join()
 
     def _worker(self) -> None:
-        # sqlite connections belong to one thread, so the worker opens its own.
-        store = type(self.store)(self.store.path)
+        store = self.store   # this thread's own connection
         while True:
             kind, pid = self.jobs.get()
             try:
-                out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
+                if kind == "sync":
+                    out = self._sync(store, pid or None)
+                else:
+                    out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
                 if kind == "apply":   # keep it under Failed to retry
                     store.queue_finish(pid, "failed", {"error": str(e)})
+                if kind == "sync":
+                    store.set_meta("last_sync_result", json.dumps({"error": str(e), "at": int(time.time())}))
                 self.processing.discard(pid)
+                self.syncing = False
                 out = {"status": "failed", "error": str(e)}
             finally:
                 self.jobs.task_done()
-            photo = store.photo(pid)
+            photo = store.photo(pid) if kind != "sync" else None
             self._seq += 1
             self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
-                                "title": (photo["title"] if photo else "") or pid,
+                                "title": "sync" if kind == "sync" else (photo["title"] if photo else "") or pid,
                                 "applied": out.get("stats", {}).get("applied", 0),
                                 "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", "")})
+
+    def _sync(self, store, mode: str | None) -> dict:
+        from ..pipeline import process
+        from ..schedule import run_due
+
+        self.syncing = True
+        try:
+            out = run_due(self.cfg, self.client, store, force=mode, log=self.log)
+            if self.cfg["web"]["process_new"] and self._provider_factory:
+                new = store.unqueued_ids()[:200]   # newest first; the rest next time
+                if new:
+                    if self._provider is None:
+                        self._provider = self._provider_factory()
+                    out["processed"] = process(self.cfg, store, self.client, self._provider, photo_ids=new,
+                                               log=lambda *a: None, **self.process_kw)
+            store.set_meta("last_sync_result", json.dumps({**out, "at": int(time.time())}, default=str))
+        finally:
+            self.syncing = False
+        return {"status": "done", **out}
 
     def _process(self, store, photo_id: str) -> dict:
         from ..pipeline import process

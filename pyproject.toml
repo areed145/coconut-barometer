@@ -10,6 +10,9 @@ dependencies = [
     "reverse_geocoder>=1.5",
     "pycountry>=22",
     "anthropic>=0.40",
+    "fastapi>=0.156.1",
+    "uvicorn>=0.54.0",
+    "argon2-cffi>=25.1.0",
 ]
 
 [project.optional-dependencies]
@@ -17,7 +20,9 @@ openai = ["openai>=1.40"]   # also used for Ollama / other OpenAI-compatible ser
 
 # `uv sync` installs the project (editable) plus the dev group; `uv sync --no-dev` for a server.
 [dependency-groups]
-dev = []
+dev = [
+    "httpx>=0.28.1",
+]
 
 [project.scripts]
 flickr-organizer = "flickr_organizer.cli:main"
@@ -31,3 +36,4 @@ include = ["flickr_organizer*"]
 
 [tool.setuptools.package-data]
 "flickr_organizer.review" = ["static/*"]
+"flickr_organizer.web" = ["static/*", "static/**/*"]

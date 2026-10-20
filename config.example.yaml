@@ -377,3 +377,24 @@ standard_tags:
   filler:
     enabled: false
     tags: [photography, photo, photos, flickr, awesome, cool, spectacular, personal, travel, world]
+
+# How often each kind of sync runs (`sync` and the web app's scheduler do whatever is due).
+schedule:
+  full_every_days: 7            # everything (~180 calls for 10k photos)
+  photo_list_every_hours: 24    # every photo re-read: view counts + the daily snapshot (~22 calls)
+  stats: true                   # per-day stats from Flickr (Pro): yesterday, plus backfill
+  backfill_days_per_run: 7      # older days per run, until Flickr has none (~6 calls a day)
+
+# The web app (`flickr-organizer serve`). Create the login first: `flickr-organizer user add <name>`.
+# On a server keep host 127.0.0.1 and put Caddy (HTTPS) in front; secrets can come from the
+# environment instead of this file: FLICKR_API_KEY, FLICKR_API_SECRET, ANTHROPIC_API_KEY.
+web:
+  host: 127.0.0.1
+  port: 8000
+  allowed_hosts: [localhost, 127.0.0.1]   # add your domain, e.g. photos.example.com
+  secure_cookies: true          # false only for http://localhost testing
+  session_days: 14
+  sync_every_minutes: 60        # 0 turns the scheduler off
+  process_new: false            # also queue new photos for review after each sync (vision costs)
+  api_docs: false               # /api/docs, behind the login
+  trusted_proxies: [127.0.0.1]  # where X-Forwarded-For / -Proto are believed from (Caddy)

@@ -33,6 +33,32 @@ Every command checks `config.yaml` when it starts and stops with a list of probl
 
 Edit `config.yaml` so that the category `album:` names, US state `title:` format, and `cities:` match the albums you already have. Albums are matched by title, ignoring case, accents and punctuation. If a title doesn't match, that album is skipped. Nothing gets created unless you set `albums.create_missing: true`.
 
+## Web app
+
+```bash
+flickr-organizer user add <name>     # the login (password prompt; 12+ characters)
+flickr-organizer serve               # http://127.0.0.1:8000
+```
+
+A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (approvals and processing, as in `review`) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
+
+Every API route except login needs a session. It's built to be reachable from the internet (behind HTTPS):
+
+- one owner login, password hashed with argon2id; failed logins are throttled per IP and per username
+- the session cookie is HttpOnly, SameSite=Strict and Secure; only a hash of its token is stored, so a copy of the database can't be used to log in; a new password signs out every session
+- every request that changes something needs the session's CSRF token (`X-CSRF-Token`)
+- a strict Content-Security-Policy (scripts and styles from the app only), no framing, HSTS, and only `web.allowed_hosts` are accepted
+- secrets can come from the environment (`FLICKR_API_KEY`, `FLICKR_API_SECRET`, `ANTHROPIC_API_KEY`) instead of config.yaml
+- `serve` refuses to start without a login, and refuses to listen beyond localhost without secure cookies
+
+| API | |
+|---|---|
+| `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | login (returns the CSRF token) |
+| `GET /api/photos?q=&sort=&media=&album=&limit=&offset=`, `/api/photos/{id}`, `/api/albums`, `/api/albums/{id}` | gallery: image sizes up to 2048 px, EXIF, albums, engagement |
+| `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/decide`, `POST /items/{id}/process`, `/jobs`, `/find` | the review queue |
+| `/api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves, comments over time |
+| `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
+
 ## Workflow: review photo by photo
 
 ```bash
