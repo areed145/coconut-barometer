@@ -7,3 +7,10 @@ __pycache__/
 *.db-wal
 *.egg-info/
 .DS_Store
+backups/
+*.db.gz
+restore.db*
+restored-*
+*.before-restore-*
+*.key
+.env*
