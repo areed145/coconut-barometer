@@ -1,0 +1,9 @@
+.venv/
+*.db
+config.yaml
+plans/
+__pycache__/
+*.db-shm
+*.db-wal
+*.egg-info/
+.DS_Store

@@ -1,0 +1,380 @@
+# Copy to config.yaml and edit. config.yaml holds your API keys, so it's gitignored.
+
+flickr:
+  api_key: ""            # https://www.flickr.com/services/apps/create/
+  api_secret: ""
+  # Flickr allows 3600 calls/hour per key. 0.9/sec (3240/hour) leaves headroom.
+  calls_per_second: 2
+
+database: flickr_organizer.db   # local state: photo cache, classifications, decisions
+output_dir: plans               # where plan CSV + review HTML are written
+
+albums:
+  # Your albums mostly exist already, so by default the tool only adds photos to
+  # albums whose title it can find. Set true to also propose creating missing ones.
+  create_missing: false
+
+geo:
+  enabled: true
+  # Flickr geo accuracy: 1=world, 3=country, 6=region, 11=city, 16=street (phone GPS).
+  min_accuracy:
+    country: 1
+    state: 6
+    city: 11
+  countries:
+    # Match the country name (e.g. "Japan", "South Korea") to an existing album title.
+    auto_match: true
+    # ISO code -> your album title(s), for when your album names differ.
+    aliases:
+      US: "United States"
+      GB: "U.K."
+      # Your multi-country trip albums
+      AR: "Argentina, Chile, Uruguay"
+      CL: "Argentina, Chile, Uruguay"
+      UY: "Argentina, Chile, Uruguay"
+      HR: "Croatia, Bosnia, Montenegro"
+      BA: "Croatia, Bosnia, Montenegro"
+      ME: "Croatia, Bosnia, Montenegro"
+      EC: "Galapagos, Ecuador"
+      HU: "Hungary, Slovakia"
+      SK: "Hungary, Slovakia"
+      IL: "Israel, West Bank, Golan"
+      PS: "Israel, West Bank, Golan"
+      SY: "Israel, West Bank, Golan"   # Golan Heights can geocode to Syria; you have no Syria album
+      TH: "Thailand, Vietnam, Laos, Cambodia, Myanmar"
+      VN: "Thailand, Vietnam, Laos, Cambodia, Myanmar"
+      LA: "Thailand, Vietnam, Laos, Cambodia, Myanmar"
+      KH: "Thailand, Vietnam, Laos, Cambodia, Myanmar"
+      MM: "Thailand, Vietnam, Laos, Cambodia, Myanmar"
+      HK: "China"
+      MO: "China"
+      # Leeward Islands: Antigua & Barbuda, St Kitts & Nevis, Montserrat, Anguilla,
+      # BVI, USVI, St Martin / Sint Maarten, St Barths, Guadeloupe
+      AG: "Leeward Islands"
+      KN: "Leeward Islands"
+      MS: "Leeward Islands"
+      AI: "Leeward Islands"
+      VG: "Leeward Islands"
+      VI: "Leeward Islands"
+      MF: "Leeward Islands"
+      SX: "Leeward Islands"
+      BL: "Leeward Islands"
+      GP: "Leeward Islands"
+  us_states:
+    enabled: true
+    title: "{state}"      # matches your Arizona, California, Texas, ... albums
+  # Cities are matched by distance, which is more reliable than place names.
+  # "Sierras" is too long and thin for a circle, so it's left to you.
+  cities:
+    - album: "Bakersfield"
+      lat: 35.3733
+      lon: -119.0187
+      radius_km: 25
+    - album: "Houston"
+      lat: 29.7604
+      lon: -95.3698
+      radius_km: 50
+    - album: "Coachella Valley"     # Palm Springs to Indio
+      lat: 33.7700
+      lon: -116.3500
+      radius_km: 30
+    - album: "Death Valley"         # Furnace Creek
+      lat: 36.4570
+      lon: -116.8660
+      radius_km: 60
+    - album: "Monterey Bay"
+      lat: 36.8000
+      lon: -121.9000
+      radius_km: 35
+    - album: "Mt. Whitney"          # summit; covers the trail and Whitney Portal
+      lat: 36.5785
+      lon: -118.2923
+      radius_km: 15
+  add_tags: false         # also add tags like "japan", "texas", "austin"
+
+# Optional: retitle photos that still have a generic name (IMG_1234, DSC01234,
+# PXL_2024…, 20240101_123456, "Untitled", blank) with where they were taken.
+# Photos you've titled yourself are never touched.
+rename:
+  enabled: true
+  min_accuracy: 11              # needs city-level geotag precision
+  us_format: "{city}, {state_abbr}"     # "Houston, TX"
+  intl_format: "{city}, {country}"      # "Luanda, Angola"
+  # Available fields: {city} {state} {state_abbr} {region} {country} {cc}
+  # Cities defined under geo.cities win over the nearest town, so a photo in a
+  # suburb reads "Austin, TX". Give a city `name:` if it should differ from its album.
+  fallback_to_region: false     # if precision is only region-level, use the formats below
+  us_region_format: "{state}"
+  intl_region_format: "{region}, {country}"
+  extra_generic_patterns: []    # more regexes for titles you consider generic, e.g. "Trip \\d+"
+
+vision:
+  enabled: true
+  provider: claude        # claude | openai | ollama
+  model: claude-haiku-5-5 # cheapest; use claude-sonnet-5-5 for harder judgement calls
+  api_key: ""            # Anthropic or OpenAI key (https://console.anthropic.com/); not needed for ollama
+  # base_url: http://localhost:11434/v1   # for ollama / other OpenAI-compatible servers
+  thumbnail: url_m        # Flickr size: url_q (150 sq), url_n (320), url_m (500), url_z (640)
+  concurrency: 4
+  min_confidence: 0.6    # categories below this are not proposed
+  use_photo_text: true    # give the model your title/description/tags as context
+  use_location: true      # give it the town/state/country from the geotag (helps name landmarks)
+  include_videos: true    # classify videos from their preview frame
+  extra_tags:
+    enabled: true         # let the model suggest descriptive tags (e.g. "ramen", "heron")
+    max: 8                # room for landmarks, aircraft types and species
+    prefix: ""            # e.g. "ai:" if you want to tell them apart later
+  # Write a description for photos whose description is blank. Photos with any
+  # description of yours are never touched.
+  # `instructions` is the brief the model gets; edit it freely ({max_words} is filled
+  # in). Delete it to use the built-in default. Whatever it says, the model is also told
+  # never to guess a location or name a person. Editing it re-runs the model once for
+  # the photos it applies to (~$0.0006 each); turning this off keeps the cache.
+  describe:
+    enabled: true
+    max_words: 40
+    # Re-word descriptions this tool wrote earlier (still exactly as written) once the
+    # instructions change. Ones you wrote or edited yourself are never touched.
+    reword: true
+    instructions: >
+      Write the description for the photo's Flickr page, like a short caption beside a
+      print in a gallery: 1-2 sentences, at most {max_words} words. Notice what makes
+      this frame worth looking at - the light, color, texture, scale, composition, the
+      mood or the moment - and the specific place. Be concrete and observant; one
+      precise detail is better than several adjectives. Keep the tone understated: no
+      superlatives or travel-brochure words ("stunning", "breathtaking", "majestic",
+      "nestled", "vibrant", "hidden gem", "tapestry"), no exclamation marks, and don't
+      start with "This photo", "This image" or "A view of".
+  # Propose a better title. `replace` decides which existing titles it may replace:
+  #   generic           only camera file names and blank titles (IMG_1234, DSC01234.JPG)
+  #   generic_or_place  also titles that just name the place, maybe numbered
+  #                     ("Seattle, WA", "Luanda, Angola", "Bellagio 175")
+  #   all               every photo (you still approve each one)
+  # Titles with words of your own ("Ramen in Tokyo") are kept unless replace is "all".
+  # When the model proposes a title, it wins over the rename section's "City, ST".
+  title:
+    enabled: true
+    max_words: 8
+    replace: generic_or_place
+    instructions: >
+      Propose a title for the photo, like the title of a print in an exhibition: 2 to
+      {max_words} words, specific and quietly evocative, naming the subject, the moment
+      or the light rather than describing the whole frame. Include the place when it
+      helps, e.g. "Low Tide, Alki Beach", "Fog Lifting off Puget Sound", "Last Light on
+      the Treasury, Petra". No hype words, no quotation marks or ending punctuation, no
+      file names.
+  # One entry per album you want filled by subject. The description is what the
+  # model sees, so be specific about edge cases.
+  categories:
+    food:
+      album: "Food"
+      description: >
+        Food or drink is a main subject: plated dishes, meals, desserts, baked goods,
+        cocktails, coffee, beer, market produce. NOT just a restaurant interior or a
+        person eating where the food is incidental.
+      tags: [food]
+    landscape:
+      album: "Landscapes"
+      description: >
+        Natural scenery is the main subject: mountains, coastlines, beaches, deserts,
+        forests, lakes, canyons, wide outdoor vistas, including aerial views of terrain
+        taken from an aircraft. Cityscapes and street scenes do not count.
+      tags: [landscapes]
+    sunsets:
+      album: "Sunsets / Sunrises"
+      description: >
+        The sun is at or near the horizon and the sky is lit in sunset/sunrise colors
+        (orange, pink, red, gold), or the sun itself is setting/rising in frame.
+        Silhouettes against such a sky count. Ordinary daytime blue sky does not.
+      tags: [sunset]
+    clouds:
+      album: "Clouds"
+      description: >
+        Clouds or the sky are a main subject: dramatic cloud formations, storms,
+        rain shafts, cumulus towers, cloud layers seen from an aircraft. NOT a photo
+        that just happens to have some clouds in the background.
+      tags: [clouds]
+    animals:
+      album: "Animals"
+      description: >
+        A living animal (wild, pet, farm, zoo, bird, insect, marine life, fish) is a
+        main subject and clearly visible. Statues or carvings of animals do not count.
+      tags: [animals]
+    plants:
+      album: "Plants"
+      description: >
+        A plant is a main subject: flowers, trees, cacti, leaves, succulents, gardens,
+        palms, close-ups of foliage. A forest or field seen as distant scenery is a
+        landscape, not a plant photo.
+      tags: [plants]
+    flowers:
+      album: "Flowers"
+      description: >
+        One or more flowers/blossoms are a main subject, usually close up. Green
+        foliage or cacti without blooms do not count.
+      tags: [flowers]
+    hibiscus:
+      album: "Hibiscus"
+      description: >
+        A hibiscus flower (large, five-petaled tropical bloom with a long protruding
+        central stamen column) is a main subject. Score other flowers low.
+      tags: [hibiscus]
+    architecture:
+      album: "Architecture"
+      description: >
+        A building, bridge, monument, ruin, church, temple, skyline, interior space,
+        or architectural detail is the main subject.
+      tags: [architecture]
+    people:
+      album: "People"
+      description: >
+        One or more people are a main subject: portraits, locals, street life, friends,
+        groups, crowds at an event. NOT tiny distant figures in a landscape.
+      tags: [people]
+    text:
+      album: "Text"
+      description: >
+        Written text is a main subject and legible: signs, street signs, plaques,
+        menus, posters, billboards, notices, labels, lettering on a wall. NOT text
+        that is a small incidental part of the frame.
+      tags: [text]
+    music:
+      album: "Music"
+      description: >
+        Live music or musicians: concerts, festival stages, bands, street musicians,
+        people playing instruments, or a musical instrument as the subject.
+      tags: [music, concerts]
+    vehicles:
+      album: "Vehicles"
+      description: >
+        A vehicle is a main subject: cars, trucks, buses, motorcycles, tuk-tuks,
+        trains, boats, ships, and aircraft. NOT a street scene where vehicles are
+        just passing in the background.
+      tags: [vehicles]
+    aviation:
+      album: "Aviation"
+      description: >
+        Anything about flying: airplanes, helicopters, gliders or paragliders (on the
+        ground or in the air), cockpits and instrument panels, airports and runways,
+        airshows, and photos taken from an aircraft in flight where a wing, strut,
+        propeller or window frame is visible.
+      tags: [aviation]
+    military_aviation:
+      album: "Military Aviation"
+      description: >
+        A military aircraft is a main subject: fighters, bombers, warbirds (P-51,
+        Spitfire, B-17, Corsair, etc.), military jets, transports or helicopters in
+        military markings or camouflage, military airshow demo teams (Blue Angels,
+        Thunderbirds). Civilian planes do not count.
+      tags: [military, aviation]
+    soaring:
+      album: "Soaring"
+      description: >
+        A glider/sailplane (long thin wings, no engine), a tow plane launching one,
+        or the view from a glider cockpit. Powered light aircraft do not count.
+      tags: [soaring, glider]
+    paragliding:
+      album: "Paragliding"
+      description: >
+        Paragliding or hang gliding: a paraglider canopy/wing in the air or laid out
+        on a launch hill, pilots in harnesses, or the view from under a paraglider.
+      tags: [paragliding]
+    sailing:
+      album: "Sailing"
+      description: >
+        Sailboats or sailing: a sailing yacht or catamaran is a main subject, or the
+        photo is taken aboard one (sails, rigging, mast, deck visible). Motorboats,
+        ferries and cruise ships do not count.
+      tags: [sailing]
+    scuba:
+      album: "Scuba"
+      description: >
+        The photo was taken underwater: reefs, fish, divers, wrecks, kelp. Also
+        divers in scuba gear at the surface or on a dive boat.
+      tags: [scuba, underwater]
+    fishing:
+      album: "Fishing"
+      description: >
+        Fishing: someone holding a fish they caught, rods, reels, lures, people
+        casting, fishing boats in use. A fish swimming underwater does not count
+        (that's scuba/animals).
+      tags: [fishing]
+    # "Style" (571 photos) is your "artistic shot" album: reflections, silhouettes,
+    # odd angles, bold color. That's a judgement call the model will make very
+    # differently from you, so it's off. Uncomment to try it on a small batch.
+    style:
+      album: "Style"
+      description: >
+        An artistic, deliberately composed shot where the composition itself is the
+        point: strong reflections, silhouettes, symmetry, abstract patterns, bold
+        color, unusual angles, shallow depth of field. NOT an ordinary snapshot.
+      tags: [style]
+
+# Tags you apply by convention. Each group has its own flag. They only ever add,
+# skip tags a photo already has, and all go into the photo's single add_tags row
+# in the plan, so it's still one Flickr call per photo.
+standard_tags:
+  max_tags_per_photo: 75      # Flickr's limit; groups lower in this list drop off first
+
+  # 3. Date, from the date taken. Fields: {year} {month} {day} {season}
+  #    Seasons follow the northern calendar (Dec-Feb winter), as your tags do.
+  date:
+    enabled: true
+    formats: ["y{year}", "m{month:02d}", "d{day:02d}"]   # your newer style: y2019 m07 d17
+    # formats: ["{year}", "{season}"]                    # your older style: 2011 summer
+    skip_if_dated: true       # skip photos that already have y2019 or 2019
+
+  # 5. Place, from the geotag (uses geo.min_accuracy for country/state/city).
+  #    e.g. unitedstates americas northamerica california ca bakersfield
+  place:
+    enabled: true
+    country: true
+    regions: true             # americas+southamerica, europe+westerneurope, asia+middleeast, ...
+    state: true               # state/province for every country (rajasthan, distritofederal)
+    state_abbr: true          # US only: ca, tx
+    city: true                # nearest town, or your geo.cities name
+    split_words: false        # also add each word of multi-word names: united states
+    extra:                    # more tags by country code, country or state name
+      California: [west, coast, pacific]
+    region_overrides: {}      # e.g. MX: [americas, centralamerica]
+
+  # 6. Camera, from EXIF. Run `python -m flickr_organizer camera` first (one call per
+  #    photo, cached; `run` keeps it up to date). Tags are the words of Flickr's camera
+  #    name: "Nikon D90" -> nikon d90, "Apple iPhone X" -> apple iphone x.
+  camera:
+    enabled: true
+    name_words: true
+    rules:                    # extra tags when the camera name matches (regex)
+      - match: "iphone"
+        tags: [mobile, cellphone, phone, onthego, snapshot]
+    albums:                   # also add to your camera albums
+      - {match: "^nikon", album: "Nikon"}
+      - {match: "^canon", album: "Canon"}
+      - {match: "^sony", album: "Sony"}
+      - {match: "iphone", album: "iPhone"}
+
+  # 7. Album tags: every photo in an album gets that album's tag, the way your
+  #    style/text/favorite tags already mirror their albums. best/overall/5star
+  #    don't match any album, so they stay manual.
+  album_tags:
+    enabled: false
+    from_categories: true     # use each vision category's album -> tags (Landscapes -> landscapes, ...)
+    albums:
+      Favorites: [favorite]
+      California Favorites: [californiafavorites]
+
+  # 4. Coordinates: whole degrees x10, no sign. 30.35, -95.42 -> lat300 lon950
+  coords:
+    enabled: false
+    formats: ["lat{lat}", "lon{lon}"]
+    min_accuracy: 6
+
+  # 1. Your name and handles. Off: only helps people who already know you.
+  owner:
+    enabled: false
+    tags: [adam, reeder, adamreeder, areed145, kk6gpv, coconutbarometer, wwwkk6gpvnet, wwwadammreedercom]
+
+  # 2. Generic words you add to most photos. Off: nobody searches for them and they use up the 75-tag limit.
+  filler:
+    enabled: false
+    tags: [photography, photo, photos, flickr, awesome, cool, spectacular, personal, travel, world]

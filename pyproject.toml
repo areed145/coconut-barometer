@@ -1,0 +1,26 @@
+[project]
+name = "flickr-organizer"
+version = "0.1.0"
+description = "Auto-tag and album-sort a Flickr library using geotags and vision LLMs"
+requires-python = ">=3.10"
+dependencies = [
+    "flickrapi>=2.4",
+    "pyyaml>=6",
+    "requests>=2.28",
+    "reverse_geocoder>=1.5",
+    "pycountry>=22",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.40"]   # also used for Ollama / other OpenAI-compatible servers
+
+[project.scripts]
+flickr-organizer = "flickr_organizer.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["flickr_organizer", "flickr_organizer.vision"]

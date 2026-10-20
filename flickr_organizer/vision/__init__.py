@@ -1,0 +1,40 @@
+"""Pluggable vision providers.
+
+A provider implements one method:
+
+    classify(image: bytes, media_type: str, prompt: str, schema: dict) -> dict
+
+and returns a dict matching `schema`. To add a provider, subclass VisionProvider,
+then register it in PROVIDERS below.
+"""
+from __future__ import annotations
+
+from .base import VisionProvider
+from .claude import ClaudeProvider
+from .openai_compat import OpenAICompatProvider
+
+PROVIDERS = {
+    "claude": ClaudeProvider,
+    "anthropic": ClaudeProvider,
+    "openai": OpenAICompatProvider,
+    "ollama": OpenAICompatProvider,
+}
+
+
+def make_provider(vcfg: dict) -> VisionProvider:
+    name = vcfg["provider"].lower()
+    if name not in PROVIDERS:
+        raise SystemExit(f"Unknown vision provider '{name}'. Options: {', '.join(PROVIDERS)}")
+    kwargs = {"model": vcfg["model"], "api_key": vcfg.get("api_key") or None}
+    if name == "ollama":
+        kwargs["base_url"] = vcfg.get("base_url") or "http://localhost:11434/v1"
+        kwargs["api_key"] = kwargs["api_key"] or "ollama"
+    else:
+        if not kwargs["api_key"]:
+            raise SystemExit(f"Missing vision.api_key in config.yaml (required for provider '{name}').")
+        if vcfg.get("base_url"):
+            kwargs["base_url"] = vcfg["base_url"]
+    return PROVIDERS[name](**kwargs)
+
+
+__all__ = ["VisionProvider", "make_provider", "PROVIDERS"]
