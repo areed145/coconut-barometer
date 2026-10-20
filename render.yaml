@@ -1,0 +1,38 @@
+# Render Blueprint: Dashboard → New → Blueprint → this repository.
+# Needs a paid instance (persistent disk; free instances sleep and lose files).
+services:
+  - type: web
+    name: flickr-organizer
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: 1c-2g                 # 1 CPU, 2 GB: a full-library plan peaks around 400 MB (0.5c-512mb is too tight)
+    region: oregon
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    disk:
+      name: data
+      mountPath: /var/data      # the database, Flickr login, rate-limit file, backups
+      sizeGB: 5
+    envVars:
+      - key: FLICKR_ORGANIZER_DATA
+        value: /var/data
+      # Encrypts API keys stored in the database. If you bring your existing database,
+      # replace this with your local key (~/.config/flickr-organizer/secret.key).
+      - key: FLICKR_ORGANIZER_SECRET_KEY
+        generateValue: true
+      # The first login, created on first start if there's no user yet. Change the password
+      # in Settings → Account afterwards, then delete both.
+      - key: FLICKR_ORGANIZER_ADMIN_USER
+        sync: false
+      - key: FLICKR_ORGANIZER_ADMIN_PASSWORD
+        sync: false
+      # Your custom domain(s), comma-separated. The onrender.com name is allowed automatically.
+      - key: FLICKR_ORGANIZER_ALLOWED_HOSTS
+        sync: false
+      # API keys: here, or set them in Settings once you're in (stored encrypted).
+      - key: FLICKR_API_KEY
+        sync: false
+      - key: FLICKR_API_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

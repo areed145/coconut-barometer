@@ -1,5 +1,5 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, toast, ago, day } from "./lib.js";
+import { html, useState, useEffect, api, download, toast, ago, day } from "./lib.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
 const lines = (v) => (v || []).join("\n");
@@ -114,6 +114,45 @@ function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
   </div>`;
 }
 
+function FlickrPanel() {
+  const [s, setS] = useState(null);
+  useEffect(() => { api("/api/admin/flickr").then(setS).catch(() => setS({ connected: false })); }, []);
+  const connect = async () => {
+    try { const { url } = await api("/api/admin/flickr/connect", { method: "POST" }); location.href = url; }
+    catch (e) { toast(e.message); }
+  };
+  if (!s) return null;
+  return html`<div class="card"><h2>Flickr account</h2>
+    <p>${s.connected ? html`<b class="up">Connected</b>${s.nsid && html` <span class="muted">as ${s.nsid}</span>`}`
+      : html`<b class="problem">Not connected</b>`}</p>
+    ${!s.keys_set ? html`<p class="why">Set the Flickr API key and secret first.</p>`
+      : html`<button class=${s.connected ? "" : "primary"} onClick=${connect}>${s.connected ? "Reconnect" : "Connect Flickr"}</button>
+        <p class="why">Opens flickr.com to approve access (read and write), then brings you back here.</p>`}
+  </div>`;
+}
+
+function BackupsPanel() {
+  const [b, setB] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api("/api/admin/backups").then(setB);
+  useEffect(() => { load(); }, []);
+  const now = async () => { setBusy(true); try { const r = await api("/api/admin/backups", { method: "POST" }); toast("Backed up: " + r.name); load(); } catch (e) { toast(e.message); } setBusy(false); };
+  const download = async (name) => {
+    const password = prompt("Your password (a backup is the whole database):");
+    if (!password) return;
+    try { await download(`/api/admin/backups/${encodeURIComponent(name)}/download`, { password }, name); }
+    catch (e) { toast(e.status === 403 ? "Wrong password." : `Couldn't download (${e.message}).`); }
+  };
+  if (!b) return null;
+  return html`<div class="card"><h2>Backups</h2>
+    <p class="muted">${b.every_hours ? `Automatic every ${b.every_hours} h` : "Automatic backups are off"} · last ${ago(b.last_backup)}</p>
+    ${b.last_error && html`<p class="problem">Last problem: ${b.last_error}</p>`}
+    ${b.backups.map((x) => html`<div class="sessionrow" key=${x.name}><span>${x.name} <span class="muted">· ${(x.size / 1048576).toFixed(1)} MB · ${day(x.created_at)}</span></span>
+      <button class="link" onClick=${() => download(x.name)}>Download</button></div>`)}
+    <button onClick=${now} disabled=${busy}>${busy ? "Backing up…" : "Back up now"}</button>
+  </div>`;
+}
+
 function Account() {
   const [sessions, setSessions] = useState([]);
   const [log, setLog] = useState([]);
@@ -171,6 +210,8 @@ export function Admin() {
       ${section === "account" ? html`<${Account} />` : html`
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
+        ${section === "keys" && html`<${FlickrPanel} />`}
+        ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s) => html`<${Field} key=${s.path} s=${s} albums=${data.albums}
             value=${edits[s.path] !== undefined ? edits[s.path] : s.value} dirty=${edits[s.path] !== undefined}
             onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded} />`)}`}

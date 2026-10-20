@@ -35,6 +35,8 @@ Edit `config.yaml` so that the category `album:` names, US state `title:` format
 
 ## Web app
 
+To run it on Render from GitHub (HTTPS, a persistent disk, the hourly scheduler), see [docs/DEPLOY.md](docs/DEPLOY.md). Backups: `flickr-organizer backup` (and `backup --list`), `restore <file>` with the app stopped; on a server, drop a backup into the data directory as `restore.db.gz` and restart.
+
 ```bash
 flickr-organizer user add <name>     # the login (password prompt; 12+ characters)
 flickr-organizer serve               # http://127.0.0.1:8000

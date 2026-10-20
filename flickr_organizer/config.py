@@ -64,6 +64,11 @@ DEFAULTS: dict[str, Any] = {
         "stats": True,               # per-day stats (Flickr Pro): yesterday, plus backfill
         "backfill_days_per_run": 7,  # older days fetched per run until Flickr has none (~6 calls/day)
     },
+    "backup": {
+        "every_hours": 24,            # the web app's scheduler makes one this often; 0 = off
+        "keep": 7,                    # newest kept; older deleted
+        "dir": None,                  # default: backups/ next to the database
+    },
     "web": {
         "host": "127.0.0.1",          # behind a reverse proxy (Caddy) on a server; never 0.0.0.0 bare
         "port": 8000,
@@ -92,7 +97,7 @@ DEFAULTS: dict[str, Any] = {
 FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra"),
              ("standard_tags", "place", "region_overrides"), ("standard_tags", "album_tags", "albums")}
 # Settings whose default is None but that take a value.
-OPTIONAL = {("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
+OPTIONAL = {("backup", "dir"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str, ("rename", "generic_patterns"): list}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
@@ -104,6 +109,7 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("standard_tags", "max_tags_per_photo"): (1, 75), ("rename", "min_accuracy"): (1, 16),
           ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
+          ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60)}
 
 # Secrets can come from the environment instead of config.yaml (on a server, keep them there).
@@ -298,10 +304,30 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
+def data_dir(environ=os.environ) -> Path | None:
+    """FLICKR_ORGANIZER_DATA: where a server keeps everything that must persist (on Render,
+    the disk's mount path): the database, the Flickr login, the rate-limit file, backups."""
+    d = environ.get("FLICKR_ORGANIZER_DATA")
+    return Path(os.path.expanduser(d)) if d else None
+
+
+def database_path(cfg_path: str | os.PathLike, raw: dict, environ=os.environ) -> str:
+    """FLICKR_ORGANIZER_DATABASE, else config.yaml's `database`, else the data directory's,
+    else the default; relative paths are relative to config.yaml's folder."""
+    db = environ.get("FLICKR_ORGANIZER_DATABASE") or raw.get("database")
+    if not db and data_dir(environ):
+        return str(data_dir(environ) / DEFAULTS["database"])
+    db = db or DEFAULTS["database"]
+    return db if os.path.isabs(db) else str(Path(cfg_path).resolve().parent / db)
+
+
 def read_raw(path: str | os.PathLike) -> dict:
-    """The YAML exactly as written (no defaults)."""
+    """The YAML exactly as written (no defaults). On a server (FLICKR_ORGANIZER_DATA set),
+    config.yaml is optional: everything else comes from the admin page and the environment."""
     p = Path(path)
     if not p.exists():
+        if data_dir():
+            return {}
         raise SystemExit(f"Config not found: {p}. Copy config.example.yaml to config.yaml first.")
     try:
         raw = yaml.safe_load(p.read_text()) or {}
@@ -332,11 +358,7 @@ def load_config(path: str | os.PathLike, admin: bool = True) -> dict:
     if errors:
         raise SystemExit(f"{p} has {len(errors)} problem(s):\n" + "\n".join(f"  - {e}" for e in errors)
                          + "\nRun `python -m flickr_organizer check` for details.")
-    # Resolve relative paths against the config file's folder.
-    base = p.resolve().parent
-    for key in ("database",):
-        if not os.path.isabs(cfg[key]):
-            cfg[key] = str(base / cfg[key])
+    cfg["database"] = database_path(p, raw)
     return cfg
 
 
@@ -351,7 +373,45 @@ def apply_env(raw: dict, environ=os.environ) -> dict:
         for key in path[:-1]:
             node = node.setdefault(key, {}) if isinstance(node.get(key), dict) or key not in node else node[key]
         node[path[-1]] = value
+    return apply_platform(raw, environ)
+
+
+def apply_platform(raw: dict, environ=os.environ) -> dict:
+    """Hosting platforms set their own variables. On Render: listen on 0.0.0.0:$PORT behind
+    its TLS proxy (trusted for X-Forwarded-*; it puts the real client address first), and
+    accept the service's own host name. FLICKR_ORGANIZER_ALLOWED_HOSTS adds more (comma-separated,
+    e.g. your custom domain). Secure cookies stay on."""
+    web = raw.setdefault("web", {}) if isinstance(raw.get("web", {}), dict) else raw["web"]
+    if not isinstance(web, dict):
+        return raw
+    if environ.get("PORT", "").isdigit():
+        web["port"] = int(environ["PORT"])
+    extra = [h.strip() for h in environ.get("FLICKR_ORGANIZER_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    if environ.get("RENDER_EXTERNAL_HOSTNAME"):
+        extra.append(environ["RENDER_EXTERNAL_HOSTNAME"])
+    if extra:
+        hosts = list(web.get("allowed_hosts", DEFAULTS["web"]["allowed_hosts"]))
+        web["allowed_hosts"] = hosts + [h for h in extra if h not in hosts]
+    if environ.get("RENDER"):
+        web["host"] = "0.0.0.0"
+        web["trusted_proxies"] = ["*"]
+        web["secure_cookies"] = True
+    if not web:
+        raw.pop("web")
     return raw
+
+
+PLATFORM_ENV = {"web.port": "PORT", "web.allowed_hosts": "FLICKR_ORGANIZER_ALLOWED_HOSTS / RENDER_EXTERNAL_HOSTNAME",
+                "web.host": "RENDER", "web.trusted_proxies": "RENDER", "web.secure_cookies": "RENDER"}
+
+
+def platform_paths(environ=os.environ) -> dict[str, str]:
+    """Settings the platform's environment is setting right now (for the admin page)."""
+    on = {"web.port": environ.get("PORT", "").isdigit(),
+          "web.allowed_hosts": bool(environ.get("FLICKR_ORGANIZER_ALLOWED_HOSTS") or environ.get("RENDER_EXTERNAL_HOSTNAME")),
+          "web.host": bool(environ.get("RENDER")), "web.trusted_proxies": bool(environ.get("RENDER")),
+          "web.secure_cookies": bool(environ.get("RENDER"))}
+    return {p: PLATFORM_ENV[p] for p, yes in on.items() if yes}
 
 
 def from_dict(raw: dict) -> dict:

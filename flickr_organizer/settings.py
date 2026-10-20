@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import os
 import secrets as pysecrets
@@ -73,22 +74,35 @@ def set_path(raw: dict, path: str, value) -> None:
 
 
 # ---- encryption ------------------------------------------------------------------------
+def _key_from_text(text: str) -> bytes:
+    """A 32-byte key, as url-safe or standard base64 (`settings new-key`, a key file, or Render's
+    generateValue). Anything else (at least 32 characters) is turned into one with SHA-256."""
+    text = text.strip()
+    for decode in (base64.urlsafe_b64decode, base64.b64decode):
+        try:
+            key = decode(text + "=" * (-len(text) % 4))
+        except (ValueError, TypeError):
+            continue
+        if len(key) == 32:
+            return key
+    if len(text) < 32:
+        raise SystemExit(f"{KEY_ENV} is too short: use `flickr-organizer settings new-key` (or 32+ random characters)")
+    return hashlib.sha256(text.encode()).digest()
+
+
 def _key(create: bool) -> bytes | None:
     if os.environ.get(KEY_ENV):
-        key = base64.urlsafe_b64decode(os.environ[KEY_ENV])
-        if len(key) != 32:
-            raise SystemExit(f"{KEY_ENV} must be 32 bytes, url-safe base64 (e.g. from `flickr-organizer settings new-key`)")
-        return key
+        return _key_from_text(os.environ[KEY_ENV])
     path = Path(os.path.expanduser(os.environ.get(KEY_FILE_ENV) or DEFAULT_KEY_FILE))
     if path.exists():
-        return base64.urlsafe_b64decode(path.read_text().strip())
+        return _key_from_text(path.read_text())
     if not create:
         return None
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)   # readable only by you
     with os.fdopen(fd, "w") as f:
         f.write(base64.urlsafe_b64encode(AESGCM.generate_key(256)).decode())
-    return base64.urlsafe_b64decode(path.read_text().strip())
+    return _key_from_text(path.read_text())
 
 
 def new_key() -> str:
@@ -118,7 +132,10 @@ def hint(value: str) -> str:
 # ---- layering ------------------------------------------------------------------------
 def env_paths(environ=os.environ) -> dict[str, str]:
     """setting path -> the environment variable setting it."""
-    return {".".join(path): var for var, path in ENV_OVERRIDES.items() if environ.get(var)}
+    from .config import platform_paths
+
+    return {**{".".join(path): var for var, path in ENV_OVERRIDES.items() if environ.get(var)},
+            **platform_paths(environ)}
 
 
 def layer(file_raw: dict, store, environ=os.environ) -> tuple[dict, dict[str, str], list[str]]:
@@ -150,8 +167,9 @@ def layer(file_raw: dict, store, environ=os.environ) -> tuple[dict, dict[str, st
 def _store_for(cfg_path: str | os.PathLike, file_raw: dict):
     from .store import Store
 
-    db = os.environ.get("FLICKR_ORGANIZER_DATABASE") or file_raw.get("database") or DEFAULTS["database"]
-    db = db if os.path.isabs(db) else str(Path(cfg_path).resolve().parent / db)
+    from .config import database_path
+
+    db = database_path(cfg_path, file_raw)
     return Store(db) if os.path.exists(db) else None
 
 

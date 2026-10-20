@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import admin, analytics, auth, gallery, review, sync
@@ -56,13 +56,32 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     for module in (auth, gallery, review, analytics, sync, admin):
         app.include_router(module.router)
 
+    @app.get("/healthz", include_in_schema=False)
+    def healthz():
+        """For the platform's health checks: no login, no details."""
+        rt.store().db.execute("SELECT 1").fetchone()
+        return {"ok": True}
+
+    @app.get("/api/flickr/callback", name="flickr_callback", include_in_schema=False)
+    def flickr_callback(oauth_token: str = "", oauth_verifier: str = ""):
+        """Flickr sends the browser back here after you approve access. No session cookie
+        arrives (SameSite=Strict on a cross-site return), so it's accepted only for a login
+        this app started, in the last 10 minutes, once."""
+        try:
+            rt.flickr_login_finish(oauth_token, oauth_verifier)
+        except PermissionError as e:
+            return JSONResponse({"detail": str(e)}, status_code=400)
+        except Exception:
+            return JSONResponse({"detail": "Flickr didn't accept the login; start again from Settings"}, status_code=502)
+        return RedirectResponse("/#/settings", status_code=303)
+
     if web["api_docs"]:
         @app.get("/api/docs", include_in_schema=False, dependencies=[Depends(session)])
         def docs():
             return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Flickr Organizer API")
 
-    @app.get("/api/{rest:path}", include_in_schema=False)
-    def no_such_api(rest: str):
+    @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
+    def no_such_api(rest: str):   # any method: an unknown API address is a 404, not a 405
         return JSONResponse({"detail": "not found"}, status_code=404)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")

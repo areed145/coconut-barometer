@@ -4,9 +4,13 @@ Changing an API key or the password needs the current password again, so a stole
 session can't swap keys; wrong attempts count towards the login throttle."""
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from ... import backup as B
 from ... import settings as S
 from ...config import read_raw
 from ...settings_meta import SECTIONS
@@ -109,3 +113,46 @@ def end_session(sid: str, sess=Depends(session), db=Depends(store)):
         raise HTTPException(404, "no such session")
     db.delete_session(match[0]["token_hash"])
     return {"ok": True}
+
+
+class Confirm(BaseModel):
+    password: str = Field(max_length=1000)
+
+
+@router.get("/backups")
+def backups(rt=Depends(runtime), db=Depends(store)):
+    return {"backups": B.list_backups(rt.cfg), "every_hours": rt.cfg["backup"]["every_hours"],
+            "last_backup": int(db.get_meta("last_backup") or 0) or None, "last_error": db.get_meta("last_backup_error")}
+
+
+@router.post("/backups")
+def backup_now(rt=Depends(runtime), db=Depends(store)):
+    path = B.make_backup(rt.cfg)
+    db.set_meta("last_backup", int(time.time()))
+    return {"name": path.name}
+
+
+@router.post("/backups/{name}/download")
+def download_backup(name: str, body: Confirm, request: Request, sess=Depends(session), rt=Depends(runtime),
+                    db=Depends(store)):
+    """The whole database (comments, sessions, your password hash): password needed again."""
+    _confirm_password(rt, db, request, sess["username"], body.password)
+    try:
+        path = B.backup_path(rt.cfg, name)
+    except FileNotFoundError:
+        raise HTTPException(404, "no such backup")
+    return FileResponse(path, media_type="application/gzip", filename=name)
+
+
+@router.get("/flickr")
+def flickr_status(rt=Depends(runtime)):
+    return rt.flickr_status()
+
+
+@router.post("/flickr/connect")
+def flickr_connect(request: Request, sess=Depends(session), rt=Depends(runtime)):
+    callback = str(request.url_for("flickr_callback"))
+    try:
+        return {"url": rt.flickr_login_start(callback, sess["username"])}
+    except Exception as e:
+        raise HTTPException(502, f"Flickr didn't start the login: {e}")

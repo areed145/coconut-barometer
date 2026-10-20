@@ -1,0 +1,17 @@
+# Never in the image: your config, database, backups, keys, local environments.
+config.yaml
+*.db
+*.db-*
+*.db.gz
+backups/
+*.key
+.env*
+.venv/
+.git/
+plans/
+tests/
+**/__pycache__/
+*.egg-info/
+build/
+dist/
+.python-version

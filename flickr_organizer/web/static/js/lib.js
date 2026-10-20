@@ -27,6 +27,16 @@ export async function api(path, { method = "GET", body, params } = {}) {
   return data;
 }
 
+// POST, then save the response body as a file (e.g. a backup).
+export async function download(path, body, filename) {
+  const r = await fetch(path, { method: "POST", credentials: "same-origin", body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf || "" } });
+  if (!r.ok) throw new ApiError(r.status, (await r.json().catch(() => ({}))).detail, r.headers);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await r.blob()); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
 // ---- router: #/photos, #/albums/123, ... -------------------------------------------
 export function useRoute() {
   const read = () => (location.hash.replace(/^#\/?/, "") || "photos").split("/");

@@ -10,6 +10,7 @@ import time
 import webbrowser
 from typing import Any, Iterator
 
+from .config import data_dir
 from .ratelimit import SharedRateLimiter, limiter_path
 
 PHOTO_EXTRAS = ("description,tags,geo,media,date_taken,date_upload,last_update,url_q,url_n,url_m,url_z,"
@@ -38,7 +39,9 @@ def _error_code(exc: Exception) -> int | None:
 
 class FlickrClient:
     def __init__(self, api_key: str, api_secret: str, calls_per_second: float = 1.0, limiter=None):
-        """limiter: defaults to the rate limit shared by every process using this API key."""
+        """limiter: defaults to the rate limit shared by every process using this API key.
+        With FLICKR_ORGANIZER_DATA set (a server), the Flickr login and the rate-limit file
+        live there instead of ~/.flickr, so they survive redeploys."""
         if not api_key or not api_secret:
             raise SystemExit(
                 "Missing Flickr API key/secret. Get one at https://www.flickr.com/services/apps/create/ "
@@ -49,9 +52,12 @@ class FlickrClient:
         self._flickrapi = flickrapi
         # flickrapi has no timeout by default, so one connection that goes quiet blocks a
         # long fetch forever; with one, the retry loop in call() takes over.
+        data = data_dir()
+        token_dir = str(data / "flickr-auth") if data else None
         self.api = flickrapi.FlickrAPI(api_key, api_secret, format="parsed-json", store_token=True,
-                                       timeout=REQUEST_TIMEOUT)
-        self.limiter = limiter or SharedRateLimiter(limiter_path(api_key), calls_per_second)
+                                       timeout=REQUEST_TIMEOUT, token_cache_location=token_dir)
+        self.limiter = limiter or SharedRateLimiter(
+            limiter_path(api_key, str(data) if data else "~/.flickr"), calls_per_second)
         self.call_count = 0   # requests made, retries included (for "used N calls" reports)
         self._nsid: str | None = None
 

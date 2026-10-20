@@ -13,6 +13,8 @@ SECTIONS = [
                                    "titles are on."),
     ("tags", "Standard tags", "Tags you add by convention. Each group has its own switch."),
     ("schedule", "Sync schedule", "How often each kind of sync runs (`sync` and the web app do whatever is due)."),
+    ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
+                          "in them; keep the encryption key somewhere else."),
     ("web", "Web app", "The settings in grey protect the server itself and stay in config.yaml or the environment."),
     ("flickr", "Flickr", ""),
 ]
@@ -92,6 +94,10 @@ META = {
                                           "View counts and the daily snapshot, ~22 calls."),
     "schedule.stats": _m("schedule", "Per-day stats", "Needs Flickr Pro."),
     "schedule.backfill_days_per_run": _m("schedule", "Past days fetched per sync", "Until Flickr has none (~a year)."),
+    # backup
+    "backup.every_hours": _m("backup", "Back up every (hours)", "0 turns automatic backups off."),
+    "backup.keep": _m("backup", "Backups kept", "The newest are kept; older ones deleted."),
+    "backup.dir": _m("backup", "Backup folder", "Empty: backups/ next to the database (on the disk)."),
     # web
     "web.host": _m("web", "Listen address"),
     "web.port": _m("web", "Port"),

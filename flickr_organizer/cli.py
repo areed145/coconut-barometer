@@ -194,15 +194,59 @@ def cmd_user(cfg, store, args):
     print(f"Saved. {'Any existing sessions for this user were signed out.' if args.action == 'passwd' else ''}")
 
 
+def _restore_on_start(cfg, store):
+    """Bringing a database to a server: put it in the data directory as restore.db.gz (or
+    restore.db) and restart. It's checked and restored before anything opens it, then
+    renamed so it's never applied twice."""
+    from pathlib import Path
+
+    from .backup import restore
+    from .config import data_dir
+
+    folder = data_dir() or Path(cfg["database"]).parent
+    for name in ("restore.db.gz", "restore.db"):
+        source = folder / name
+        if source.exists():
+            store.close()
+            kept = restore(cfg, str(source))
+            source.rename(folder / f"restored-{time.strftime('%Y%m%d-%H%M%S')}-{name}")
+            print(f"Restored the database from {name}; the previous one is kept at {kept}.")
+            return Store(cfg["database"])
+    return store
+
+
 def cmd_serve(cfg, store, args):
     """The web app: API + frontend, the review worker and the sync scheduler."""
     import uvicorn
 
     from .web.app import create_app
 
+    import logging
+
+    from .web.security import hash_password
+
     web = cfg["web"]
+    store = _restore_on_start(cfg, store)
+    boot_user, boot_pw = os.environ.get("FLICKR_ORGANIZER_ADMIN_USER"), os.environ.get("FLICKR_ORGANIZER_ADMIN_PASSWORD")
+    if not store.usernames() and boot_user and boot_pw:
+        # First start on a server: the login comes from the environment. Change the password
+        # in Settings → Account afterwards, then delete both variables.
+        try:
+            store.set_password_hash(boot_user, hash_password(boot_pw))
+        except ValueError as e:
+            sys.exit(f"FLICKR_ORGANIZER_ADMIN_PASSWORD: {e}")
+        print(f"Created the login {boot_user!r} from FLICKR_ORGANIZER_ADMIN_USER / _PASSWORD.")
     if not store.usernames():
-        sys.exit("No login yet. Create one first:  flickr-organizer user add <name>")
+        sys.exit("No login yet. Create one first:  flickr-organizer user add <name>\n"
+                 "(on a server: set FLICKR_ORGANIZER_ADMIN_USER and FLICKR_ORGANIZER_ADMIN_PASSWORD for the first start)")
+
+    class _NoQuery(logging.Filter):
+        """Access log without query strings (Flickr's one-time login code arrives in one)."""
+        def filter(self, record):
+            if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+                record.args = (*record.args[:2], record.args[2].split("?")[0], *record.args[3:])
+            return True
+    logging.getLogger("uvicorn.access").addFilter(_NoQuery())
     host, port = args.host or web["host"], args.port or web["port"]
     if host not in ("127.0.0.1", "localhost", "::1"):
         print(f"! Listening on {host}: anyone who can reach it gets the login page. "
@@ -238,6 +282,21 @@ def cmd_settings(cfg, store, args):
         for problem in problems:
             print(f"! {problem}")
         return
+    if args.action == "import-file":
+        # Everything in a YAML file into the database (admin layer) + its keys, encrypted:
+        # then a server needs no config.yaml at all.
+        source = read_raw(args.file or args.config)
+        changes = {p: S.get_path(source, p) for p in S.leaves()
+                   if S.get_path(source, p) is not None and p not in S.LOCKED and p not in S.SECRETS}
+        out = S.save(args.config, {}, store, changes, [], "cli")
+        keys = [p for p in S.SECRETS if S.get_path(source, p)]
+        for path in keys:
+            S.set_secret(store, path, S.get_path(source, path), "cli")
+        print(f"Stored {len(out['changed'])} setting(s) and {len(keys)} key(s) (encrypted) in {cfg['database']}.")
+        skipped = [p for p in S.LOCKED if S.get_path(source, p) is not None]
+        if skipped:
+            print(f"Not stored (server settings; set them in the environment): {', '.join(skipped)}")
+        return
     # import-secrets: API keys from config.yaml into the encrypted store
     moved = [p for p in S.SECRETS if S.get_path(file_raw, p)]
     for path in moved:
@@ -250,6 +309,29 @@ def cmd_settings(cfg, store, args):
         print(f"Blanked them in {args.config}.")
     elif moved:
         print(f"They still work from {args.config} too; blank them there (or run with --blank).")
+
+
+def cmd_backup(cfg, store, args):
+    from .backup import list_backups, make_backup
+
+    if args.list:
+        for b in list_backups(cfg):
+            print(f"  {b['name']}  {b['size'] / 1048576:6.1f} MB  {time.ctime(b['created_at'])}")
+        return
+    path = make_backup(cfg)
+    store.set_meta("last_backup", int(time.time()))
+    print(f"Backed up to {path} ({path.stat().st_size / 1048576:.1f} MB).")
+
+
+def cmd_restore(cfg, store, args):
+    """Replace the database with a backup. Stop `serve` first."""
+    from .backup import restore
+
+    if not args.yes and input(f"Replace {cfg['database']} with {args.file}? Stop the web app first. [y/N] ").strip().lower() != "y":
+        return
+    store.close()
+    kept = restore(cfg, args.file)
+    print(f"Restored. The previous database is kept at {kept}.")
 
 
 def cmd_status(cfg, store, args):
@@ -427,9 +509,15 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="only this many photos' comments/faves")
     p.add_argument("--no-sync", action="store_true", help="skip the bulk sync at the start")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    p = sub.add_parser("settings", help="admin-page settings: show | import-secrets | new-key")
-    p.add_argument("action", choices=["show", "import-secrets", "new-key"])
+    p = sub.add_parser("settings", help="admin-page settings: show | import-file | import-secrets | new-key")
+    p.add_argument("action", choices=["show", "import-file", "import-secrets", "new-key"])
+    p.add_argument("file", nargs="?", help="with import-file: the YAML to import (default: the config file)")
     p.add_argument("--blank", action="store_true", help="with import-secrets: also blank the keys in config.yaml")
+    p = sub.add_parser("backup", help="back up the database now (safe while the app runs)")
+    p.add_argument("--list", action="store_true", help="list backups instead")
+    p = sub.add_parser("restore", help="replace the database with a backup (stop serve first)")
+    p.add_argument("file")
+    p.add_argument("-y", "--yes", action="store_true")
     p = sub.add_parser("user", help="the web app's login: add | passwd | list | remove")
     p.add_argument("action", choices=["add", "passwd", "list", "remove"])
     p.add_argument("name", nargs="?")
@@ -449,7 +537,7 @@ def main(argv=None):
     cfg = load_config(args.config)
     store = Store(cfg["database"])
     {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
-     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
+     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "backup": cmd_backup, "restore": cmd_restore, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 
 if __name__ == "__main__":
