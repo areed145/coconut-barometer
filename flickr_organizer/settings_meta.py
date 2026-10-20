@@ -86,7 +86,6 @@ META = {
     "standard_tags.place.state": _m("tags", "State / province", group="Your conventions: places"),
     "standard_tags.place.state_abbr": _m("tags", "US state abbreviation", group="Your conventions: places"),
     "standard_tags.place.city": _m("tags", "Town", group="Your conventions: places"),
-    "standard_tags.place.split_words": _m("tags", "Also each word (united, states)", group="Your conventions: places"),
     "standard_tags.place.extra": _m("tags", "Extra tags", "Country code, country or state → tags.",
                                     group="Your conventions: places"),
     "standard_tags.place.region_overrides": _m("tags", "Region overrides", "Country code → region tags.",
@@ -102,15 +101,6 @@ META = {
                                                    group="Your conventions: albums"),
     "standard_tags.album_tags.albums": _m("tags", "More album tags", "Album title → tags.",
                                           group="Your conventions: albums"),
-    "standard_tags.coords.enabled": _m("tags", "Coordinate tags", "e.g. lat300 lon950",
-                                       group="Your conventions: coordinates"),
-    "standard_tags.coords.formats": _m("tags", "Formats", "{lat} {lon}", group="Your conventions: coordinates"),
-    "standard_tags.coords.min_accuracy": _m("tags", "Geotag precision needed", "1 world … 16 street.",
-                                            group="Your conventions: coordinates"),
-    "standard_tags.owner.enabled": _m("tags", "Your name and handles", group="Your conventions: you"),
-    "standard_tags.owner.tags": _m("tags", "Name and handle tags", group="Your conventions: you"),
-    "standard_tags.filler.enabled": _m("tags", "Filler words", group="Your conventions: you"),
-    "standard_tags.filler.tags": _m("tags", "Filler tags", group="Your conventions: you"),
 
     # ---- Albums
     "vision.categories": _m("albums", "Categories", "Each category's album and tags, for the photos the model "

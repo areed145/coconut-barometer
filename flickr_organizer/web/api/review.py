@@ -58,9 +58,10 @@ def decide(photo_id: str, body: Decision, rt=Depends(runtime)):
 
 
 @router.post("/items/{photo_id}/process")
-def process(photo_id: str, if_new: bool = False, rt=Depends(runtime)):
+def process(photo_id: str, if_new: bool = False, tags: Literal["add", "replace"] = "add", rt=Depends(runtime)):
+    """tags: "add" to the photo's tags, or "replace" them (shown for approval as one change)."""
     try:
-        return rt.review.process(photo_id, if_new=if_new)
+        return rt.review.process(photo_id, if_new=if_new, tags=tags)
     except KeyError:
         raise HTTPException(404, "not in your library")
 

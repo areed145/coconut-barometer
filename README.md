@@ -6,7 +6,7 @@ Adds your Flickr photos to the right albums and tags, using:
 - **A vision LLM**: subject albums like Food, Landscapes, Animals, descriptive tags, a title and a description. Claude is the default; OpenAI or a local Ollama model also work.
 - **Your conventions**: standard tags (dates, places, camera, your name…) and camera albums.
 
-Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. Apart from titles and descriptions it only ever **adds**: it never removes a tag or takes a photo out of an album, and nothing changes on Flickr until you approve it.
+Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. Apart from titles and descriptions it only ever **adds**: it never takes a photo out of an album, and removes tags only when you re-process a photo with **Tags: overwrite existing** in the reviewer (that photo's tags are then proposed as one replacement, showing what it removes). Nothing changes on Flickr until you approve it.
 
 ## Setup
 

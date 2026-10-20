@@ -125,6 +125,10 @@ class LibraryStore(Database):
         with self.db:
             self.db.execute("UPDATE photos SET tags=? WHERE id=?", (" ".join(merged), photo_id))
 
+    def set_tags_local(self, photo_id: str, tags: list[str]) -> None:
+        with self.db:
+            self.db.execute("UPDATE photos SET tags=? WHERE id=?", (" ".join(tags), photo_id))
+
     def update_photo(self, photo_id: str, **fields) -> None:
         if not fields:
             return

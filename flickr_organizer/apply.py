@@ -1,10 +1,10 @@
 """Carry out reviewed Changes on Flickr and record what happened (see changes.py)."""
 from __future__ import annotations
 
-from .changes import META_ACTIONS, Change, split_tags
+from .changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from .flickr_client import FlickrCallError
 from .sync import refresh_photo
-from .util import norm_title, quote_tags, same_text
+from .util import norm_tag, norm_title, quote_tags, same_text
 
 # photosets.addPhoto error 3 = "Photo already in set" → treat as success.
 ALREADY_IN_SET = 3
@@ -21,6 +21,8 @@ def apply_changes(client, store, changes: list[Change], dry_run: bool = False, l
             meta.setdefault(c.photo_id, {})[c.action] = c
         elif c.action == "add_tags":
             _apply_tags(client, store, c, decisions, dry_run, stats, log)
+        elif c.action == "set_tags":
+            _apply_set_tags(client, store, c, dry_run, stats, log)
         elif c.action == "add_to_album":
             _apply_album(client, store, c, decisions, created, dry_run, stats, log)
         else:
@@ -36,7 +38,7 @@ def outcomes(store, changes: list[Change]) -> list[dict]:
     decided = store.decisions()
     out = []
     for c in changes:
-        if c.action == "add_tags":
+        if c.action in TAG_ACTIONS:
             out.append({"action": c.action, "tags": {t: decided.get((c.photo_id, "add_tag", t), "rejected")
                                                       for t in c.tags}})
             continue
@@ -73,6 +75,55 @@ def _apply_tags(client, store, c: Change, decisions, dry_run, stats, log) -> Non
     for t in kept:
         store.record(pid, "add_tag", t, "applied")
     store.add_tags_local(pid, kept)
+    stats["applied"] += 1
+
+
+def _apply_set_tags(client, store, c: Change, dry_run, stats, log) -> None:
+    """Replace the photo's tags with the ones you kept (flickr.photos.setTags). Removing is
+    the one thing here that can't be added back by the tool, so it re-reads the photo first
+    and writes only if its tags on Flickr are still the ones the proposal replaces."""
+    pid = c.photo_id
+    kept = split_tags(c.value) if c.approved else []
+    if not dry_run:
+        for t in c.tags:
+            if t not in kept:
+                store.record(pid, "add_tag", t, "rejected")
+    if not kept:             # rejected (an empty list would wipe every tag: never)
+        stats["rejected"] += 1
+        return
+    if dry_run:
+        log(f"  [dry-run] replace tags {pid}: {c.old!r} → {', '.join(kept)}")
+        stats["applied"] += 1
+        return
+    try:
+        refresh_photo(client, store, pid)
+    except FlickrCallError as e:
+        for t in kept:
+            store.record(pid, "add_tag", t, "failed", f"couldn't re-read photo: {e}")
+        stats["failed"] += 1
+        log(f"  ! {pid} re-read before setTags: {e}")
+        return
+    photo = store.photo(pid)
+    now = {norm_tag(t) for t in (photo["tags"] or "").split()} if photo is not None else None
+    if now != {norm_tag(t) for t in c.old.split()}:
+        for t in kept:      # failed, not rejected: proposed again next time, against the new tags
+            store.record(pid, "add_tag", t, "failed", "tags changed on Flickr since proposed")
+        stats["skipped"] += 1
+        log(f"  ! {pid}: tags changed on Flickr since proposed; left alone")
+        return
+    try:
+        client.call("flickr.photos.setTags", photo_id=pid, tags=quote_tags(kept))
+    except FlickrCallError as e:
+        for t in kept:
+            store.record(pid, "add_tag", t, "failed", str(e))
+        stats["failed"] += 1
+        log(f"  ! {pid} setTags: {e}")
+        return
+    for t in kept:
+        store.record(pid, "add_tag", t, "applied")
+    for t in sorted(now - {norm_tag(t) for t in kept}):
+        store.record(pid, "remove_tag", t, "applied")
+    store.set_tags_local(pid, [norm_tag(t) for t in kept])
     stats["applied"] += 1
 
 

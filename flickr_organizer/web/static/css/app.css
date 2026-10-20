@@ -254,3 +254,7 @@ a.status { text-decoration: none; cursor: pointer; }
 .qdone th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 8px 4px 0; }
 .qdone td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
 @media (max-width: 640px) { .qdone th:nth-child(5), .qdone td:nth-child(5) { display: none; } }
+
+.procgroup { display: inline-flex; gap: 6px; align-items: center; }
+.chips.removed { align-items: center; }
+.chip.gone { text-decoration: line-through; opacity: .7; border-style: dashed; }

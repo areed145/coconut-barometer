@@ -173,6 +173,56 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(app.vision_usage["photos"], 1)
         self.assertGreater(app.vision_usage["input_tokens"], 0)
 
+    def test_reprocess_can_overwrite_tags(self):
+        self.fl.photos[0]["tags"] = "oldtag ramen"
+        sync(self.fl, self.store, log=lambda *a: None)
+        app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        app.process("1")                                               # the default: add
+        self.assertNotIn("set_tags", {c["action"] for c in self.store.queue_item("1")["changes"]})
+        with self.assertRaises(ValueError):
+            app.process("1", tags="wipe")
+        app.process("1", tags="replace")
+        changes = self.store.queue_item("1")["changes"]
+        tags = next(c for c in changes if c["action"] == "set_tags")
+        self.assertNotIn("add_tags", {c["action"] for c in changes})
+        self.assertEqual(tags["old"], "oldtag ramen")
+        self.assertIn("ramen", tags["new"])                            # wanted and already there: kept
+        self.assertNotIn("oldtag", tags["new"])
+        choices = []
+        for c in changes:
+            if c["action"] == "set_tags":
+                choices.append({"approve": True, "value": [t for t in c["new"] if t != "noodle soup"]})
+            else:
+                choices.append({"approve": False})
+        out = app.decide("1", choices)
+        self.assertEqual(out["status"], "applied")
+        on_flickr = self.fl.photos[0]["tags"].split()
+        self.assertNotIn("oldtag", on_flickr)
+        self.assertIn("ramen", on_flickr)
+        self.assertNotIn("noodlesoup", on_flickr)                     # dropped in review
+        d = self.store.decisions()
+        self.assertEqual(d[("1", "remove_tag", "oldtag")], "applied")
+        self.assertEqual(d[("1", "add_tag", "noodle soup")], "rejected")
+        self.assertEqual(self.store.photo("1")["tags"].split(), on_flickr)
+
+    def test_overwrite_is_skipped_if_tags_changed_on_flickr(self):
+        app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        app.process("1", tags="replace")
+        changes = self.store.queue_item("1")["changes"]
+        self.fl.photos[0]["tags"] = "addedbyhand"                      # on Flickr, after the proposal
+        out = app.decide("1", [{"approve": c["action"] == "set_tags"} for c in changes])
+        self.assertEqual(self.fl.photos[0]["tags"], "addedbyhand")     # left alone
+        self.assertEqual(out["stats"]["skipped"], 1)
+
+    def test_overwrite_never_wipes_a_photo_with_no_wanted_tags(self):
+        from flickr_organizer.planner import build_plan
+        self.fl.photos[3]["tags"] = "mine"
+        sync(self.fl, self.store, log=lambda *a: None)
+        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, photo_ids={"4"}, tag_mode="replace")
+        self.assertEqual([r for r in rows if r.action == "set_tags"], [])
+
 
 class NewPhotosTest(unittest.TestCase):
     """After a sync, photos uploaded since go under To review: processed now, or when opened."""

@@ -146,7 +146,9 @@ class AdminApiTest(Base):
     def test_no_switches_for_the_proposals(self):
         paths = {s["path"] for s in self.c.get("/api/admin/settings").json()["settings"]}
         for gone in ("vision.enabled", "vision.describe.enabled", "vision.title.enabled", "vision.title.replace",
-                     "vision.extra_tags.enabled", "geo.enabled", "rename.enabled", "web.process_new"):
+                     "vision.extra_tags.enabled", "geo.enabled", "rename.enabled", "web.process_new",
+                     "standard_tags.place.split_words", "standard_tags.coords.enabled", "standard_tags.owner.tags",
+                     "standard_tags.filler.enabled"):
             self.assertNotIn(gone, paths)
 
     def test_saving_applies_without_a_restart(self):

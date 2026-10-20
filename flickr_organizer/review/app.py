@@ -11,7 +11,7 @@ import time
 from collections import deque
 
 from ..apply import apply_changes, outcomes
-from ..changes import META_ACTIONS, Change, split_tags
+from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..planner import photo_page
 
 # "new": synced in, waiting to be processed; shown under To review with the pending ones.
@@ -42,6 +42,7 @@ class ReviewApp:
         self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
         self.syncing = False
         self.processing: set[str] = set()
+        self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
         self.running: dict | None = None                # the job the worker is on: {kind, photo_id, started}
@@ -142,9 +143,12 @@ class ReviewApp:
         self.jobs.put(("apply", photo_id))
         return {"status": "applying"}
 
-    def process(self, photo_id: str, if_new: bool = False) -> dict:
+    def process(self, photo_id: str, if_new: bool = False, tags: str = "add") -> dict:
         """(Re-)process one photo or video now: EXIF, classify, plan. Returns at once.
-        if_new: only if it's waiting to be processed (the reviewer asks ahead for the next ones)."""
+        if_new: only if it's waiting to be processed (the reviewer asks ahead for the next ones).
+        tags: "add" to its tags (default), or "replace" them."""
+        if tags not in ("add", "replace"):
+            raise ValueError(tags)
         if not self.store.photo(photo_id):
             raise KeyError(photo_id)
         q = self.store.queue_item(photo_id)
@@ -155,6 +159,8 @@ class ReviewApp:
         if self.cfg is None:
             raise RuntimeError("processing isn't available in this session")
         self.processing.add(photo_id)
+        if tags == "replace":
+            self.tag_modes[photo_id] = tags
         if not self.background:
             return self._process(self.store, photo_id)
         self.jobs.put(("process", photo_id))
@@ -218,17 +224,19 @@ class ReviewApp:
                 self.processing.discard(pid)
                 self.syncing = False
                 out = {"status": "failed", "error": str(e)}
+            try:   # recorded before task_done(), so wait() returns with the job listed
+                photo = store.photo(pid) if kind != "sync" else None
+                self._seq += 1
+                self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
+                                    "title": "sync" if kind == "sync" else (photo["title"] if photo else "") or pid,
+                                    "applied": out.get("stats", {}).get("applied", 0),
+                                    "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
+                                    "started": started, "seconds": round(time.time() - started, 1),
+                                    "input_tokens": out.get("input_tokens", 0),
+                                    "output_tokens": out.get("output_tokens", 0)})
             finally:
                 self.running = None
                 self.jobs.task_done()
-            photo = store.photo(pid) if kind != "sync" else None
-            self._seq += 1
-            self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
-                                "title": "sync" if kind == "sync" else (photo["title"] if photo else "") or pid,
-                                "applied": out.get("stats", {}).get("applied", 0),
-                                "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
-                                "started": started, "seconds": round(time.time() - started, 1),
-                                "input_tokens": out.get("input_tokens", 0), "output_tokens": out.get("output_tokens", 0)})
 
     def _sync(self, store, mode: str | None) -> dict:
         from ..pipeline import process
@@ -289,9 +297,10 @@ class ReviewApp:
 
         try:
             stats = process(self.cfg, store, self.client, self._vision(), photo_ids=[photo_id], rebuild=True,
-                            log=lambda *a: None, **self.process_kw)
+                            tag_mode=self.tag_modes.get(photo_id, "add"), log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)
+            self.tag_modes.pop(photo_id, None)
         self._count_vision(stats)
         tokens = {"input_tokens": stats["input_tokens"], "output_tokens": stats["output_tokens"]}
         if stats["retry_later"]:
@@ -315,7 +324,7 @@ def _with_choice(c: Change, choice: dict) -> Change:
     (Photos queued for applying before this format sent "target"; that still works.)"""
     c.approved = bool(choice.get("approve"))
     value = choice.get("value", choice.get("target"))
-    if c.action == "add_tags":
+    if c.action in TAG_ACTIONS:
         kept = split_tags(value if value is not None else c.new)
         c.edited = kept if kept != c.tags else None
         c.approved = c.approved and bool(kept)

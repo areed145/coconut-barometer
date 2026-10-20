@@ -14,8 +14,9 @@ from .sync import refresh_photo
 
 def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = None, limit: int | None = None,
             rebuild: bool = False, refresh_each: bool = False, log=print, geocoder=None, downloader=None,
-            media: str | None = None) -> dict:
+            media: str | None = None, tag_mode: str = "add") -> dict:
     """media: only "photo" or only "video" (videos are classified from their preview frame).
+    tag_mode: "add" to existing tags, or "replace" them (you still approve each photo).
     Without a vision provider, only the proposals that don't need it are made."""
     vcfg = cfg["vision"]
     use_vision = provider is not None
@@ -50,7 +51,8 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
                 stats["output_tokens"] += s["output_tokens"]
             ok -= {p["id"] for p in pending_photos(store, vcfg, fp, photo_ids=ids)}   # still missing = failed
         # Plan and queue
-        rows = build_plan(cfg, store, provider.key if use_vision else None, geocoder=geocoder, photo_ids=ok)
+        rows = build_plan(cfg, store, provider.key if use_vision else None, geocoder=geocoder, photo_ids=ok,
+                          tag_mode=tag_mode)
         changes: dict[str, list[dict]] = {}
         for r in rows:
             changes.setdefault(r.photo_id, []).append(r.to_dict())

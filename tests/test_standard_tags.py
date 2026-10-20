@@ -1,4 +1,4 @@
-"""Convention tags (date, place, camera, album, coords, owner, filler) and EXIF fetching."""
+"""Convention tags (date, place, camera, album) and EXIF fetching."""
 import json
 import os
 import tempfile
@@ -20,11 +20,10 @@ class StandardTagsTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         on = {"enabled": True}
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "enabled": False}, "standard_tags": {
-            "date": on, "coords": on, "album_tags": {"enabled": True, "albums": {"Texas": ["lonestar"]}},
+            "date": on, "album_tags": {"enabled": True, "albums": {"Texas": ["lonestar"]}},
             "place": {"enabled": True, "extra": {"Texas": ["southwest"]}},
             "camera": {"enabled": True, "rules": [{"match": "iphone", "tags": ["mobile"]}],
-                       "albums": [{"match": "^nikon", "album": "Landscapes"}]},
-            "owner": {"enabled": True, "tags": ["me"]}, "filler": {"enabled": True, "tags": ["photo"]}}})
+                       "albums": [{"match": "^nikon", "album": "Landscapes"}]}}})
         self.store = Store(os.path.join(self.tmp, "db.sqlite"))
         self.fl = FakeFlickr()
         self.fl.photos[0]["datetaken"] = "2019-07-17 19:03:25"
@@ -49,15 +48,13 @@ class StandardTagsTest(unittest.TestCase):
 
     def test_all_groups_in_priority_order(self):
         t = self.tags()
-        self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan", "asia", "tokyo", "nikon", "d90",
-                                  "lat360", "lon1400", "me", "photo"])
+        self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan", "asia", "tokyo", "nikon", "d90"])
         # Austin: configured city name, Texas album tag (already a member), state extras.
         self.assertEqual(t["2"], ["y2024", "m01", "d01", "unitedstates", "americas", "northamerica", "texas",
-                                  "tx", "austin", "southwest", "apple", "iphone", "x", "mobile", "lonestar",
-                                  "lat300", "lon980", "me", "photo"])
+                                  "tx", "austin", "southwest", "apple", "iphone", "x", "mobile", "lonestar"])
         self.assertNotIn("y2011", t["3"])                    # skip_if_dated
         self.assertNotIn("houston", t["3"])                  # accuracy 6: no city tag
-        self.assertEqual(t["4"], ["me", "photo"])            # no geo, date unknown, no camera
+        self.assertNotIn("4", t)                             # no geo, date unknown, no camera: nothing
 
     def test_camera_albums_and_cap(self):
         albums = {(r.photo_id, r.new) for r in self.plan() if r.action == "add_to_album"}

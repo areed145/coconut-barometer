@@ -72,8 +72,10 @@ class Context:
         return self.store.cameras()
 
 
-def resolve(ctx: Context, wants: list) -> list[Change]:
-    """Turn album and tag wants (in priority order) into Changes."""
+def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
+    """Turn album and tag wants (in priority order) into Changes. tag_mode "replace": one
+    set_tags per photo with every tag wanted (not ones you rejected), replacing its tags;
+    a photo nothing wants tags for keeps its own."""
     albums: dict[str, dict[str, AlbumWant]] = {}   # photo -> normalized album title -> first want
     tags: dict[str, dict[str, TagWant]] = {}       # photo -> normalized tag -> first want
     for w in wants:
@@ -97,7 +99,14 @@ def resolve(ctx: Context, wants: list) -> list[Change]:
 
     cap = int(ctx.cfg["standard_tags"]["max_tags_per_photo"])
     for pid, by_tag in tags.items():
-        have = {norm_tag(t) for t in (ctx.photos[pid]["tags"] or "").split()}
+        current = (ctx.photos[pid]["tags"] or "").split()
+        have = {norm_tag(t) for t in current}
+        if tag_mode == "replace":
+            keep = [w for w in by_tag.values() if not ctx.settled.tag_rejected(pid, clean_tag(w.tag))][:cap]
+            if keep and {norm_tag(clean_tag(w.tag)) for w in keep} != have:
+                out.append(Change("set_tags", pid, [clean_tag(w.tag) for w in keep], old=" ".join(current),
+                                  source=",".join(sorted({w.source for w in keep}))))
+            continue
         new = [w for key, w in by_tag.items() if key not in have and not ctx.settled.tag(pid, clean_tag(w.tag))]
         # Flickr caps tags per photo; wants are in priority order, so the least useful drop off.
         new = new[:max(0, cap - len(have))]

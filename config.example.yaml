@@ -279,13 +279,13 @@ vision:
         color, unusual angles, shallow depth of field. NOT an ordinary snapshot.
       tags: [style]
 
-# Tags you apply by convention. Each group has its own flag. They only ever add,
-# skip tags a photo already has, and all go into the photo's single add_tags row
-# in the plan, so it's still one Flickr call per photo.
+# Tags you apply by convention. Each group has its own flag. They skip tags a photo
+# already has, and all go into the photo's single tags change, so it's still one Flickr
+# call per photo. (Re-processing with "overwrite" in the reviewer replaces its tags instead.)
 standard_tags:
   max_tags_per_photo: 75      # Flickr's limit; groups lower in this list drop off first
 
-  # 3. Date, from the date taken. Fields: {year} {month} {day} {season}
+  # 1. Date, from the date taken. Fields: {year} {month} {day} {season}
   #    Seasons follow the northern calendar (Dec-Feb winter), as your tags do.
   date:
     enabled: true
@@ -293,7 +293,7 @@ standard_tags:
     # formats: ["{year}", "{season}"]                    # your older style: 2011 summer
     skip_if_dated: true       # skip photos that already have y2019 or 2019
 
-  # 5. Place, from the geotag (uses geo.min_accuracy for country/state/city).
+  # 2. Place, from the geotag (uses geo.min_accuracy for country/state/city).
   #    e.g. unitedstates americas northamerica california ca bakersfield
   place:
     enabled: true
@@ -302,12 +302,11 @@ standard_tags:
     state: true               # state/province for every country (rajasthan, distritofederal)
     state_abbr: true          # US only: ca, tx
     city: true                # nearest town, or your geo.cities name
-    split_words: false        # also add each word of multi-word names: united states
     extra:                    # more tags by country code, country or state name
       California: [west, coast, pacific]
     region_overrides: {}      # e.g. MX: [americas, centralamerica]
 
-  # 6. Camera, from EXIF. Run `python -m flickr_organizer camera` first (one call per
+  # 3. Camera, from EXIF. Run `python -m flickr_organizer camera` first (one call per
   #    photo, cached; `run` keeps it up to date). Tags are the words of Flickr's camera
   #    name: "Nikon D90" -> nikon d90, "Apple iPhone X" -> apple iphone x.
   camera:
@@ -322,7 +321,7 @@ standard_tags:
       - {match: "^sony", album: "Sony"}
       - {match: "iphone", album: "iPhone"}
 
-  # 7. Album tags: every photo in an album gets that album's tag, the way your
+  # 4. Album tags: every photo in an album gets that album's tag, the way your
   #    style/text/favorite tags already mirror their albums. best/overall/5star
   #    don't match any album, so they stay manual.
   album_tags:
@@ -331,22 +330,6 @@ standard_tags:
     albums:
       Favorites: [favorite]
       California Favorites: [californiafavorites]
-
-  # 4. Coordinates: whole degrees x10, no sign. 30.35, -95.42 -> lat300 lon950
-  coords:
-    enabled: false
-    formats: ["lat{lat}", "lon{lon}"]
-    min_accuracy: 6
-
-  # 1. Your name and handles. Off: only helps people who already know you.
-  owner:
-    enabled: false
-    tags: [adam, reeder, adamreeder, areed145, kk6gpv, coconutbarometer, wwwkk6gpvnet, wwwadammreedercom]
-
-  # 2. Generic words you add to most photos. Off: nobody searches for them and they use up the 75-tag limit.
-  filler:
-    enabled: false
-    tags: [photography, photo, photos, flickr, awesome, cool, spectacular, personal, travel, world]
 
 # How often each kind of sync runs (`sync` and the web app's scheduler do whatever is due).
 schedule:

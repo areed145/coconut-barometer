@@ -141,6 +141,14 @@ class FakeFlickr:
                 {"tag": "Make", "raw": {"_content": "x"}},
                 {"tag": "ExposureTime", "raw": {"_content": "0.004"}, "clean": {"_content": "1/250 sec"}},
                 {"tag": "LensModel", "raw": {"_content": "28-300mm"}}]}}
+        if method == "flickr.photos.setTags":
+            import shlex
+            from flickr_organizer.util import norm_tag
+            for ph in self.photos:
+                if ph["id"] == p["photo_id"]:
+                    ph["tags"] = " ".join(norm_tag(t) for t in shlex.split(p["tags"]))
+            self._touch(photo_id=p["photo_id"])
+            return {}
         if method == "flickr.photos.addTags":
             for ph in self.photos:
                 if ph["id"] == p["photo_id"]:

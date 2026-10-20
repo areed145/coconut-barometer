@@ -9,6 +9,8 @@ isn't proposed again. Failed changes never count: they're proposed again next ti
   add_to_album      settled per (photo, album) once applied or rejected
   add_tags          settled per (photo, tag) once applied or rejected; dropping a tag
                     in review rejects just that tag
+  set_tags          (processing with "overwrite") the photo's whole tag list, replaced:
+                    each kept tag is recorded like add_tags, each removed one as remove_tag
   set_title         settled per (photo, proposed title): a different proposal (after you
                     change the title brief) can still come
   set_description   settled per (photo, proposed text), the same way
@@ -24,7 +26,8 @@ from dataclasses import asdict, dataclass, field
 
 from .util import clean_tag, same_text
 
-ACTIONS = ("add_to_album", "add_tags", "set_title", "set_description")
+ACTIONS = ("add_to_album", "add_tags", "set_tags", "set_title", "set_description")
+TAG_ACTIONS = ("add_tags", "set_tags")
 META_ACTIONS = ("set_title", "set_description")   # both written by one flickr.photos.setMeta
 SETTLED = ("applied", "rejected", "edited")
 
@@ -34,7 +37,7 @@ class Change:
     action: str                 # one of ACTIONS
     photo_id: str
     new: str | list[str]        # album title | tags | proposed title | proposed description
-    old: str = ""               # title/description it replaces ("" when blank); else unused
+    old: str = ""               # title/description it replaces ("" when blank); set_tags: the tags it replaces
     album_id: str = ""          # add_to_album: "" means the album will be created
     source: str = ""            # geo:country, vision:food, std:date, vision:title, ...
     confidence: str = ""
@@ -50,7 +53,7 @@ class Change:
 
     @property
     def tags(self) -> list[str]:
-        return list(self.new) if self.action == "add_tags" else []
+        return list(self.new) if self.action in TAG_ACTIONS else []
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -94,6 +97,9 @@ class Settled:
 
     def tag(self, photo_id: str, tag: str) -> bool:
         return (photo_id, "add_tag", tag) in self.done
+
+    def tag_rejected(self, photo_id: str, tag: str) -> bool:
+        return self.done.get((photo_id, "add_tag", tag)) == "rejected"
 
     def title(self, photo_id: str, title: str) -> bool:
         return (photo_id, "set_title", title) in self.done

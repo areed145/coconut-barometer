@@ -6,18 +6,26 @@ import { html, useState, useEffect, useRef, api, num, day, plain, toast } from "
 const LABELS = { pending: "To review", applying: "Applying", failed: "Failed", applied: "Applied", rejected: "Rejected",
                  none: "Nothing to change", unprocessed: "Not processed" };
 
+const TAGS = new Set(["add_tags", "set_tags"]);
+// Flickr's normalized tag form (as in util.norm_tag), to tell which existing tags a replacement drops.
+const norm = (t) => t.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9:=]+/g, "");
+
 function initialChoices(item) {
   return item.changes.map((c) => ({ approve: true, value: c.new,
-    tags: c.action === "add_tags" ? c.new.map((t) => ({ t, on: true })) : null }));
+    tags: TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null }));
 }
 
 function Change({ c, ch, i, editable, out, onChange }) {
   const why = [c.source, c.confidence, c.reason].filter(Boolean).join(" · ");
   const status = out && out.status ? html` <span class=${"status s-" + out.status}>${out.status}</span>` : "";
   const set = (patch) => onChange(i, { ...ch, ...patch });
-  if (c.action === "add_tags") {
+  if (TAGS.has(c.action)) {
     const srcs = c.source.split(",").map((s) => s.replace(/^(std|vision|geo):/, "")).join(", ");
-    return html`<div class="row"><div class="what">Add tags <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
+    const kept = new Set(ch.tags.filter((x) => x.on).map((x) => norm(x.t)));
+    const dropped = c.action === "set_tags" ? (c.old || "").split(/\s+/).filter((t) => t && !kept.has(norm(t))) : [];
+    return html`<div class="row"><div class="what">${c.action === "set_tags" ? html`<b>Replace all tags</b> with` : "Add tags"} <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
+      ${dropped.length > 0 && html`<div class="chips removed" style="margin-top:6px" title="Removed from the photo on approval">
+        <span class="why">removes:</span>${dropped.map((t) => html`<span class="chip gone">${t}</span>`)}</div>`}
       <div class="chips" style="margin-top:6px">${ch.tags.map((ts, j) => {
         const st = out?.tags?.[ts.t];
         return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off"))} disabled=${!editable}
@@ -71,6 +79,7 @@ export function Reviewer({ onCount }) {
   const [busy, setBusy] = useState(false);
   const [jobs, setJobs] = useState({ applying: 0, processing: 0 });
   const [goto, setGoto] = useState("");
+  const [tagMode, setTagMode] = useState("add");       // when (re-)processing: add to tags, or replace them
   const seq = useRef(0);
   const current = useRef(null);
 
@@ -115,7 +124,7 @@ export function Reviewer({ onCount }) {
   };
   const decide = async (approve) => {
     if (!item || busy) return; setBusy(true);
-    const payload = choices.map((ch, i) => item.changes[i].action === "add_tags"
+    const payload = choices.map((ch, i) => TAGS.has(item.changes[i].action)
       ? { approve: approve && ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
       : { approve: approve && ch.approve, value: ch.value });
     try {
@@ -127,7 +136,11 @@ export function Reviewer({ onCount }) {
   };
   const processNow = async () => {
     if (!item || busy) return; setBusy(true);
-    try { await api(`/api/review/items/${item.photo_id}/process`, { method: "POST" }); toast("Processing in the background…"); loadItem(item.photo_id); }
+    try {
+      await api(`/api/review/items/${item.photo_id}/process`, { method: "POST", params: { tags: tagMode } });
+      toast(tagMode === "replace" ? "Processing; its tags will be proposed as a replacement…" : "Processing in the background…");
+      loadItem(item.photo_id);
+    }
     catch (e) { toast("Error: " + e.message); }
     setBusy(false);
   };
@@ -193,7 +206,13 @@ export function Reviewer({ onCount }) {
           ${editable && html`<button class="primary" onClick=${() => decide(true)} disabled=${busy}>Approve selected</button>
             <button class="danger" onClick=${() => decide(false)} disabled=${busy}>Reject all</button>`}
           <button onClick=${() => move(1)}>${editable ? "Skip" : "Next"}</button>
-          ${!busyNow && item.status !== "new" && html`<button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>`}
+          ${!busyNow && item.status !== "new" && html`<span class="procgroup">
+            <button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>
+            <select value=${tagMode} onChange=${(e) => setTagMode(e.target.value)} aria-label="Tags when processing"
+                    title="What processing proposes for the photo's existing tags">
+              <option value="add">Tags: add to existing</option>
+              <option value="replace">Tags: overwrite existing</option>
+            </select></span>`}
         </div>
         <div class="card"><h2>On Flickr now</h2><dl class="kv">
           <dt>Title</dt><dd>${p.title || html`<span class="muted">(blank)</span>`}</dd>

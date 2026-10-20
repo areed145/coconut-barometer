@@ -77,12 +77,9 @@ DEFAULTS: dict[str, Any] = {
         "max_tags_per_photo": 75,   # Flickr's limit
         "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"], "skip_if_dated": True},
         "place": {"enabled": False, "country": True, "regions": True, "state": True, "state_abbr": True,
-                  "city": True, "split_words": False, "extra": {}, "region_overrides": {}},
+                  "city": True, "extra": {}, "region_overrides": {}},
         "camera": {"enabled": False, "name_words": True, "rules": [], "albums": []},
         "album_tags": {"enabled": False, "from_categories": True, "albums": {}},
-        "coords": {"enabled": False, "formats": ["lat{lat}", "lon{lon}"], "min_accuracy": 6},
-        "owner": {"enabled": False, "tags": []},
-        "filler": {"enabled": False, "tags": []},
     },
 }
 
@@ -100,7 +97,7 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("standard_tags", "max_tags_per_photo"): (1, 75),
-          ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
+          ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
@@ -116,14 +113,15 @@ PLACEHOLDERS = {
     ("vision", "title", "instructions"): {"max_words"},
     ("geo", "us_states", "title"): {"state"},
 }
-LIST_PLACEHOLDERS = {("standard_tags", "date", "formats"): {"year", "month", "day", "season"},
-                     ("standard_tags", "coords", "formats"): {"lat", "lon"}}
+LIST_PLACEHOLDERS = {("standard_tags", "date", "formats"): {"year", "month", "day", "season"}}
 # Settings that no longer exist. Old config files and databases may still have them; they're
 # dropped on reading (nothing to fix by hand). Every photo now gets every proposal (title,
 # description, tags, albums), and you accept or decline each in the reviewer.
 RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "include_videos"),
            ("vision", "extra_tags", "enabled"), ("vision", "describe", "enabled"), ("vision", "describe", "reword"),
-           ("vision", "title", "enabled"), ("vision", "title", "replace"), ("web", "process_new")}
+           ("vision", "title", "enabled"), ("vision", "title", "replace"), ("web", "process_new"),
+           ("standard_tags", "place", "split_words"), ("standard_tags", "coords"), ("standard_tags", "owner"),
+           ("standard_tags", "filler")}
 
 
 def retire(raw: dict) -> dict:

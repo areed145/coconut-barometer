@@ -1,5 +1,5 @@
 """Optional tag groups applied by convention rather than by looking at the photo:
-owner names, filler words, date, coordinates, place, camera, and album tags.
+date, place, camera, and album tags.
 
 Each group has its own `enabled` flag under `standard_tags` in config.yaml. Like
 everything else they only add tags, and they go through the reviewed plan.
@@ -46,11 +46,6 @@ def _date_parts(date_taken: str | None):
     return {"year": year, "month": month, "day": day, "season": SEASONS[month]}
 
 
-def _coord(v: float) -> int:
-    """Whole degrees x10, no sign: 30.35 -> 300, -95.42 -> 950."""
-    return int(round(abs(v))) * 10
-
-
 class StandardTagger:
     def __init__(self, scfg: dict, geo_cfg: dict, album_titles: dict[str, str], categories: dict):
         """album_titles: album id -> title."""
@@ -70,7 +65,7 @@ class StandardTagger:
 
     def any_enabled(self) -> bool:
         return any(self.cfg[g].get("enabled") for g in
-                   ("date", "place", "camera", "album_tags", "coords", "owner", "filler"))
+                   ("date", "place", "camera", "album_tags"))
 
     def needs_places(self) -> bool:
         return bool(self.cfg["place"]["enabled"])
@@ -90,12 +85,6 @@ class StandardTagger:
         if self.cfg["album_tags"]["enabled"]:
             for aid in sorted(album_ids):
                 add(self.album_tags.get(norm_title(self.album_titles.get(aid, "")), []), "std:album")
-        if self.cfg["coords"]["enabled"]:
-            add(self.coord_tags(photo), "std:coords")
-        if self.cfg["owner"]["enabled"]:
-            add(self.cfg["owner"]["tags"] or [], "std:owner")
-        if self.cfg["filler"]["enabled"]:
-            add(self.cfg["filler"]["tags"] or [], "std:filler")
         return out
 
     def date_tags(self, photo, have: set[str]) -> list[str]:
@@ -106,12 +95,6 @@ class StandardTagger:
             return []
         parts = _date_parts(photo["date_taken"])
         return [f.format(**parts) for f in dcfg["formats"] or []] if parts else []
-
-    def coord_tags(self, photo) -> list[str]:
-        ccfg = self.cfg["coords"]
-        if photo["lat"] is None or (photo["accuracy"] or 16) < ccfg["min_accuracy"]:
-            return []
-        return [f.format(lat=_coord(photo["lat"]), lon=_coord(photo["lon"])) for f in ccfg["formats"] or []]
 
     def place_tags(self, photo, place: dict) -> list[str]:
         pcfg, acc = self.cfg["place"], photo["accuracy"] or 16
@@ -134,10 +117,7 @@ class StandardTagger:
             names.append(self.city_name(photo, place))
         for key in (cc, country, state):
             names += self.extra_place.get(norm_title(key), []) if key else []
-        tags = [norm_tag(n) for n in names if n]
-        if pcfg["split_words"]:
-            tags += [norm_tag(w) for n in names if n and " " in n.strip() for w in n.split()]
-        return tags
+        return [norm_tag(n) for n in names if n]
 
     def city_name(self, photo, place: dict) -> str:
         # A configured city (by distance) wins over the nearest town, as with renames.
