@@ -109,9 +109,9 @@ class GeoMatcher:
         self.create_missing = create_missing
 
     def country_album(self, cc: str) -> str | None:
-        aliases = self.cfg["countries"].get("aliases", {}).get(cc)
+        aliases = self.cfg["countries"]["aliases"].get(cc)
         candidates = ([aliases] if isinstance(aliases, str) else list(aliases or []))
-        if self.cfg["countries"].get("auto_match", True):
+        if self.cfg["countries"]["auto_match"]:
             candidates += country_names(cc)
         for c in candidates:
             if norm_title(c) in self.album_titles:
@@ -120,7 +120,7 @@ class GeoMatcher:
         return candidates[0] if candidates and self.create_missing else None
 
     def state_album(self, state: str) -> str | None:
-        title = self.cfg["us_states"].get("title", "{state}").format(state=state)
+        title = self.cfg["us_states"]["title"].format(state=state)
         if norm_title(title) in self.album_titles or self.create_missing:
             return title
         return None
@@ -134,7 +134,7 @@ class GeoMatcher:
         return {p["id"]: dict(place) for p, place in zip(located, places)}
 
     def suggest(self, photos: list, places: dict[str, dict] | None = None) -> list[GeoSuggestion]:
-        if not self.cfg.get("enabled", True):
+        if not self.cfg["enabled"]:
             return []
         if places is None:
             places = self.locate(photos)
@@ -150,13 +150,13 @@ class GeoMatcher:
                 title = self.country_album(cc)
                 if title:
                     out.append(GeoSuggestion(p["id"], title, "country", f"geotag → {where}", country_names(cc)[0]))
-            if cc == "US" and self.cfg["us_states"].get("enabled", True) and acc >= self.min_acc["state"]:
+            if cc == "US" and self.cfg["us_states"]["enabled"] and acc >= self.min_acc["state"]:
                 state = place.get("admin1")
                 title = self.state_album(state) if state else None
                 if title:
                     out.append(GeoSuggestion(p["id"], title, "state", f"geotag → {where}", state))
             if acc >= self.min_acc["city"]:
-                for city in self.cfg.get("cities", []):
+                for city in self.cfg["cities"]:
                     d = haversine_km(p["lat"], p["lon"], city["lat"], city["lon"])
                     if d <= city.get("radius_km", 25):
                         if norm_title(city["album"]) in self.album_titles or self.create_missing:

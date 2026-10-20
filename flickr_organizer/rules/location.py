@@ -7,11 +7,11 @@ from .base import AlbumWant, Context, TagWant
 
 def propose(ctx: Context) -> list:
     gcfg = ctx.cfg["geo"]
-    if not gcfg.get("enabled", True):
+    if not gcfg["enabled"]:
         return []
     wants: list = []
     for s in ctx.geo.suggest(list(ctx.photos.values()), ctx.places):
         wants.append(AlbumWant(s.photo_id, s.album_title, f"geo:{s.level}", reason=s.reason))
-        if gcfg.get("add_tags") and s.tag:
+        if gcfg["add_tags"] and s.tag:
             wants.append(TagWant(s.photo_id, s.tag, f"geo:{s.level}"))
     return wants

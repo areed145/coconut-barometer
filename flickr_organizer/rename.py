@@ -36,9 +36,9 @@ DEFAULT_GENERIC_PATTERNS = [
 class Renamer:
     def __init__(self, rcfg: dict, geo_cfg: dict):
         self.cfg = rcfg
-        self.cities = geo_cfg.get("cities", [])
-        pats = rcfg.get("generic_patterns") or DEFAULT_GENERIC_PATTERNS
-        pats = list(pats) + list(rcfg.get("extra_generic_patterns") or [])
+        self.cities = geo_cfg["cities"]
+        pats = rcfg["generic_patterns"] or DEFAULT_GENERIC_PATTERNS
+        pats = list(pats) + list(rcfg["extra_generic_patterns"] or [])
         self.generic = [re.compile(rf"^\s*(?:{p})(\.(jpe?g|heic|png|dng|raw|cr2|nef|arw|tiff?|mov|mp4))?\s*$", re.I)
                         for p in pats]
 
@@ -99,13 +99,13 @@ class Renamer:
             "country": country_names(cc)[0],
             "cc": cc,
         }
-        if acc >= self.cfg.get("min_accuracy", 11):
+        if acc >= self.cfg["min_accuracy"]:
             city = self.city_name(photo, place)
             if not city:
                 return None
             fmt = self.cfg["us_format"] if cc == "US" else self.cfg["intl_format"]
             return fmt.format(city=city, **fields).strip(", ")
-        if self.cfg.get("fallback_to_region") and acc >= 6:
+        if self.cfg["fallback_to_region"] and acc >= 6:
             fmt = self.cfg["us_region_format"] if cc == "US" else self.cfg["intl_region_format"]
             return fmt.format(**fields).strip(", ")
         return None

@@ -156,7 +156,7 @@ class ReviewApp:
 
         try:
             vcfg = self.cfg["vision"]
-            if self._provider is None and self._provider_factory and vcfg.get("enabled", True) and vcfg["categories"]:
+            if self._provider is None and self._provider_factory and vcfg["enabled"] and vcfg["categories"]:
                 self._provider = self._provider_factory()
             stats = process(self.cfg, store, self.client, self._provider, photo_ids=[photo_id], rebuild=True,
                             include_videos=True, log=lambda *a: None, **self.process_kw)

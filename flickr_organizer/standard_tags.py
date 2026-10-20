@@ -59,21 +59,21 @@ class StandardTagger:
         self.album_titles = album_titles
         acfg = scfg["album_tags"]
         self.album_tags: dict[str, list[str]] = {}
-        if acfg.get("from_categories"):
+        if acfg["from_categories"]:
             for c in categories.values():
                 if c.get("album") and c.get("tags"):
                     self.album_tags.setdefault(norm_title(c["album"]), []).extend(c["tags"])
-        for title, tags in (acfg.get("albums") or {}).items():
+        for title, tags in (acfg["albums"] or {}).items():
             self.album_tags.setdefault(norm_title(title), []).extend([tags] if isinstance(tags, str) else tags)
-        self.camera_rules = [(re.compile(r["match"], re.I), r.get("tags") or []) for r in scfg["camera"].get("rules") or []]
-        self.extra_place = {norm_title(k): v for k, v in (scfg["place"].get("extra") or {}).items()}
+        self.camera_rules = [(re.compile(r["match"], re.I), r.get("tags") or []) for r in scfg["camera"]["rules"] or []]
+        self.extra_place = {norm_title(k): v for k, v in (scfg["place"]["extra"] or {}).items()}
 
     def any_enabled(self) -> bool:
         return any(self.cfg[g].get("enabled") for g in
                    ("date", "place", "camera", "album_tags", "coords", "owner", "filler"))
 
     def needs_places(self) -> bool:
-        return bool(self.cfg["place"].get("enabled"))
+        return bool(self.cfg["place"]["enabled"])
 
     def tags_for(self, photo, place: dict | None, camera: str | None, album_ids: set[str]) -> list[tuple[str, str]]:
         """[(tag, source)] in priority order, so the most useful survive the per-photo cap."""
@@ -81,37 +81,37 @@ class StandardTagger:
         have = set((photo["tags"] or "").split())
         add = lambda tags, src: out.extend((t, src) for t in tags if t)
 
-        if self.cfg["date"].get("enabled"):
+        if self.cfg["date"]["enabled"]:
             add(self.date_tags(photo, have), "std:date")
-        if self.cfg["place"].get("enabled") and place:
+        if self.cfg["place"]["enabled"] and place:
             add(self.place_tags(photo, place), "std:place")
-        if self.cfg["camera"].get("enabled") and camera:
+        if self.cfg["camera"]["enabled"] and camera:
             add(self.camera_tags(camera), "std:camera")
-        if self.cfg["album_tags"].get("enabled"):
+        if self.cfg["album_tags"]["enabled"]:
             for aid in sorted(album_ids):
                 add(self.album_tags.get(norm_title(self.album_titles.get(aid, "")), []), "std:album")
-        if self.cfg["coords"].get("enabled"):
+        if self.cfg["coords"]["enabled"]:
             add(self.coord_tags(photo), "std:coords")
-        if self.cfg["owner"].get("enabled"):
-            add(self.cfg["owner"].get("tags") or [], "std:owner")
-        if self.cfg["filler"].get("enabled"):
-            add(self.cfg["filler"].get("tags") or [], "std:filler")
+        if self.cfg["owner"]["enabled"]:
+            add(self.cfg["owner"]["tags"] or [], "std:owner")
+        if self.cfg["filler"]["enabled"]:
+            add(self.cfg["filler"]["tags"] or [], "std:filler")
         return out
 
     def date_tags(self, photo, have: set[str]) -> list[str]:
         dcfg = self.cfg["date"]
         if photo["date_taken_unknown"]:   # Flickr filled in the upload date; don't tag it
             return []
-        if dcfg.get("skip_if_dated", True) and any(_DATED.match(t) for t in have):
+        if dcfg["skip_if_dated"] and any(_DATED.match(t) for t in have):
             return []
         parts = _date_parts(photo["date_taken"])
-        return [f.format(**parts) for f in dcfg.get("formats") or []] if parts else []
+        return [f.format(**parts) for f in dcfg["formats"] or []] if parts else []
 
     def coord_tags(self, photo) -> list[str]:
         ccfg = self.cfg["coords"]
-        if photo["lat"] is None or (photo["accuracy"] or 16) < ccfg.get("min_accuracy", 6):
+        if photo["lat"] is None or (photo["accuracy"] or 16) < ccfg["min_accuracy"]:
             return []
-        return [f.format(lat=_coord(photo["lat"]), lon=_coord(photo["lon"])) for f in ccfg.get("formats") or []]
+        return [f.format(lat=_coord(photo["lat"]), lon=_coord(photo["lon"])) for f in ccfg["formats"] or []]
 
     def place_tags(self, photo, place: dict) -> list[str]:
         pcfg, acc = self.cfg["place"], photo["accuracy"] or 16
@@ -121,37 +121,37 @@ class StandardTagger:
         if not cc or acc < min_acc["country"]:
             return []
         country = country_names(cc)[0]
-        if pcfg.get("country", True):
+        if pcfg["country"]:
             names.append(country)
-        if pcfg.get("regions", True):
-            names += (pcfg.get("region_overrides") or {}).get(cc) or REGIONS.get(cc, [])
+        if pcfg["regions"]:
+            names += (pcfg["region_overrides"] or {}).get(cc) or REGIONS.get(cc, [])
         if state and acc >= min_acc["state"]:
-            if pcfg.get("state", True):
+            if pcfg["state"]:
                 names.append(state)
-            if pcfg.get("state_abbr", True) and cc == "US" and state in US_STATES:
+            if pcfg["state_abbr"] and cc == "US" and state in US_STATES:
                 names.append(US_STATES[state])
-        if pcfg.get("city", True) and acc >= min_acc["city"]:
+        if pcfg["city"] and acc >= min_acc["city"]:
             names.append(self.city_name(photo, place))
         for key in (cc, country, state):
             names += self.extra_place.get(norm_title(key), []) if key else []
         tags = [norm_tag(n) for n in names if n]
-        if pcfg.get("split_words"):
+        if pcfg["split_words"]:
             tags += [norm_tag(w) for n in names if n and " " in n.strip() for w in n.split()]
         return tags
 
     def city_name(self, photo, place: dict) -> str:
         # A configured city (by distance) wins over the nearest town, as with renames.
-        for c in self.geo_cfg.get("cities", []):
+        for c in self.geo_cfg["cities"]:
             if haversine_km(photo["lat"], photo["lon"], c["lat"], c["lon"]) <= c.get("radius_km", 25):
                 return c.get("tag") or c.get("name") or c["album"]
         return place.get("name") or ""
 
     def camera_tags(self, camera: str) -> list[str]:
-        tags = [norm_tag(w) for w in camera.split()] if self.cfg["camera"].get("name_words", True) else []
+        tags = [norm_tag(w) for w in camera.split()] if self.cfg["camera"]["name_words"] else []
         for rx, extra in self.camera_rules:
             if rx.search(camera):
                 tags += extra
         return tags
 
     def camera_albums(self, camera: str) -> list[str]:
-        return [r["album"] for r in self.cfg["camera"].get("albums") or [] if re.search(r["match"], camera, re.I)]
+        return [r["album"] for r in self.cfg["camera"]["albums"] or [] if re.search(r["match"], camera, re.I)]

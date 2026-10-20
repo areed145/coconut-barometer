@@ -9,9 +9,9 @@ def propose(ctx: Context) -> list:
     if not ctx.fingerprint:
         return []
     vcfg = ctx.cfg["vision"]
-    min_conf = float(vcfg.get("min_confidence", 0.75))
+    min_conf = float(vcfg["min_confidence"])
     extra = vcfg["extra_tags"]
-    prefix = extra.get("prefix", "") or ""
+    prefix = extra["prefix"] or ""
     wants: list = []
     for pid in ctx.photos:
         res = ctx.vision(pid)
@@ -25,6 +25,6 @@ def propose(ctx: Context) -> list:
             if c.get("album"):
                 wants.append(AlbumWant(pid, c["album"], f"vision:{cat}", f"{conf:.2f}", res.get("caption", "")))
             wants += [TagWant(pid, t, f"vision:{cat}") for t in c.get("tags", []) or []]
-        if extra.get("enabled"):
+        if extra["enabled"]:
             wants += [TagWant(pid, prefix + t, "vision:tags") for t in (res.get("tags") or [])[: extra["max"]]]
     return wants

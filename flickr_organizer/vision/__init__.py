@@ -25,14 +25,14 @@ def make_provider(vcfg: dict) -> VisionProvider:
     name = vcfg["provider"].lower()
     if name not in PROVIDERS:
         raise SystemExit(f"Unknown vision provider '{name}'. Options: {', '.join(PROVIDERS)}")
-    kwargs = {"model": vcfg["model"], "api_key": vcfg.get("api_key") or None}
+    kwargs = {"model": vcfg["model"], "api_key": vcfg["api_key"] or None}
     if name == "ollama":
-        kwargs["base_url"] = vcfg.get("base_url") or "http://localhost:11434/v1"
+        kwargs["base_url"] = vcfg["base_url"] or "http://localhost:11434/v1"
         kwargs["api_key"] = kwargs["api_key"] or "ollama"
     else:
         if not kwargs["api_key"]:
             raise SystemExit(f"Missing vision.api_key in config.yaml (required for provider '{name}').")
-        if vcfg.get("base_url"):
+        if vcfg["base_url"]:
             kwargs["base_url"] = vcfg["base_url"]
     return PROVIDERS[name](**kwargs)
 

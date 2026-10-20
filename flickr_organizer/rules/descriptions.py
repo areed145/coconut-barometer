@@ -9,9 +9,9 @@ from .base import Context
 
 def propose(ctx: Context) -> list[Change]:
     dcfg = ctx.cfg["vision"]["describe"]
-    if not dcfg.get("enabled") or not ctx.fingerprint:
+    if not dcfg["enabled"] or not ctx.fingerprint:
         return []
-    reword = dcfg.get("reword", True)
+    reword = dcfg["reword"]
     out = []
     for pid, p in ctx.photos.items():
         text = ((ctx.vision(pid) or {}).get("description") or "").strip()

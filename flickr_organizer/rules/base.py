@@ -45,7 +45,7 @@ class Context:
         self.album_titles = {norm_title(a["title"]): a["title"] for a in self.albums}
         self.members = store.memberships()
         self.settled = Settled(store)
-        self.create_missing = cfg["albums"].get("create_missing", False)
+        self.create_missing = cfg["albums"]["create_missing"]
 
     @cached_property
     def geo(self) -> GeoMatcher:
@@ -59,7 +59,7 @@ class Context:
     @cached_property
     def fingerprint(self) -> str | None:
         vcfg = self.cfg["vision"]
-        if vcfg.get("enabled", True) and self.provider_key and vcfg["categories"]:
+        if vcfg["enabled"] and self.provider_key and vcfg["categories"]:
             return fingerprint(vcfg, self.provider_key)
         return None
 
@@ -98,7 +98,7 @@ def resolve(ctx: Context, wants: list) -> list[Change]:
             out.append(Change("add_to_album", pid, title, album_id=album_id, source=w.source, confidence=w.confidence,
                               reason=w.reason if album_id else f"{w.reason} (NEW ALBUM)"))
 
-    cap = int(ctx.cfg["standard_tags"].get("max_tags_per_photo", 75))
+    cap = int(ctx.cfg["standard_tags"]["max_tags_per_photo"])
     for pid, by_tag in tags.items():
         have = {norm_tag(t) for t in (ctx.photos[pid]["tags"] or "").split()}
         new = [w for key, w in by_tag.items() if key not in have and not ctx.settled.tag(pid, clean_tag(w.tag))]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import os
 import sys
 import time
@@ -59,6 +60,54 @@ def cmd_camera(cfg, store, args):
     print(f"Cameras: {fetch_cameras(_client(cfg), store, todo)}")
 
 
+def cmd_check(config_path: str) -> int:
+    """Validate the config, then check it against your library. Exit code 1 on errors."""
+    from pathlib import Path
+
+    from .config import DEFAULTS, _merge, read_raw, validate
+    from .util import norm_title
+
+    raw = read_raw(config_path)
+    cfg = _merge(DEFAULTS, raw)
+    errors, warnings = validate(raw, cfg)
+    notes: list[str] = []
+    db = Path(cfg["database"])
+    db = db if db.is_absolute() else Path(config_path).resolve().parent / db
+    if not errors and db.exists():
+        store = Store(str(db))
+        have = {norm_title(a["title"]) for a in store.albums()}
+        missing = lambda title: title and norm_title(title) not in have and not cfg["albums"]["create_missing"]
+        named = [(f"vision.categories.{k}.album", c.get("album")) for k, c in cfg["vision"]["categories"].items()]
+        named += [(f"geo.cities[{i}].album", c["album"]) for i, c in enumerate(cfg["geo"]["cities"])]
+        named += [(f"geo.countries.aliases.{cc}", t) for cc, v in cfg["geo"]["countries"]["aliases"].items()
+                  for t in ([v] if isinstance(v, str) else v)]
+        named += [(f"standard_tags.camera.albums[{i}].album", r["album"])
+                  for i, r in enumerate(cfg["standard_tags"]["camera"]["albums"])]
+        named += [(f"standard_tags.album_tags.albums.{t}", t) for t in cfg["standard_tags"]["album_tags"]["albums"]]
+        for where, title in named:
+            if missing(title):
+                close = difflib.get_close_matches(norm_title(title), sorted(have), n=1)
+                warnings.append(f"{where}: no album called {title!r}, so it's skipped"
+                                + (f" (closest: {next(a['title'] for a in store.albums() if norm_title(a['title']) == close[0])!r})" if close else ""))
+        last = store.get_meta("last_sync")
+        notes.append(f"library: {len(store.albums())} albums, last sync {time.ctime(int(last)) if last else 'never'}")
+        if last and time.time() - int(last) > 7 * 86400:
+            warnings.append("last sync is over a week old; process and social sync first, or run sync")
+        counts = store.queue_counts()
+        notes.append(f"queue: {counts.get('pending', 0)} to review, {counts.get('failed', 0)} failed")
+    elif not errors:
+        warnings.append(f"no database yet at {db}; run `auth` then `sync`")
+    if not os.path.exists(os.path.expanduser("~/.flickr/oauth-tokens.sqlite")):
+        warnings.append("no saved Flickr login (~/.flickr); run `python -m flickr_organizer auth`")
+
+    print(f"{config_path}: {len(errors)} error(s), {len(warnings)} warning(s)")
+    for title, items in (("Errors", errors), ("Warnings", warnings), ("Info", notes)):
+        if items:
+            print(f"\n{title}:")
+            print("\n".join(f"  - {x}" for x in items))
+    return 1 if errors else 0
+
+
 def cmd_status(cfg, store, args):
     last = store.get_meta("last_sync")
     print(f"Last sync: {time.ctime(int(last)) if last else 'never'}")
@@ -84,7 +133,7 @@ def cmd_classify(cfg, store, args):
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return
     locations = {}
-    if vcfg.get("use_location", True):
+    if vcfg["use_location"]:
         from .geo import locations_for
 
         locations = locations_for(todo, cfg["geo"]["min_accuracy"])
@@ -100,7 +149,7 @@ def cmd_plan(cfg, store, args):
     if not store.get_meta("last_sync"):
         sys.exit("No local data yet — run `sync` first.")
     provider_key = None
-    if cfg["vision"].get("enabled", True) and cfg["vision"]["categories"]:
+    if cfg["vision"]["enabled"] and cfg["vision"]["categories"]:
         provider_key = f"{_provider_name(cfg)}:{cfg['vision']['model']}"
     changes = build_plan(cfg, store, provider_key, photo_ids=set(args.photo) if args.photo else None)
     if not changes:
@@ -121,7 +170,7 @@ def _provider_name(cfg) -> str:
     name = cfg["vision"]["provider"].lower()
     if name == "anthropic":
         return "claude"
-    if name == "ollama" or (name == "openai" and cfg["vision"].get("base_url")):
+    if name == "ollama" or (name == "openai" and cfg["vision"]["base_url"]):
         return "openai-compat"
     return name
 
@@ -134,7 +183,7 @@ def cmd_process(cfg, store, args):
     if not args.no_sync:
         cmd_sync(cfg, store, args)
     vcfg = cfg["vision"]
-    provider = _provider(cfg) if vcfg.get("enabled", True) and vcfg["categories"] else None
+    provider = _provider(cfg) if vcfg["enabled"] and vcfg["categories"] else None
     skip = set(store.queue_ids(["applying"])) | (set() if args.rebuild else set(store.queue_ids()))
     todo = [p["id"] for p in store.photos() if p["id"] not in skip and (not args.photo or p["id"] in args.photo)
             and (not args.media or p["media"] == args.media)]
@@ -200,6 +249,7 @@ def main(argv=None):
     sub.add_parser("sync", help="download photo list + album membership")
     sub.add_parser("albums", help="list cached albums (to help write config)")
     sub.add_parser("status", help="show local state")
+    sub.add_parser("check", help="validate config.yaml and check it against your library")
     p = sub.add_parser("camera", help="fetch each photo's camera from EXIF (one call per photo, cached)")
     p.add_argument("--limit", type=int, help="only fetch this many photos")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
@@ -231,6 +281,8 @@ def main(argv=None):
     p.add_argument("--list", action="store_true", help="list every change, not just the totals")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
     args = ap.parse_args(argv)
+    if args.cmd == "check":   # before load_config, which stops at the first config error
+        sys.exit(cmd_check(args.config))
 
     cfg = load_config(args.config)
     store = Store(cfg["database"])

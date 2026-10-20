@@ -8,17 +8,17 @@ from .base import Context
 
 
 def propose(ctx: Context) -> list[Change]:
-    rcfg, tcfg = ctx.cfg.get("rename", {}), ctx.cfg["vision"]["title"]
-    if not rcfg.get("enabled") and not (tcfg.get("enabled") and ctx.fingerprint):
+    rcfg, tcfg = ctx.cfg["rename"], ctx.cfg["vision"]["title"]
+    if not rcfg["enabled"] and not (tcfg["enabled"] and ctx.fingerprint):
         return []
     renamer = Renamer(rcfg, ctx.cfg["geo"])
     chosen: dict[str, tuple[str, str]] = {}   # photo_id -> (title, source)
-    if rcfg.get("enabled"):
+    if rcfg["enabled"]:
         for pid, _old, new in renamer.suggest(list(ctx.photos.values()), ctx.places):
             if not ctx.settled.title(pid, new):
                 chosen[pid] = (new, "geo:rename")
-    if tcfg.get("enabled") and ctx.fingerprint:
-        mode = tcfg.get("replace", "generic_or_place")
+    if tcfg["enabled"] and ctx.fingerprint:
+        mode = tcfg["replace"]
         for pid, p in ctx.photos.items():
             title = ((ctx.vision(pid) or {}).get("title") or "").strip(" \"'.\n")
             if not title or title == p["title"] or ctx.settled.title(pid, title):

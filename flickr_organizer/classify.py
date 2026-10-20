@@ -90,7 +90,7 @@ def build_schema(vcfg: dict) -> dict:
 def build_prompt(vcfg: dict, photo, location: str = "") -> str:
     extra = EXTRA_TAGS.format(max=vcfg["extra_tags"]["max"]) if vcfg["extra_tags"]["enabled"] else ""
     context = ""
-    if vcfg.get("use_photo_text", True):
+    if vcfg["use_photo_text"]:
         bits = []
         if photo["title"]:
             bits.append(f"Title: {photo['title']}")
@@ -102,7 +102,7 @@ def build_prompt(vcfg: dict, photo, location: str = "") -> str:
             context = "\nThe owner wrote this about the photo (may help, may be unrelated):\n" + "\n".join(bits)
     if "media" in photo.keys() and photo["media"] == "video":
         context += "\nThis image is the preview frame of a video; describe the video's subject."
-    if location and vcfg.get("use_location", True):
+    if location and vcfg["use_location"]:
         context += f"\nLocation from the photo's geotag (nearest town; approximate): {location}"
     return PROMPT.format(categories=categories_block(vcfg["categories"]), extra_tags=extra,
                          describe=_brief(vcfg["describe"], DEFAULT_DESCRIBE, GROUNDING),
@@ -111,9 +111,9 @@ def build_prompt(vcfg: dict, photo, location: str = "") -> str:
 
 
 def _brief(cfg: dict, default: str, rules: str) -> str:
-    if not cfg.get("enabled"):
+    if not cfg["enabled"]:
         return ""
-    text = (cfg.get("instructions") or default).strip().format(max_words=cfg.get("max_words", 40))
+    text = (cfg["instructions"] or default).strip().format(max_words=cfg["max_words"])
     return f"\n{text}\n{rules}\n"
 
 
@@ -132,7 +132,7 @@ def fingerprint(vcfg: dict, provider_key: str) -> str:
         "cats": {k: v["description"] for k, v in sorted(vcfg["categories"].items())},
         "tags": vcfg["extra_tags"],
         "thumb": vcfg["thumbnail"],
-        "location": vcfg.get("use_location", True),
+        "location": vcfg["use_location"],
     }, sort_keys=True)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
 
@@ -149,7 +149,7 @@ def pending_photos(store, vcfg: dict, fp: str, limit: int | None = None, photo_i
             continue
         if p["id"] in done or not p["thumb_url"]:
             continue
-        if p["media"] == "video" and not vcfg.get("include_videos", False):
+        if p["media"] == "video" and not vcfg["include_videos"]:
             continue
         out.append(p)
         if limit and len(out) >= limit:
@@ -180,7 +180,7 @@ def classify_photos(store, provider, vcfg: dict, photos, log=print, downloader=_
         result = provider.classify(img, ctype, build_prompt(vcfg, p, (locations or {}).get(p["id"], "")), schema)
         return p, result
 
-    with ThreadPoolExecutor(max_workers=max(1, int(vcfg.get("concurrency", 4)))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, int(vcfg["concurrency"]))) as pool:
         futures = [pool.submit(work, p) for p in photos]
         for i, fut in enumerate(as_completed(futures), 1):
             try:

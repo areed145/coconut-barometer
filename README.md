@@ -24,7 +24,10 @@ cp config.example.yaml config.yaml
 python -m flickr_organizer auth      # opens the browser; paste the code back. Token is cached in ~/.flickr/
 python -m flickr_organizer sync      # caches your photo list + album membership locally
 python -m flickr_organizer albums    # lists your album titles, so you can match them in config.yaml
+python -m flickr_organizer check     # validates config.yaml and checks album names against your library
 ```
+
+Every command checks `config.yaml` when it starts and stops with a list of problems (a misspelled setting, a wrong type, a value out of range, an unknown `{placeholder}`, a broken regex) rather than failing partway through a run. `check` also shows warnings, such as album names that match no album, a call rate over Flickr's limit, or missing keys.
 
 Edit `config.yaml` so that the category `album:` names, US state `title:` format, and `cities:` match the albums you already have. Albums are matched by title, ignoring case, accents and punctuation. If a title doesn't match, that album is skipped. Nothing gets created unless you set `albums.create_missing: true`.
 

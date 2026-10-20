@@ -18,7 +18,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
     """include_videos: classify videos (from their preview frame) regardless of vision.include_videos.
     media: only "photo" or only "video"."""
     vcfg = cfg["vision"] if include_videos is None else {**cfg["vision"], "include_videos": include_videos}
-    use_vision = provider is not None and vcfg.get("enabled", True) and bool(vcfg["categories"])
+    use_vision = provider is not None and vcfg["enabled"] and bool(vcfg["categories"])
     fp = fingerprint(vcfg, provider.key) if use_vision else None
     # Never touch a photo the review tool is applying right now; otherwise skip queued ones unless rebuilding.
     skip = set(store.queue_ids(["applying"])) | (set() if rebuild else set(store.queue_ids()))
@@ -26,7 +26,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
             and (not media or p["media"] == media)]
     todo = todo[:limit] if limit else todo
     stats = {"queued": 0, "nothing_to_change": 0, "retry_later": 0, "input_tokens": 0, "output_tokens": 0}
-    batch = max(8, int(vcfg.get("concurrency", 4)) * 4)
+    batch = max(8, int(vcfg["concurrency"]) * 4)
     quiet = lambda *a: None
     classify_kw = {"downloader": downloader} if downloader else {}
 

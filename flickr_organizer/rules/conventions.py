@@ -12,7 +12,7 @@ def propose(ctx: Context) -> list:
                          ctx.cfg["vision"]["categories"])
     if not std.any_enabled():
         return []
-    cameras = ctx.cameras if scfg["camera"].get("enabled") else {}
+    cameras = ctx.cameras if scfg["camera"]["enabled"] else {}
     places = ctx.places if std.needs_places() else {}
     wants: list = []
     for pid, p in ctx.photos.items():
