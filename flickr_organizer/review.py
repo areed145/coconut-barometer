@@ -18,8 +18,9 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from .apply import META_ACTIONS, apply_rows
-from .planner import photo_page, split_tags
+from .apply import apply_changes, outcomes
+from .changes import META_ACTIONS, Change, split_tags
+from .planner import photo_page
 
 STATUSES = ("pending", "applying", "failed", "applied", "rejected", "none", "unprocessed")
 
@@ -89,7 +90,8 @@ class ReviewApp:
                  if p["server"] and p["secret"] else p["thumb_url"])
         result = q["result"] if q["status"] != "applying" else None
         return {
-            "photo_id": photo_id, "status": q["status"], "changes": q["changes"], "result": result,
+            "photo_id": photo_id, "status": q["status"], "result": result,
+            "changes": [Change.from_dict(c).to_dict() for c in q["changes"]],
             "photo": {"title": p["title"], "description": p["description"], "tags": (p["tags"] or "").split(),
                       "albums": albums, "date_taken": p["date_taken"], "image": large, "thumb": p["thumb_url"],
                       "url": photo_page(self.store.get_meta("nsid", "me"), photo_id),
@@ -101,8 +103,8 @@ class ReviewApp:
         }
 
     def decide(self, photo_id: str, choices: list[dict]) -> dict:
-        """choices: one per queued change, in order: {"approve": bool, "target": str}.
-        For add_tags, target is the kept tags joined with " | ". Returns at once."""
+        """choices: one per queued change, in order: {"approve": bool, "value": ...} where value
+        is your edited title/description, or the list of tags you kept. Returns at once."""
         q = self.store.queue_item(photo_id)
         if not q:
             raise KeyError(photo_id)
@@ -176,35 +178,27 @@ class ReviewApp:
     def _apply(self, store, photo_id: str) -> dict:
         q = store.queue_item(photo_id)
         choices = (q["result"] or {}).get("choices", [])
-        rows = []
-        for change, choice in zip(q["changes"], choices):
-            row = {**change, "approve": "y" if choice.get("approve") else "n"}
-            if "target" in choice:
-                row["target"] = choice["target"]
-            if row["action"] == "add_tags" and not split_tags(row["target"]):
-                row["approve"] = "n"
-            rows.append(row)
-        # (apply_rows re-reads the photo from Flickr before any title/description write.)
-        stats = apply_rows(self.client, store, rows, log=self.log)
-        result = {"stats": stats, "changes": self._outcomes(store, photo_id, rows)}
+        changes = [_with_choice(Change.from_dict(d), choice) for d, choice in zip(q["changes"], choices)]
+        # (apply_changes re-reads the photo from Flickr before any title/description write.)
+        stats = apply_changes(self.client, store, changes, log=self.log)
+        result = {"stats": stats, "changes": outcomes(store, changes)}
         status = "failed" if stats["failed"] else ("applied" if stats["applied"] else "rejected")
         store.queue_finish(photo_id, status, result)
         return {"status": status, **result}
 
-    @staticmethod
-    def _outcomes(store, photo_id: str, rows: list[dict]) -> list[dict]:
-        """What happened to each change, read back from the decisions table."""
-        decided = {(a, t): s for (pid, a, t), s in store.decisions().items() if pid == photo_id}
-        out = []
-        for r in rows:
-            if r["action"] == "add_tags":
-                offered = split_tags(r.get("original_target") or r["target"])
-                out.append({"action": "add_tags", "tags": {t: decided.get(("add_tag", t), "rejected") for t in offered}})
-            else:
-                target = (r["target"] or "").strip() if r["action"] in META_ACTIONS else r["target"]
-                out.append({"action": r["action"], "target": target,
-                            "status": decided.get((r["action"], target), "rejected")})
-        return out
+
+def _with_choice(c: Change, choice: dict) -> Change:
+    """Your decision on one change from the page: {"approve": bool, "value": text or kept tags}.
+    (Photos queued for applying before this format sent "target"; that still works.)"""
+    c.approved = bool(choice.get("approve"))
+    value = choice.get("value", choice.get("target"))
+    if c.action == "add_tags":
+        kept = split_tags(value if value is not None else c.new)
+        c.edited = kept if kept != c.tags else None
+        c.approved = c.approved and bool(kept)
+    elif value is not None and c.action in META_ACTIONS and str(value).strip() != c.new:
+        c.edited = str(value).strip()
+    return c
 
 
 def serve(app: ReviewApp, port: int = 8765, open_browser: bool = True) -> None:
@@ -386,8 +380,8 @@ async function show() {
   item = await api('/api/item/' + ids[idx]);
   const p = item.photo, editable = item.status === 'pending' || item.status === 'failed';
   loadSummary();
-  choices = item.changes.map(c => ({approve: true, target: c.target,
-    tags: c.action === 'add_tags' ? c.target.split(' | ').map(t => ({t, on: true})) : null}));
+  choices = item.changes.map(c => ({approve: true, value: c.new,
+    tags: c.action === 'add_tags' ? c.new.map(t => ({t, on: true})) : null}));
   const res = item.result ? item.result.changes : null;
   const current = `<div class="box cur"><h2>On Flickr now</h2><dl>
       <dt>Title</dt><dd>${esc(p.title) || '<span class="muted">(blank)</span>'}</dd>
@@ -416,7 +410,7 @@ async function show() {
     const i = +el.dataset.i, ch = choices[i];
     if (el.type === 'checkbox') el.onchange = () => { ch.approve = el.checked; };
     else if (el.dataset.t !== undefined) el.onclick = () => { if (!editable) return; const ts = ch.tags[+el.dataset.t]; ts.on = !ts.on; el.classList.toggle('off', !ts.on); };
-    else el.oninput = () => { ch.target = el.value; };
+    else el.oninput = () => { ch.value = el.value; };
   });
   if ($('#ok')) $('#ok').onclick = () => decide(true);
   if ($('#no')) $('#no').onclick = () => decide(false);
@@ -465,15 +459,15 @@ function renderChange(c, i, editable, out) {
   const status = out ? ` <span class="badge b-${out.status}">${out.status}</span>` : '';
   const box = `<input type="checkbox" data-i="${i}" checked ${dis} aria-label="approve">`;
   if (c.action === 'add_to_album')
-    return `<div class="row">${box}<div class="what">Add to album <b>${esc(c.target)}</b>${c.album_id ? '' : ' (new album)'}${status}<div class="why">${why}</div></div></div>`;
+    return `<div class="row">${box}<div class="what">Add to album <b>${esc(c.new)}</b>${c.album_id ? '' : ' (new album)'}${status}<div class="why">${why}</div></div></div>`;
   if (c.action === 'set_title')
-    return `<div class="row">${box}<div class="what">Title${status} <span class="why">was: ${esc(c.original_target || '(blank)')}</span>
-      <input type="text" data-i="${i}" value="${esc(c.target)}" ${dis}></div></div>`;
+    return `<div class="row">${box}<div class="what">Title${status} <span class="why">was: ${esc(c.old || '(blank)')}</span>
+      <input type="text" data-i="${i}" value="${esc(c.new)}" ${dis}></div></div>`;
   if (c.action === 'set_description')
-    return `<div class="row">${box}<div class="what">Description${status}${c.original_target
-      ? ` <span class="why">re-worded; replaces:</span><div class="why" style="margin:2px 0 4px;font-style:italic">${esc(c.original_target)}</div>` : ''}
-      <textarea data-i="${i}" ${dis}>${esc(c.target)}</textarea></div></div>`;
-  return `<div class="row"><div class="what">${esc(c.action)}: ${esc(c.target)}</div></div>`;
+    return `<div class="row">${box}<div class="what">Description${status}${c.old
+      ? ` <span class="why">re-worded; replaces:</span><div class="why" style="margin:2px 0 4px;font-style:italic">${esc(c.old)}</div>` : ''}
+      <textarea data-i="${i}" ${dis}>${esc(c.new)}</textarea></div></div>`;
+  return `<div class="row"><div class="what">${esc(c.action)}: ${esc(c.new)}</div></div>`;
 }
 
 // Approve/Reject only hand the photo to the server's background worker, which makes
@@ -481,8 +475,8 @@ function renderChange(c, i, editable, out) {
 async function decide(approve) {
   if (!item || busy) return; busy = true;
   const payload = choices.map((ch, i) => item.changes[i].action === 'add_tags'
-    ? {approve: approve && ch.tags.some(t => t.on), target: ch.tags.filter(t => t.on).map(t => t.t).join(' | ')}
-    : {approve: approve && ch.approve, target: ch.target});
+    ? {approve: approve && ch.tags.some(t => t.on), value: ch.tags.filter(t => t.on).map(t => t.t)}
+    : {approve: approve && ch.approve, value: ch.value});
   try {
     await api('/api/item/' + item.photo_id + '/decide', {choices: payload});
     if (!approve) toast('Rejected — won\'t be proposed again');

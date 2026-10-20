@@ -1,38 +1,19 @@
-"""Combine geo + vision results into a reviewable plan of additive changes.
+"""Turn what's known about each photo (geotag, vision results, EXIF, albums) into
+proposed Changes.
 
-The plan never removes anything. It skips changes that already exist on Flickr,
-and anything you previously applied or rejected.
+Proposals only ever add, apart from titles and descriptions the rules allow replacing.
+Anything already true on Flickr, or settled before (see changes.Settled), is skipped.
 """
 from __future__ import annotations
 
-import csv
-import os
-from dataclasses import asdict, dataclass, field
+from collections import Counter
 
+from .changes import Change, Settled
 from .classify import fingerprint
 from .geo import GeoMatcher
 from .rename import Renamer
 from .standard_tags import StandardTagger
-from .util import clean_tag, norm_tag, norm_title, same_text
-
-PLAN_FIELDS = ["approve", "action", "photo_id", "target", "album_id", "source", "confidence",
-               "reason", "photo_title", "photo_url", "thumb_url", "original_target"]
-
-
-@dataclass
-class PlanRow:
-    action: str            # add_to_album | add_tags | set_title | set_description
-    photo_id: str
-    target: str            # album title, " | "-separated tags, the new title, or the new description
-    album_id: str = ""     # blank = album will be created
-    source: str = ""       # geo:country, vision:food, vision:tags, ...
-    confidence: str = ""
-    reason: str = ""
-    photo_title: str = ""
-    photo_url: str = ""
-    thumb_url: str = ""
-    approve: str = "y"
-    original_target: str = field(default="")
+from .util import clean_tag, norm_tag, norm_title
 
 
 def photo_page(nsid: str, photo_id: str) -> str:
@@ -40,14 +21,13 @@ def photo_page(nsid: str, photo_id: str) -> str:
 
 
 def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
-               photo_ids: set[str] | None = None) -> list[PlanRow]:
+               photo_ids: set[str] | None = None) -> list[Change]:
     """photo_ids: plan only these photos (the per-photo queue); default is the whole library."""
-    nsid = store.get_meta("nsid", "me")
     albums = store.albums()
     title_to_id = {norm_title(a["title"]): a["id"] for a in albums}
     title_display = {norm_title(a["title"]): a["title"] for a in albums}
     members = store.memberships()
-    decisions = store.decisions()
+    settled = Settled(store)
     create_missing = cfg["albums"].get("create_missing", False)
     photos = {p["id"]: p for p in store.photos() if photo_ids is None or p["id"] in photo_ids}
 
@@ -121,9 +101,8 @@ def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
                 want_album(pid, title, "std:camera", "", f"camera: {camera}")
 
     # ---- diff against current state --------------------------------------
-    rows: list[PlanRow] = []
+    rows: list[Change] = []
     for pid, wants in album_wants.items():
-        p = photos[pid]
         have = members.get(pid, set())
         for key, (title, source, conf, reason) in wants.items():
             album_id = title_to_id.get(key, "")
@@ -132,86 +111,61 @@ def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
             display = title_display.get(key, title)
             if album_id and album_id in have:
                 continue
-            if (pid, "add_to_album", display) in decisions:
+            if settled.album(pid, display):
                 continue
-            rows.append(PlanRow("add_to_album", pid, display, album_id, source, conf,
-                                reason if album_id else f"{reason} (NEW ALBUM)",
-                                p["title"], photo_page(nsid, pid), p["thumb_url"] or ""))
+            rows.append(Change("add_to_album", pid, display, album_id=album_id, source=source, confidence=conf,
+                               reason=reason if album_id else f"{reason} (NEW ALBUM)"))
 
     for pid, wants in tag_wants.items():
         p = photos[pid]
         have = {norm_tag(t) for t in (p["tags"] or "").split()}
-        new = [(t, s) for k, (t, s) in wants.items()
-               if k not in have and (pid, "add_tag", t) not in decisions]
+        new = [(t, s) for k, (t, s) in wants.items() if k not in have and not settled.tag(pid, t)]
         # Flickr caps tags per photo; wants are in priority order, so the least useful drop off.
         new = new[:max(0, int(scfg.get("max_tags_per_photo", 75)) - len(have))]
         if not new:
             continue
-        tags = [t for t, _ in new]
-        target = " | ".join(tags)
-        rows.append(PlanRow("add_tags", pid, target, "", ",".join(sorted({s for _, s in new})), "", "",
-                            p["title"], photo_page(nsid, pid), p["thumb_url"] or "", original_target=target))
+        rows.append(Change("add_tags", pid, [t for t, _ in new], source=",".join(sorted({s for _, s in new}))))
 
     # ---- titles: the model's proposal where allowed, else the location rename ---
     renamer = Renamer(rcfg, gcfg)
     new_titles: dict[str, tuple[str, str]] = {}   # photo_id -> (title, source)
     if rcfg.get("enabled"):
         for pid, old_title, new_title in renamer.suggest(list(photos.values()), places):
-            if (pid, "set_title", new_title) not in decisions:
+            if not settled.title(pid, new_title):
                 new_titles[pid] = (new_title, "geo:rename")
     mode = vcfg["title"].get("replace", "generic_or_place")
     for pid, title in vision_titles.items():
         p = photos[pid]
-        if title == p["title"] or (pid, "set_title", title) in decisions:
+        if title == p["title"] or settled.title(pid, title):
             continue
         if renamer.replaceable(p, places.get(pid), mode):
             new_titles[pid] = (title, "vision:title")
     for pid, (title, source) in new_titles.items():
         p = photos[pid]
-        rows.append(PlanRow("set_title", pid, title, "", source, "", f"was: {p['title'] or '(blank)'}",
-                            p["title"], photo_page(nsid, pid), p["thumb_url"] or "", original_target=p["title"]))
+        rows.append(Change("set_title", pid, title, old=p["title"] or "", source=source,
+                           reason=f"was: {p['title'] or '(blank)'}"))
 
     # ---- descriptions -------------------------------------------------------
-    # Blank ones get one proposal: once applied or rejected (even after editing), never again.
-    # With describe.reword, a description this tool wrote that's still exactly as written is
-    # re-worded once after the brief changes (its new text is newer than when it was applied);
-    # anything you wrote or edited yourself is left alone. original_target = what it replaces.
-    described = {pid for (pid, action, _), status in decisions.items()
-                 if action == "set_description" and status != "failed"}
-    written = store.applied("set_description") if vcfg["describe"].get("reword", True) else {}
+    # Blank ones get one proposal per photo; with describe.reword, one this tool wrote and you
+    # haven't edited gets re-worded once per brief change (see changes.Settled).
+    reword = vcfg["describe"].get("reword", True)
     for pid, text in descriptions.items():
-        p = photos[pid]
-        current = (p["description"] or "").strip()
+        current = (photos[pid]["description"] or "").strip()
         if not current:
-            if pid in described:
+            if settled.blank_description(pid):
                 continue
             reason = ""
-        else:
-            ours = written.get(pid)
-            if (not ours or not same_text(ours[0], current) or same_text(text, current)
-                    or (store.classified_at(pid, fp) or 0) <= ours[1] or (pid, "set_description", text) in decisions):
-                continue
+        elif reword and settled.may_reword(pid, current, text, store.classified_at(pid, fp) or 0):
             reason = "re-worded with the current brief (the old text was written by this tool)"
-        rows.append(PlanRow("set_description", pid, text, "", "vision:describe", "", reason,
-                            p["title"], photo_page(nsid, pid), p["thumb_url"] or "", original_target=current))
+        else:
+            continue
+        rows.append(Change("set_description", pid, text, old=current, source="vision:describe", reason=reason))
 
-    rows.sort(key=lambda r: (r.action, r.target.lower() if r.action == "add_to_album" else "", r.photo_id))
+    rows.sort(key=lambda c: (c.action, c.new.lower() if c.action == "add_to_album" else "", c.photo_id))
     return rows
 
 
-def write_plan_csv(rows: list[PlanRow], path: str) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=PLAN_FIELDS)
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: asdict(r)[k] for k in PLAN_FIELDS})
-
-
-def read_plan_csv(path: str) -> list[dict]:
-    with open(path, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
-
-
-def split_tags(target: str) -> list[str]:
-    return [clean_tag(t) for t in (target or "").split("|") if clean_tag(t)]
+def summarize(changes: list[Change]) -> Counter:
+    """How many of each: an album's title, or tags / renames / descriptions."""
+    label = {"add_tags": "tags", "set_title": "titles", "set_description": "descriptions"}
+    return Counter(label.get(c.action, c.new) for c in changes)

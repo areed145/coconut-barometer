@@ -1,15 +1,13 @@
 """Model-written descriptions: blank ones, re-wording, and applying them."""
-import csv
 import os
 import tempfile
 import unittest
 
 from fakes import FakeFlickr, fake_geocoder, FakeVision, CFG
-from flickr_organizer.apply import apply_plan
+from flickr_organizer.apply import apply_changes
 from flickr_organizer.classify import classify_photos, fingerprint, pending_photos
 from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan, read_plan_csv, write_plan_csv
-from flickr_organizer.report import write_report
+from flickr_organizer.planner import build_plan
 from flickr_organizer.store import Store
 from flickr_organizer.sync import sync
 
@@ -37,7 +35,7 @@ class DescribeTest(unittest.TestCase):
 
     def descriptions(self):
         rows = build_plan(self.cfg, self.store, self.vision.key)
-        return {r.photo_id: r.target for r in rows if r.action == "set_description"}
+        return {r.photo_id: r.new for r in rows if r.action == "set_description"}
 
     def test_only_blank_descriptions(self):
         got = self.descriptions()
@@ -59,21 +57,16 @@ class DescribeTest(unittest.TestCase):
         self.assertEqual(self.classify(), [])
 
     def test_apply_edit_reject_and_keep_title(self):
-        path = os.path.join(self.tmp, "d.csv")
-        write_plan_csv(build_plan(self.cfg, self.store, self.vision.key), path)
-        write_report(build_plan(self.cfg, self.store, self.vision.key), os.path.join(self.tmp, "d.html"), "d.csv")
-        edited = read_plan_csv(path)
-        for r in edited:
-            if r["action"] != "set_description":
+        changes = build_plan(self.cfg, self.store, self.vision.key)
+        for c in changes:
+            if c.action != "set_description":
                 continue
-            if r["photo_id"] == "1":
-                r["target"] = "Tonkotsu ramen."
-            if r["photo_id"] == "3":
-                r["approve"] = "n"
-        with open(path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=edited[0].keys()); w.writeheader(); w.writerows(edited)
+            if c.photo_id == "1":
+                c.edited = "Tonkotsu ramen."
+            if c.photo_id == "3":
+                c.approved = False
         self.fl.photos[3]["description"] = {"_content": "Wrote my own meanwhile"}   # on Flickr, after the plan
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, changes, log=lambda *a: None)
         by_id = {p["id"]: p for p in self.fl.photos}
         self.assertEqual(by_id["1"]["description"]["_content"], "Tonkotsu ramen.")
         self.assertEqual(by_id["1"]["title"], "Ramen in Tokyo")      # title sent back unchanged
@@ -85,9 +78,8 @@ class DescribeTest(unittest.TestCase):
 
 
     def test_rebuild_rewords_descriptions_this_tool_wrote(self):
-        path = os.path.join(self.tmp, "d.csv")
-        write_plan_csv([r for r in build_plan(self.cfg, self.store, self.vision.key) if r.photo_id == "1"], path)
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, [c for c in build_plan(self.cfg, self.store, self.vision.key)
+                                            if c.photo_id == "1"], log=lambda *a: None)
         self.store.db.execute("UPDATE decisions SET at = at - 10")             # applied a while ago
         self.store.db.commit()
         sync(self.fl, self.store, log=lambda *a: None)
@@ -96,11 +88,10 @@ class DescribeTest(unittest.TestCase):
         self.classify()                                                       # the brief changed: re-run
         rows = {r.photo_id: r for r in build_plan(self.cfg, self.store, self.vision.key)
                 if r.action == "set_description"}
-        self.assertEqual(rows["1"].target, "Steam curls over the ramen.")
-        self.assertEqual(rows["1"].original_target, "A steaming bowl of ramen.")   # what it replaces
+        self.assertEqual(rows["1"].new, "Steam curls over the ramen.")
+        self.assertEqual(rows["1"].old, "A steaming bowl of ramen.")          # what it replaces
         self.assertNotIn("2", rows)                                           # "Written by me" is yours
-        write_plan_csv([rows["1"]], path)
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, [rows["1"]], log=lambda *a: None)
         self.assertEqual(self.fl.photos[0]["description"]["_content"], "Steam curls over the ramen.")
         # You edit it on Flickr afterwards: it's yours now, even after another brief change.
         self.fl.photos[0]["description"] = {"_content": "Tonkotsu at midnight."}
@@ -116,10 +107,8 @@ class DescribeTest(unittest.TestCase):
         self.cfg["rename"]["enabled"] = True
         rows = build_plan(self.cfg, self.store, self.vision.key, geocoder=fake_geocoder)
         self.assertEqual({r.action for r in rows if r.photo_id == "5"}, {"set_title", "set_description"})
-        path = os.path.join(self.tmp, "m.csv")
-        write_plan_csv(rows, path)
         before = len(self.fl.calls)
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, rows, log=lambda *a: None)
         calls = [p for m, p in self.fl.calls[before:] if m == "flickr.photos.setMeta" and p["photo_id"] == "5"]
         self.assertEqual(calls, [{"photo_id": "5", "title": "Austin, TX", "description": "Something else."}])
         self.assertEqual(self.store.decisions()[("5", "set_title", "Austin, TX")], "applied")

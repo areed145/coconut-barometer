@@ -37,7 +37,7 @@ class StandardTagsTest(unittest.TestCase):
         return build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
 
     def tags(self):
-        return {r.photo_id: r.target.split(" | ") for r in self.plan() if r.action == "add_tags"}
+        return {r.photo_id: r.new for r in self.plan() if r.action == "add_tags"}
 
     def test_camera_fetch_is_cached(self):
         self.assertEqual(self.stats, {"ok": 2, "no_camera": 3, "failed": 0})
@@ -60,7 +60,7 @@ class StandardTagsTest(unittest.TestCase):
         self.assertEqual(t["4"], ["me", "photo"])            # no geo, date unknown, no camera
 
     def test_camera_albums_and_cap(self):
-        albums = {(r.photo_id, r.target) for r in self.plan() if r.action == "add_to_album"}
+        albums = {(r.photo_id, r.new) for r in self.plan() if r.action == "add_to_album"}
         self.assertIn(("1", "Landscapes"), albums)
         self.cfg["standard_tags"]["max_tags_per_photo"] = 4
         t = self.tags()

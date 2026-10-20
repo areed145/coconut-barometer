@@ -8,7 +8,7 @@ Adds your Flickr photos to the right albums and tags, using:
 - **Renames (optional, off by default)**: photos that still have a camera-default or blank title (`IMG_1234`, `DSC01234.JPG`, `PXL_2024…`, `20240101_123456`, "Untitled") get retitled with their location, e.g. "Houston, TX" or "Luanda, Angola". Turn it on with `rename.enabled: true`.
 - **Descriptions (optional, off by default)**: photos with a blank description get a 1–2 sentence one written by the vision model. Turn it on with `vision.describe.enabled: true`.
 
-Apart from renaming generic titles and filling blank descriptions, it only ever **adds**. It never removes a tag or takes a photo out of an album. Every change goes through a plan you review first.
+Apart from renaming generic titles and filling blank descriptions, it only ever **adds**. It never removes a tag or takes a photo out of an album. Every change waits in a queue until you approve it.
 
 ## Setup
 
@@ -39,32 +39,21 @@ python -m flickr_organizer review               # opens http://127.0.0.1:8765
 
 `review` shows one photo at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then **Approve** (Enter), **Reject all** (R), or **Skip** (→). Approving doesn't wait for Flickr: the photo goes to a background worker that makes the calls in order (at the usual rate limit) while you carry on, and the header shows how many are still applying. Failures pop up and land under "Failed" to retry. Photos and videos that `process` hasn't reached yet are under "Not processed": press **Process now** (P) to fetch EXIF, classify and plan that one in the background, then review it right there. Videos are classified from their preview frame, even with `include_videos: false`. **Re-process** re-plans a queued photo with your current settings, and the **Go to** box jumps to any photo by ID or Flickr URL. Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if you stop the tool mid-way, unfinished photos are applied the next time you run `review`. Before writing a title or description it re-reads the photo from Flickr, so a change you made there since the queue was built isn't overwritten. Failed changes stay under "Failed" to retry. The server only listens on 127.0.0.1 and needs a per-run token, so other web pages can't use it.
 
-## Workflow: bulk plan (CSV)
+## Preview without queueing
 
 ```bash
-python -m flickr_organizer classify --limit 50   # try a small batch first and check quality + cost
-python -m flickr_organizer plan                  # writes plans/plan-<time>.csv and .html; changes nothing
-open plans/plan-*.html                           # click a thumbnail to reject it, click a tag to drop it,
-                                                 # then "Download reviewed CSV"
-python -m flickr_organizer apply ~/Downloads/plan-<time>-reviewed.csv --dry-run
-python -m flickr_organizer apply ~/Downloads/plan-<time>-reviewed.csv
+python -m flickr_organizer plan            # totals of what the rules would propose right now
+python -m flickr_organizer plan --list     # every change, e.g. after editing a category or a brief
 ```
 
-You can also edit the CSV directly: set `approve` to `n` to reject a row, or edit the `target` of an `add_tags` row (tags are separated by ` | `).
+`plan` is read-only: it uses what's already stored (it doesn't sync or classify), queues nothing, and changes nothing on Flickr.
 
-**Backfill, then incremental runs:** after the first full `classify`, use
+## What's remembered
 
-```bash
-python -m flickr_organizer run -y     # sync → classify only new photos → plan
-```
+Everything lives in a local SQLite file (`flickr_organizer.db`):
 
-Everything is remembered in a local SQLite file (`flickr_organizer.db`):
-
-- Vision results are cached, so a photo is classified once. It only gets classified again if you change the model, the categories or the prompt.
-- Applied changes are never proposed again.
-- Rejected changes are never proposed again. This includes individual tags you dropped.
-
-The next plan shows only what's new.
+- Vision results are cached, so a photo is classified once. It's classified again only if you change the model, the categories, the prompt, or the description/title briefs.
+- Applied, rejected and edited changes are never proposed again (dropping a tag rejects just that tag). Failed ones are proposed again. The full rules are at the top of `flickr_organizer/changes.py`.
 
 ## Tuning
 
@@ -81,7 +70,7 @@ The next plan shows only what's new.
 - City-level precision is required by default. Set `fallback_to_region: true` to title less precise photos "Texas" or "Bavaria, Germany" instead.
 - In the review page you can edit each proposed title or skip it.
 - When applying, a photo you retitled yourself since the last `sync` is left alone.
-- Flickr's `setMeta` call writes title and description together, so the tool sends back the description from your last sync. Run `sync` (or `run`) shortly before `apply` if you've been editing descriptions.
+- Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there.
 
 ### Descriptions
 
@@ -90,7 +79,7 @@ The next plan shows only what's new.
 - The writing brief is `vision.describe.instructions` in config.yaml: plain English, edit it freely (the default asks for a short, understated gallery-caption style). Whatever it says, the model is also told never to guess a location or name a person. Editing it re-runs the model once for the photos it applies to; other settings keep their cached results. With `describe.reword: true` (the default), descriptions this tool already wrote, if they're still exactly as written, get a re-worded proposal after you change the brief, shown in the review tool with the text it replaces. Descriptions you wrote, or edited after the tool wrote them, are never touched, and rejected ones stay rejected.
 - `vision.title` proposes titles the same way, with its own `instructions`. `replace` decides which titles it may replace: `generic` (camera file names, blank), `generic_or_place` (also titles that just name the place, like "Seattle, WA" or "Bellagio 175"), or `all`. Titles with words of your own are kept unless it's `all`, and every proposal goes through review. A model title wins over the rename section's "City, ST".
 - In the review page you can edit each proposed description or skip it. Each photo gets one proposal: once you apply or reject it, it isn't proposed again.
-- When applying, a photo you've given a description since the last `sync` is left alone. As with renames, `setMeta` sends back the title from your last sync, so run `sync` shortly before `apply` if you've been retitling photos.
+- When applying, a photo whose description changed on Flickr since the proposal (say, you wrote one) is left alone.
 
 ### Standard tags
 
@@ -98,7 +87,7 @@ Tags you add by convention, each group with its own flag under `standard_tags`: 
 
 - They only add tags a photo doesn't already have, and they share the photo's single `add_tags` row, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the groups lower in the config list drop off first.
 - Date tags skip photos that already have a year tag (`y2019` or `2019`) and photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
-- Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `run` keeps it up to date. `camera.albums` also adds photos to your camera albums.
+- Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `camera.albums` also adds photos to your camera albums.
 
 ### Engagement data
 
@@ -121,4 +110,4 @@ Subclass `flickr_organizer.vision.base.VisionProvider`, implement `classify(imag
 python -m unittest discover tests
 ```
 
-The tests run the whole sync → classify → plan → apply → re-plan loop against a fake Flickr, a fake geocoder and a fake model.
+The tests run the whole sync → classify → plan → queue → review → apply → re-plan loop against a fake Flickr, a fake geocoder and a fake model (`tests/fakes.py`), one file per area.

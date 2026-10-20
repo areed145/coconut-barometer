@@ -93,34 +93,27 @@ def cmd_classify(cfg, store, args):
 
 
 def cmd_plan(cfg, store, args):
-    from .planner import build_plan, write_plan_csv
-    from .report import write_report
+    """Preview what the rules would propose right now, from what's stored. Read-only:
+    nothing is queued and nothing changes on Flickr. Use `process` and `review` to act."""
+    from .planner import build_plan, summarize
 
     if not store.get_meta("last_sync"):
         sys.exit("No local data yet — run `sync` first.")
     provider_key = None
     if cfg["vision"].get("enabled", True) and cfg["vision"]["categories"]:
         provider_key = f"{_provider_name(cfg)}:{cfg['vision']['model']}"
-    rows = build_plan(cfg, store, provider_key)
-    if not rows:
-        print("Nothing to propose — library already matches the rules.")
-        return None
-    os.makedirs(cfg["output_dir"], exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    csv_path = os.path.join(cfg["output_dir"], f"plan-{stamp}.csv")
-    html_path = os.path.join(cfg["output_dir"], f"plan-{stamp}.html")
-    write_plan_csv(rows, csv_path)
-    write_report(rows, html_path, os.path.basename(csv_path))
-    summary: dict[str, int] = {}
-    for r in rows:
-        key = {"add_tags": "tags", "set_title": "renames", "set_description": "descriptions"}.get(r.action, r.target)
-        summary[key] = summary.get(key, 0) + 1
-    print(f"{len(rows)} proposed change(s):")
-    for k, v in sorted(summary.items(), key=lambda kv: -kv[1]):
-        print(f"  {v:>6}  {k}")
-    print(f"\nReview:  {html_path}\nPlan:    {csv_path}")
-    print("Edit the CSV (approve=n to reject) or use the HTML page's download button, then run `apply <csv>`.")
-    return csv_path
+    changes = build_plan(cfg, store, provider_key, photo_ids=set(args.photo) if args.photo else None)
+    if not changes:
+        print("Nothing to propose — the library already matches the rules.")
+        return
+    print(f"{len(changes)} change(s) would be proposed:")
+    for what, n in summarize(changes).most_common():
+        print(f"  {n:>6}  {what}")
+    if args.list:
+        for c in changes:
+            new = " | ".join(c.new) if isinstance(c.new, list) else c.new
+            print(f"{c.photo_id}  {c.action:<15} {new[:100]}  [{c.source}]")
+    print("\nThis is a preview. `process` queues changes; `review` approves and applies them.")
 
 
 def _provider_name(cfg) -> str:
@@ -131,15 +124,6 @@ def _provider_name(cfg) -> str:
     if name == "ollama" or (name == "openai" and cfg["vision"].get("base_url")):
         return "openai-compat"
     return name
-
-
-def cmd_apply(cfg, store, args):
-    from .apply import apply_plan
-
-    if not os.path.exists(args.plan):
-        sys.exit(f"Plan not found: {args.plan}")
-    client = None if args.dry_run else _client(cfg)
-    apply_plan(client, store, args.plan, dry_run=args.dry_run)
 
 
 def cmd_process(cfg, store, args):
@@ -208,16 +192,6 @@ def cmd_review(cfg, store, args):
           port=args.port, open_browser=not args.no_browser)
 
 
-def cmd_run(cfg, store, args):
-    """Incremental run: sync → classify new photos → plan."""
-    cmd_sync(cfg, store, args)
-    if cfg["standard_tags"]["camera"].get("enabled"):
-        cmd_camera(cfg, store, args)
-    if cfg["vision"].get("enabled", True) and cfg["vision"]["categories"]:
-        cmd_classify(cfg, store, args)
-    cmd_plan(cfg, store, args)
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="flickr_organizer", description="Auto-tag and album-sort a Flickr library.")
     ap.add_argument("-c", "--config", default=os.environ.get("FLICKR_ORGANIZER_CONFIG", "config.yaml"))
@@ -229,9 +203,8 @@ def main(argv=None):
     p = sub.add_parser("camera", help="fetch each photo's camera from EXIF (one call per photo, cached)")
     p.add_argument("--limit", type=int, help="only fetch this many photos")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    for name in ("classify", "run"):
-        p = sub.add_parser(name, help="classify photos with the vision model" if name == "classify"
-                           else "sync + classify new photos + plan (the incremental workflow)")
+    for name in ("classify",):
+        p = sub.add_parser(name, help="classify photos with the vision model (process does this per photo)")
         p.add_argument("--limit", type=int, help="only classify this many photos (try 50 first)")
         p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
         p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
@@ -254,16 +227,15 @@ def main(argv=None):
     p = sub.add_parser("review", help="open the review tool: approve each photo's changes and apply them")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true", help="don't open a browser window")
-    sub.add_parser("plan", help="write a reviewable plan (CSV + HTML) — changes nothing on Flickr")
-    p = sub.add_parser("apply", help="apply an approved plan CSV to Flickr")
-    p.add_argument("plan")
-    p.add_argument("--dry-run", action="store_true")
+    p = sub.add_parser("plan", help="preview what would be proposed (read-only; queues nothing)")
+    p.add_argument("--list", action="store_true", help="list every change, not just the totals")
+    p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     store = Store(cfg["database"])
     {"auth": cmd_auth, "sync": cmd_sync, "albums": cmd_albums, "status": cmd_status,
-     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan, "apply": cmd_apply, "run": cmd_run}[args.cmd](cfg, store, args)
+     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 
 if __name__ == "__main__":

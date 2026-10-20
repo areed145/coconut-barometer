@@ -79,6 +79,31 @@ def normalize_photo(p: dict, thumb_key: str) -> dict:
     }
 
 
+def parse_info(info: dict) -> dict:
+    """flickr.photos.getInfo -> the photos-table fields it can refresh."""
+    dates = info.get("dates") or {}
+    out = {
+        "title": (info.get("title") or {}).get("_content", ""),
+        "description": (info.get("description") or {}).get("_content", ""),
+        "tags": " ".join(t["_content"] for t in (info.get("tags") or {}).get("tag", [])),
+        "date_taken": dates.get("taken"),
+        "date_taken_unknown": int(dates.get("takenunknown") or 0),
+        "last_update": int(dates.get("lastupdate") or 0),
+    }
+    loc = info.get("location")
+    if loc and loc.get("latitude") not in (None, "", 0, "0"):
+        out.update(lat=float(loc["latitude"]), lon=float(loc["longitude"]), accuracy=int(loc.get("accuracy") or 16))
+    return out
+
+
+def refresh_photo(client, store, photo_id: str, albums: bool = False) -> None:
+    """Re-read one photo from Flickr (1 call; +1 with albums) into the local store."""
+    store.update_photo(photo_id, **parse_info(client.call("flickr.photos.getInfo", photo_id=photo_id)["photo"]))
+    if albums:
+        sets = client.call("flickr.photos.getAllContexts", photo_id=photo_id).get("set", [])
+        store.set_photo_albums(photo_id, [str(s["id"]) for s in sets])
+
+
 def sync(client, store: Store, thumb_key: str = "url_m", log=print) -> dict:
     started = int(time.time())
     nsid = client.nsid()

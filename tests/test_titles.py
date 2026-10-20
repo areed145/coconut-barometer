@@ -1,15 +1,13 @@
 """Title proposals: location renames and model-written titles."""
-import csv
 import os
 import tempfile
 import unittest
 
 from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
-from flickr_organizer.apply import apply_plan
+from flickr_organizer.apply import apply_changes
 from flickr_organizer.classify import build_prompt, classify_photos, fingerprint, pending_photos
 from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan, read_plan_csv, write_plan_csv
-from flickr_organizer.report import write_report
+from flickr_organizer.planner import build_plan
 from flickr_organizer.store import Store
 from flickr_organizer.sync import sync
 
@@ -35,7 +33,7 @@ class RenameTest(unittest.TestCase):
 
     def renames(self):
         rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
-        return {r.photo_id: r.target for r in rows if r.action == "set_title"}
+        return {r.photo_id: r.new for r in rows if r.action == "set_title"}
 
     def test_proposes_location_titles(self):
         got = self.renames()
@@ -56,20 +54,15 @@ class RenameTest(unittest.TestCase):
         self.assertEqual(self.renames(), {})
 
     def test_apply_reject_and_manual_edit(self):
-        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
-        path = os.path.join(self.tmp, "r.csv")
-        write_plan_csv(rows, path)
-        edited = read_plan_csv(path)
-        for r in edited:
-            if r["action"] == "set_title" and r["photo_id"] == "5":
-                r["approve"] = "n"
-            if r["action"] == "set_title" and r["photo_id"] == "7":
-                r["target"] = "Luanda waterfront"           # reviewer tweaks the title
-        with open(path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=edited[0].keys()); w.writeheader(); w.writerows(edited)
+        changes = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
+        for c in changes:
+            if c.action == "set_title" and c.photo_id == "5":
+                c.approved = False
+            if c.action == "set_title" and c.photo_id == "7":
+                c.edited = "Luanda waterfront"               # reviewer tweaks the title
         # Meanwhile photo 2 gets retitled by hand on Flickr.
         self.fl.photos[1]["title"] = "My street"
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, changes, log=lambda *a: None)
         titles = {p["id"]: p["title"] for p in self.fl.photos}
         self.assertEqual(titles["7"], "Luanda waterfront")
         self.assertEqual(titles["5"], "")                   # rejected
@@ -79,11 +72,17 @@ class RenameTest(unittest.TestCase):
         self.assertNotIn("7", again)
         self.assertNotIn("5", again)                        # rejection remembered
 
-    def test_review_page_has_renames(self):
-        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
-        out = os.path.join(self.tmp, "r.html")
-        write_report(rows, out, "r.csv")
-        self.assertIn("Luanda, Angola", open(out).read())
+    def test_edits_are_recorded_against_the_proposal(self):
+        changes = {c.photo_id: c for c in build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
+                   if c.action == "set_title"}
+        changes["7"].edited = "Luanda waterfront"
+        changes["5"].edited, changes["5"].approved = "Something else", False   # edited, then rejected
+        apply_changes(self.fl, self.store, [changes["7"], changes["5"]], log=lambda *a: None)
+        d = self.store.decisions()
+        self.assertEqual(d[("7", "set_title", "Luanda waterfront")], "applied")   # what was written
+        self.assertEqual(d[("7", "set_title", "Luanda, Angola")], "edited")       # what was proposed
+        self.assertEqual(d[("5", "set_title", "Austin, TX")], "rejected")         # the proposal, not the edit
+        self.assertNotIn(("5", "set_title", "Something else"), d)
 
 
 class TitleTest(unittest.TestCase):
@@ -112,7 +111,7 @@ class TitleTest(unittest.TestCase):
 
     def titles(self):
         rows = build_plan(self.cfg, self.store, self.vision.key, geocoder=fake_geocoder)
-        return {r.photo_id: (r.target, r.source) for r in rows if r.action == "set_title"}
+        return {r.photo_id: (r.new, r.source) for r in rows if r.action == "set_title"}
 
     def test_proposes_titles_only_for_generic_or_place_titles(self):
         t = self.titles()

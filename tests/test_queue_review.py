@@ -34,7 +34,8 @@ class QueueReviewTest(unittest.TestCase):
                        downloader=lambda url: (b"jpg", "image/jpeg"), **kw)
 
     def changes(self, pid):
-        return {(c["action"], c["target"]) for c in self.store.queue_item(pid)["changes"]}
+        return {(c["action"], tuple(c["new"]) if isinstance(c["new"], list) else c["new"])
+                for c in self.store.queue_item(pid)["changes"]}
 
     def test_queue_is_built_per_photo_and_resumable(self):
         self.assertEqual(self.stats["queued"] + self.stats["nothing_to_change"], 5)
@@ -51,10 +52,10 @@ class QueueReviewTest(unittest.TestCase):
         choices = []
         for c in changes:
             if c["action"] == "add_tags":
-                choices.append({"approve": True, "target": "food | ramen"})          # dropped "noodle soup"
+                choices.append({"approve": True, "value": ["food", "ramen"]})        # dropped "noodle soup"
             elif c["action"] == "set_description":
-                choices.append({"approve": True, "target": "Tonkotsu ramen."})
-            elif c["target"] == "Japan":
+                choices.append({"approve": True, "value": "Tonkotsu ramen."})
+            elif c["new"] == "Japan":
                 choices.append({"approve": False})
             else:
                 choices.append({"approve": True})
@@ -98,7 +99,7 @@ class QueueReviewTest(unittest.TestCase):
         app.wait()
         item = app.item("6")
         self.assertEqual(item["status"], "pending")                     # classified despite include_videos: false
-        self.assertIn(("add_to_album", "Food"), {(c["action"], c["target"]) for c in item["changes"]})
+        self.assertIn(("add_to_album", "Food"), {(c["action"], c["new"]) for c in item["changes"] if c["action"] != "add_tags"})
         self.assertEqual(app.recent[-1]["kind"], "process")
         self.assertEqual(app.summary()["unprocessed"], 0)
         # Re-processing an already-queued photo works too, and changes nothing that's settled.
@@ -116,6 +117,23 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(self.store.queue_item("3")["built_at"], before)
         self.assertEqual(self.process(rebuild=True)["queued"] + self.process(rebuild=True)["nothing_to_change"], 4)
         self.assertEqual(self.store.queue_item("2")["status"], "applying")  # left alone
+
+    def test_rows_and_choices_from_before_change_still_work(self):
+        # A queue row and in-flight choices in the format used before Change existed.
+        old_rows = [
+            {"action": "add_tags", "photo_id": "1", "target": "food | ramen | noodle soup", "source": "vision:tags",
+             "approve": "y", "original_target": "food | ramen | noodle soup"},
+            {"action": "set_description", "photo_id": "1", "target": "A steaming bowl of ramen.",
+             "source": "vision:describe", "approve": "y", "original_target": "A steaming bowl of ramen."},
+        ]
+        self.store.queue_put("1", "pending", old_rows)
+        item = self.app.item("1")
+        self.assertEqual(item["changes"][0]["new"], ["food", "ramen", "noodle soup"])
+        self.assertEqual(item["changes"][1]["old"], "")      # it stored the new text there when blank
+        r = self.decide("1", [{"approve": True, "target": "food | ramen"}, {"approve": True}])
+        self.assertEqual(r["status"], "applied")
+        self.assertNotIn("noodle", self.fl.photos[0]["tags"])
+        self.assertEqual(self.fl.photos[0]["description"]["_content"], "A steaming bowl of ramen.")
 
     def test_unfinished_jobs_resume_on_restart(self):
         # Choices recorded, tool closed before the worker got to it.

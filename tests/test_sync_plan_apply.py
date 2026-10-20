@@ -1,15 +1,14 @@
-"""Sync, the bulk plan, CSV apply, and incremental runs."""
-import csv
+"""Sync, planning, applying Changes, and incremental runs."""
 import os
 import tempfile
 import unittest
 
 from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
-from flickr_organizer.apply import apply_plan
+from flickr_organizer.apply import apply_changes
 from flickr_organizer.classify import classify_photos, fingerprint, pending_photos
 from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan, read_plan_csv, write_plan_csv
-from flickr_organizer.report import write_report
+from flickr_organizer.flickr_client import FlickrCallError
+from flickr_organizer.planner import build_plan
 from flickr_organizer.store import Store
 from flickr_organizer.sync import sync
 
@@ -37,7 +36,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_plan_contents(self):
         rows = self.plan()
-        albums = {(r.photo_id, r.target) for r in rows if r.action == "add_to_album"}
+        albums = {(r.photo_id, r.new) for r in rows if r.action == "add_to_album"}
         self.assertIn(("1", "Japan"), albums)
         self.assertIn(("1", "Food"), albums)
         self.assertIn(("2", "Austin"), albums)
@@ -47,26 +46,20 @@ class PipelineTest(unittest.TestCase):
         self.assertNotIn(("3", "Austin"), albums)          # Houston, and too coarse for city
         self.assertFalse(any(r.photo_id == "4" for r in rows if r.source.startswith("geo")))
         self.assertFalse(any(t == "Landscapes" for _, t in albums))  # below min_confidence
-        tags = {r.photo_id: r.target for r in rows if r.action == "add_tags"}
-        self.assertEqual(tags["1"], "food | ramen | noodle soup")
+        tags = {r.photo_id: r.new for r in rows if r.action == "add_tags"}
+        self.assertEqual(tags["1"], ["food", "ramen", "noodle soup"])
         self.assertNotIn("5", tags)                        # 'food' tag exists, low score
 
     def test_apply_and_incremental(self):
-        rows = self.plan()
-        path = os.path.join(self.tmp, "plan.csv")
-        write_plan_csv(rows, path)
-        write_report(rows, os.path.join(self.tmp, "plan.html"), "plan.csv")
+        changes = self.plan()
         # Reviewer rejects photo 3 → Texas, and drops the "noodle soup" tag.
-        edited = read_plan_csv(path)
-        for r in edited:
-            if r["photo_id"] == "3" and r["target"] == "Texas":
-                r["approve"] = "n"
-            if r["action"] == "add_tags" and r["photo_id"] == "1":
-                r["target"] = "food | ramen"
-        with open(path, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=edited[0].keys()); w.writeheader(); w.writerows(edited)
+        for c in changes:
+            if c.photo_id == "3" and c.new == "Texas":
+                c.approved = False
+            if c.action == "add_tags" and c.photo_id == "1":
+                c.edited = ["food", "ramen"]
 
-        stats = apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        stats = apply_changes(self.fl, self.store, changes, log=lambda *a: None)
         self.assertEqual(stats["failed"], 0)
         self.assertIn("1", self.fl.sets["102"]["photos"])      # Food
         self.assertIn("2", self.fl.sets["103"]["photos"])      # Austin
@@ -77,12 +70,10 @@ class PipelineTest(unittest.TestCase):
         # Next run: re-sync, re-plan → nothing applied or rejected comes back.
         sync(self.fl, self.store, log=lambda *a: None)
         again = self.plan()
-        self.assertEqual(again, [], f"unexpected rows: {[(r.photo_id, r.target) for r in again]}")
+        self.assertEqual(again, [], f"unexpected: {[(c.photo_id, c.new) for c in again]}")
 
     def test_new_photo_is_incremental(self):
-        path = os.path.join(self.tmp, "p.csv")
-        write_plan_csv(self.plan(), path)
-        apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        apply_changes(self.fl, self.store, self.plan(), log=lambda *a: None)
         self.fl.photos.append(photo("6", 35.0, 135.7, title="Ramen in Kyoto"))
         sync(self.fl, self.store, log=lambda *a: None)
         vcfg = self.cfg["vision"]
@@ -97,22 +88,35 @@ class PipelineTest(unittest.TestCase):
         self.cfg["geo"]["cities"].append({"album": "Houston", "lat": 29.76, "lon": -95.37, "radius_km": 30})
         self.fl.photos[2]["accuracy"] = 16
         sync(self.fl, self.store, log=lambda *a: None)
-        rows = [r for r in self.plan() if r.target == "Houston"]
+        rows = [c for c in self.plan() if c.new == "Houston"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].album_id, "")
-        path = os.path.join(self.tmp, "c.csv")
-        write_plan_csv(rows, path)
-        stats = apply_plan(self.fl, self.store, path, log=lambda *a: None)
+        stats = apply_changes(self.fl, self.store, rows, log=lambda *a: None)
         self.assertEqual(stats["albums_created"], 1)
         self.assertTrue(any(s["title"] == "Houston" and "3" in s["photos"] for s in self.fl.sets.values()))
 
     def test_dry_run_changes_nothing(self):
-        path = os.path.join(self.tmp, "d.csv")
-        write_plan_csv(self.plan(), path)
+        changes = self.plan()
         before = len(self.fl.calls)
-        apply_plan(None, self.store, path, dry_run=True, log=lambda *a: None)
+        apply_changes(None, self.store, changes, dry_run=True, log=lambda *a: None)
         self.assertEqual(len(self.fl.calls), before)
         self.assertEqual(self.store.counts()["applied"], 0)
+
+    def test_failed_changes_are_proposed_again(self):
+        albums = lambda: {c.new for c in self.plan() if c.photo_id == "1" and c.action == "add_to_album"}
+        food = [c for c in self.plan() if c.photo_id == "1" and c.new == "Food"]
+        real_call = self.fl.call
+
+        def flaky(method, **p):
+            if method == "flickr.photosets.addPhoto":
+                raise FlickrCallError(method, 500, "server error")
+            return real_call(method, **p)
+        self.fl.call = flaky
+        self.assertEqual(apply_changes(self.fl, self.store, food, log=lambda *a: None)["failed"], 1)
+        self.assertIn("Food", albums())                    # a failure doesn't settle it
+        self.fl.call = real_call
+        apply_changes(self.fl, self.store, food, log=lambda *a: None)
+        self.assertNotIn("Food", albums())
 
     def test_changes_applied_during_a_sync_survive_it(self):
         store, fl = self.store, self.fl

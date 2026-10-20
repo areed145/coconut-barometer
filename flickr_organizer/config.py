@@ -11,7 +11,6 @@ import yaml
 DEFAULTS: dict[str, Any] = {
     "flickr": {"api_key": None, "api_secret": None, "calls_per_second": 0.9},
     "database": "flickr_organizer.db",
-    "output_dir": "plans",
     "albums": {"create_missing": False},
     "geo": {
         "enabled": True,
@@ -80,7 +79,7 @@ def load_config(path: str | os.PathLike) -> dict:
     cfg = _merge(DEFAULTS, raw)
     # Resolve relative paths against the config file's folder.
     base = p.resolve().parent
-    for key in ("database", "output_dir"):
+    for key in ("database",):
         if not os.path.isabs(cfg[key]):
             cfg[key] = str(base / cfg[key])
     return cfg

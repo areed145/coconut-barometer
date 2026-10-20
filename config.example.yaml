@@ -7,7 +7,6 @@ flickr:
   calls_per_second: 2
 
 database: flickr_organizer.db   # local state: photo cache, classifications, decisions
-output_dir: plans               # where plan CSV + review HTML are written
 
 albums:
   # Your albums mostly exist already, so by default the tool only adds photos to
