@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_seen INTEGER, ip TEXT, user_agent TEXT
 );
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+CREATE TABLE IF NOT EXISTS settings (
+    path TEXT PRIMARY KEY, value TEXT, updated_at INTEGER, updated_by TEXT
+);
+CREATE TABLE IF NOT EXISTS secrets (
+    name TEXT PRIMARY KEY, nonce BLOB, ciphertext BLOB, hint TEXT, updated_at INTEGER, updated_by TEXT
+);
+CREATE TABLE IF NOT EXISTS settings_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, username TEXT, path TEXT, old TEXT, new TEXT
+);
 """
 
 
@@ -127,7 +136,14 @@ def _web_auth(db: sqlite3.Connection) -> None:
     db.executescript(SCHEMA)
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats, _web_auth]
+def _admin_settings(db: sqlite3.Connection) -> None:
+    """4: settings made on the admin page (settings: JSON per setting path, layered over
+    config.yaml), API keys encrypted with a key kept outside the database (secrets), and
+    the change history (settings_log)."""
+    db.executescript(SCHEMA)
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats, _web_auth, _admin_settings]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

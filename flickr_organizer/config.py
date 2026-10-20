@@ -12,6 +12,7 @@ import difflib
 import os
 import re
 import string
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -311,9 +312,21 @@ def read_raw(path: str | os.PathLike) -> dict:
     return raw
 
 
-def load_config(path: str | os.PathLike) -> dict:
+def load_config(path: str | os.PathLike, admin: bool = True) -> dict:
+    """DEFAULTS < config.yaml < admin-page settings (in the database) < environment.
+    admin=False skips the database layer (it's only read if the database exists)."""
     p = Path(path)
-    raw = apply_env(read_raw(p))
+    file_raw = read_raw(p)
+    raw = apply_env(file_raw)
+    if admin:
+        from .settings import _store_for, layer
+
+        store = _store_for(p, file_raw)
+        if store is not None:
+            raw, _sources, problems = layer(file_raw, store)
+            store.close()
+            for problem in problems:
+                print(f"warning: {problem}", file=sys.stderr)
     cfg = _merge(DEFAULTS, raw)
     errors, _warnings = validate(raw, cfg)
     if errors:

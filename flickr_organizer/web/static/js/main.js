@@ -3,6 +3,7 @@ import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toas
 import { Photostream, Albums, AlbumView } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
+import { Admin } from "./admin.js";
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -66,15 +67,16 @@ function Shell({ session, onLogout }) {
   else if (tab === "albums") page = html`<${Albums} />`;
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (tab === "analytics") page = html`<${Analytics} />`;
+  else if (tab === "settings") page = html`<${Admin} />`;
   else page = html`<${Photostream} />`;
-  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "review", "analytics"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
+  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "review", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
       <a class="brand" href="#/photos">Flickr Organizer</a>
       <nav class="tabs">
         ${link("photos", "Photos")}${link("albums", "Albums")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
-        ${link("analytics", "Analytics")}
+        ${link("analytics", "Analytics")}${link("settings", "Settings")}
       </nav>
       <span class="spacer"></span>
       <${SyncBox} />

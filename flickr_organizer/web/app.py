@@ -15,7 +15,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import analytics, auth, gallery, review, sync
+from .api import admin, analytics, auth, gallery, review, sync
 from .deps import session
 from .runtime import Runtime
 from .security import security_headers
@@ -24,8 +24,9 @@ STATIC = Path(__file__).parent / "static"
 
 
 def create_app(cfg: dict, client, provider_factory=None, background: bool = True, scheduler: bool = True,
-               process_kw: dict | None = None) -> FastAPI:
-    rt = Runtime(cfg, client, provider_factory, background=background, process_kw=process_kw)
+               process_kw: dict | None = None, cfg_path: str | None = None, client_factory=None) -> FastAPI:
+    rt = Runtime(cfg, client, provider_factory, background=background, process_kw=process_kw,
+                 cfg_path=cfg_path, client_factory=client_factory)
     web = cfg["web"]
 
     @asynccontextmanager
@@ -52,7 +53,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     # Outermost: refuse Host headers that aren't ours (DNS rebinding, stray vhosts).
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=web["allowed_hosts"])
 
-    for module in (auth, gallery, review, analytics, sync):
+    for module in (auth, gallery, review, analytics, sync, admin):
         app.include_router(module.router)
 
     if web["api_docs"]:

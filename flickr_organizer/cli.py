@@ -19,6 +19,14 @@ def _client(cfg):
     return c
 
 
+def _new_client(cfg):
+    """A Flickr client for new API keys, without prompting (the web app can't). If these
+    keys have no saved login yet, calls fail until `flickr-organizer auth` is run."""
+    from .flickr_client import FlickrClient
+
+    return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], cfg["flickr"]["calls_per_second"])
+
+
 def _provider(cfg):
     from .vision import make_provider
 
@@ -106,10 +114,20 @@ def cmd_check(config_path: str) -> int:
     from .config import DEFAULTS, _merge, apply_env, read_raw, validate
     from .util import norm_title
 
-    raw = apply_env(read_raw(config_path))
+    from .settings import _store_for, layer
+
+    file_raw = read_raw(config_path)
+    raw, sources, problems = apply_env(file_raw), {}, []
+    layered = _store_for(config_path, file_raw)
+    if layered is not None:
+        raw, sources, problems = layer(file_raw, layered)
     cfg = _merge(DEFAULTS, raw)
     errors, warnings = validate(raw, cfg)
+    warnings += problems
     notes: list[str] = []
+    admin = sorted(p for p, src in sources.items() if src == "admin")
+    if admin:
+        notes.append(f"set on the admin page (override config.yaml): {', '.join(admin)}")
     db = Path(cfg["database"])
     db = db if db.is_absolute() else Path(config_path).resolve().parent / db
     if not errors and db.exists():
@@ -193,10 +211,45 @@ def cmd_serve(cfg, store, args):
             sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
     vcfg = cfg["vision"]
     provider = (lambda: _provider(cfg)) if vcfg["enabled"] and vcfg["categories"] else None
-    app = create_app(cfg, _client(cfg), provider_factory=provider)
+    app = create_app(cfg, _client(cfg), provider_factory=provider, cfg_path=args.config,
+                     client_factory=_new_client)
     print(f"Serving on http://{host}:{port}  (sync every {web['sync_every_minutes']} min; Ctrl-C stops)")
     uvicorn.run(app, host=host, port=port, proxy_headers=True, server_header=False,
                 forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info")
+
+
+def cmd_settings(cfg, store, args):
+    """Settings layers and the encrypted API keys (see settings.py)."""
+    import re
+
+    from . import settings as S
+    from .config import read_raw
+
+    file_raw = read_raw(args.config)
+    if args.action == "new-key":
+        print(S.new_key())
+        print("Set it as FLICKR_ORGANIZER_SECRET_KEY on the server (keep it out of the database and backups).",
+              file=sys.stderr)
+        return
+    if args.action == "show":
+        _, sources, problems = S.layer(file_raw, store)
+        shown = {p: src for p, src in sources.items() if src in ("admin", "env")}
+        print("\n".join(f"  {src:<6} {p}" for p, src in sorted(shown.items())) or "Everything comes from config.yaml / the defaults.")
+        for problem in problems:
+            print(f"! {problem}")
+        return
+    # import-secrets: API keys from config.yaml into the encrypted store
+    moved = [p for p in S.SECRETS if S.get_path(file_raw, p)]
+    for path in moved:
+        S.set_secret(store, path, S.get_path(file_raw, path), "cli")
+    print(f"Stored {len(moved)} key(s) encrypted: {', '.join(moved) or 'none were in config.yaml'}.")
+    if moved and args.blank:
+        text = open(args.config).read()
+        new = re.sub(r'^(\s*(?:api_key|api_secret):\s*)"[^"]*"', r'\1""', text, flags=re.M)
+        open(args.config, "w").write(new)
+        print(f"Blanked them in {args.config}.")
+    elif moved:
+        print(f"They still work from {args.config} too; blank them there (or run with --blank).")
 
 
 def cmd_status(cfg, store, args):
@@ -374,6 +427,9 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="only this many photos' comments/faves")
     p.add_argument("--no-sync", action="store_true", help="skip the bulk sync at the start")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
+    p = sub.add_parser("settings", help="admin-page settings: show | import-secrets | new-key")
+    p.add_argument("action", choices=["show", "import-secrets", "new-key"])
+    p.add_argument("--blank", action="store_true", help="with import-secrets: also blank the keys in config.yaml")
     p = sub.add_parser("user", help="the web app's login: add | passwd | list | remove")
     p.add_argument("action", choices=["add", "passwd", "list", "remove"])
     p.add_argument("name", nargs="?")
@@ -393,7 +449,7 @@ def main(argv=None):
     cfg = load_config(args.config)
     store = Store(cfg["database"])
     {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
-     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
+     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 
 if __name__ == "__main__":

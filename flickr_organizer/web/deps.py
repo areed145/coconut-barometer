@@ -1,6 +1,8 @@
 """Request dependencies: the runtime, this thread's store, and the logged-in session."""
 from __future__ import annotations
 
+import time
+
 from fastapi import Depends, HTTPException, Request
 
 from ..store import Store
@@ -29,6 +31,8 @@ def session(request: Request, db: Store = Depends(store)) -> dict:
     sess = db.session(token_hash(token)) if token else None
     if not sess:
         raise HTTPException(401, "not logged in")
+    if int(time.time()) - (sess["last_seen"] or 0) > 300:    # "last active", without a write per request
+        db.touch_session(sess["token_hash"])
     if request.method not in SAFE_METHODS and not same(request.headers.get(CSRF_HEADER), sess["csrf"]):
         raise HTTPException(403, "missing or wrong CSRF token")
     return sess

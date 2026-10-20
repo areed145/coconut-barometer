@@ -10,6 +10,7 @@ One connection, methods grouped by area:
   auth.py        the web app's users and sessions (session tokens stored hashed)
   gallery.py     photostream and album listings, photo detail
   analytics.py   daily series, gainers, breakdowns, per-photo timelines
+  settings.py    admin-page settings, encrypted API keys, the change history
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -30,6 +31,9 @@ Tables
                    pending | applying | none (nothing to change) | applied | rejected | failed
   decisions        per (photo, action, target): applied / rejected / failed.
                    Rejected items are never proposed again.
+  settings         admin-page settings (path -> JSON), layered over config.yaml
+  secrets          API keys, AES-GCM encrypted with a key kept outside the database
+  settings_log     who changed which setting when (secrets masked)
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations
@@ -42,13 +46,14 @@ from .engagement import EngagementStore
 from .gallery import GalleryStore
 from .library import LibraryStore
 from .queue import QueueStore
+from .settings import SettingsStore
 from .stats import StatsStore
 
 __all__ = ["Store", "Database", "SCHEMA_VERSION"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,
-            GalleryStore, AnalyticsStore):
+            GalleryStore, AnalyticsStore, SettingsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

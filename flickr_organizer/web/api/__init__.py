@@ -1,1 +1,1 @@
-from . import analytics, auth, gallery, review, sync  # noqa: F401
+from . import admin, analytics, auth, gallery, review, sync  # noqa: F401

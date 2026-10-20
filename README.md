@@ -49,6 +49,12 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
 - The top bar shows when the last sync ran and the next is due, with **Sync now**.
 
+**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables. The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
+
+API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database, in `FLICKR_ORGANIZER_SECRET_KEY` or a key file (`~/.config/flickr-organizer/secret.key`, readable only by you; `FLICKR_ORGANIZER_KEY_FILE` moves it). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. `flickr-organizer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides; `settings new-key` makes a key for `FLICKR_ORGANIZER_SECRET_KEY` on a server. Keep that key safe and separate from database backups: without it, stored keys can't be read (set them again).
+
+The page's Account section changes your password (which signs out every session), lists signed-in sessions so you can end one, and shows the change history.
+
 A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (approvals and processing, as in `review`) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
 
 Every API route except login needs a session. It's built to be reachable from the internet (behind HTTPS):

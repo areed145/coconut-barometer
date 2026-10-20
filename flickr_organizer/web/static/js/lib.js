@@ -21,7 +21,7 @@ export async function api(path, { method = "GET", body, params } = {}) {
   try { data = await r.json(); } catch { /* empty body */ }
   if (r.status === 401 && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("fo:logged-out"));
   if (!r.ok) {
-    const detail = Array.isArray(data?.detail) ? data.detail.map((d) => d.msg).join("; ") : data?.detail;
+    const detail = Array.isArray(data?.detail) ? data.detail.map((d) => (typeof d === "string" ? d : d.msg)).join("; ") : data?.detail;
     throw new ApiError(r.status, detail, r.headers);
   }
   return data;

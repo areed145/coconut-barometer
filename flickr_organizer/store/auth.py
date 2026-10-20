@@ -40,6 +40,11 @@ class AuthStore(Database):
                             (token_hash, int(time.time()))).fetchone()
         return dict(r) if r else None
 
+    def user_sessions(self, username: str) -> list[dict]:
+        return [dict(r) for r in self.db.execute(
+            "SELECT * FROM sessions WHERE username=? AND expires_at >= ? ORDER BY last_seen DESC",
+            (username, int(time.time())))]
+
     def touch_session(self, token_hash: str) -> None:
         with self.db:
             self.db.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?", (int(time.time()), token_hash))
