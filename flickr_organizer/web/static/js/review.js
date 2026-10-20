@@ -1,6 +1,6 @@
 // The reviewer: one photo at a time, approve each proposed change. Approvals and
 // processing run in the server's background worker; this page polls for outcomes.
-import { html, useState, useEffect, useRef, api, num, day, plain, toast } from "./lib.js";
+import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink } from "./lib.js";
 
 // "To review" also holds new photos, processed when you reach them ("new").
 const LABELS = { pending: "To review", applying: "Applying", failed: "Failed", applied: "Applied", rejected: "Rejected",
@@ -217,8 +217,11 @@ export function Reviewer({ onCount }) {
         <div class="card"><h2>On Flickr now</h2><dl class="kv">
           <dt>Title</dt><dd>${p.title || html`<span class="muted">(blank)</span>`}</dd>
           <dt>Description</dt><dd>${plain(p.description) || html`<span class="muted">(blank)</span>`}</dd>
-          <dt>Albums</dt><dd class="chips">${p.albums.length ? p.albums.map((a) => html`<span class="chip">${a}</span>`) : html`<span class="muted">none</span>`}</dd>
-          <dt>Tags</dt><dd class="chips">${p.tags.length ? p.tags.map((t) => html`<span class="chip">${t}</span>`) : html`<span class="muted">none</span>`}</dd>
+          <dt>Albums</dt><dd class="chips">${p.albums.length ? (p.album_links || p.albums.map((t) => ({ title: t }))).map((a) => a.id
+            ? html`<a class="chip" href=${photosLink({ album: a.id })} target="_blank" rel="noopener" title="Open the album (new tab)">${a.title}</a>`
+            : html`<span class="chip">${a.title}</span>`) : html`<span class="muted">none</span>`}</dd>
+          <dt>Tags</dt><dd class="chips">${p.tags.length ? p.tags.map((t) => html`<a class="chip" href=${photosLink({ tag: t })} target="_blank"
+            rel="noopener" title=${`All photos tagged ${t} (new tab)`}>${t}</a>`) : html`<span class="muted">none</span>`}</dd>
         </dl></div>
         <${Engagement} s=${item.stats} />
       </div>

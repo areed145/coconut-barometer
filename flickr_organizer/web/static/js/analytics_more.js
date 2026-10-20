@@ -1,5 +1,5 @@
 // Analytics tabs: Places, Gear & technique, Audience, Albums & groups, Did it help?
-import { html, useState, useEffect, useMemo, api, num, day, go } from "./lib.js";
+import { html, useState, useEffect, useMemo, api, num, day, go, photosLink } from "./lib.js";
 import { Chart } from "./chart.js";
 import { Bars, Table, Heatmap, pct, times } from "./viz.js";
 
@@ -53,6 +53,7 @@ export function GearTab() {
     ${!d ? loading : html`<div class="cols">${DIMS.map(([k, label]) => d[k]?.length > 0 && html`<div class="card" key=${k}><h2>${label}</h2>
         ${k === "light" && html`<p class="muted small">From the geotag and the camera's clock; the time zone is guessed from the longitude, so it can be an hour out.</p>`}
         <${Bars} rows=${d[k]} value=${measure} right=${right}
+          onPick=${k === "camera" ? (r) => { location.hash = photosLink({ camera: r.label }); } : undefined}
           title=${(r) => `${num(r.photos)} photos · ${num(r.avg_views)} views each · lift ${times(r.lift)}`} /></div>`)}</div>`}`;
 }
 
@@ -108,7 +109,7 @@ export function GroupsTab() {
             target="_blank" rel="noopener noreferrer">${v}</a>` },
         { key: "members", label: "Members", num: true }, { key: "photos", label: "Yours", num: true },
         { key: "avg_views", label: "Per photo", num: true }, { key: "lift", label: "Lift", num: true, fmt: times }]} /></div>
-      <div class="card"><h2>Albums</h2><${Table} rows=${d.albums} onPick=${(r) => go("albums/" + r.id)} cols=${[
+      <div class="card"><h2>Albums</h2><${Table} rows=${d.albums} onPick=${(r) => { location.hash = photosLink({ album: r.id }); }} cols=${[
         { key: "title", label: "Album" }, { key: "photos", label: "Photos", num: true }, { key: "views", label: "Views", num: true },
         { key: "avg_views", label: "Per photo", num: true }, { key: "faves_per_1k", label: "Faves/1k", num: true, fmt: (v) => v },
         { key: "lift", label: "Lift", num: true, fmt: times }]} /></div>

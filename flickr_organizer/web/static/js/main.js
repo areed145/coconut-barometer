@@ -1,6 +1,6 @@
 // The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until } from "./lib.js";
-import { Photostream, Albums, AlbumView } from "./gallery.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink } from "./lib.js";
+import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
 import { MapPage } from "./map.js";
@@ -67,15 +67,19 @@ function Shell({ session, onLogout }) {
   const tab = route[0];
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   let page;
-  if (tab === "albums" && route[1]) page = html`<${AlbumView} id=${route[1]} />`;
-  else if (tab === "albums") page = html`<${Albums} />`;
+  useEffect(() => {     // old album links (#/albums/123) are the Photos page filtered to the album
+    if (tab === "albums" && route[1]) location.replace(photosLink({ album: route[1] }));
+  }, [tab, route[1]]);
+  if (tab === "albums" && !route[1]) page = html`<${Albums} />`;
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (tab === "analytics") page = html`<${Analytics} tab=${route[1]} />`;
   else if (tab === "map") page = html`<${MapPage} at=${route[1]} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
-  else page = html`<${Photostream} />`;
-  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
+  else page = html`<${Photos} params=${route.params} />`;
+  // An album's photos are under Albums; every other photo list under Photos.
+  const section = tab === "photos" && route.params.album ? "albums" : tab;
+  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${section === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(section)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
       <a class="brand" href="#/photos">Flickr Organizer</a>

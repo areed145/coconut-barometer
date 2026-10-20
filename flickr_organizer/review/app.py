@@ -112,7 +112,9 @@ class ReviewApp:
         if photo_id in self.processing:
             q = {**q, "status": "processing"}
         titles = {a["id"]: a["title"] for a in self.store.albums()}
-        albums = sorted(titles.get(a, a) for a in self.store.memberships().get(photo_id, set()))
+        in_albums = sorted(((titles.get(a, a), a) for a in self.store.memberships().get(photo_id, set())),
+                           key=lambda t: t[0].lower())
+        albums = [t for t, _ in in_albums]
         large = (f"https://live.staticflickr.com/{p['server']}/{photo_id}_{p['secret']}_b.jpg"
                  if p["server"] and p["secret"] else p["thumb_url"])
         result = q["result"] if q["status"] != "applying" else None
@@ -120,7 +122,7 @@ class ReviewApp:
             "photo_id": photo_id, "status": q["status"], "result": result,
             "changes": [Change.from_dict(c).to_dict() for c in q["changes"]],
             "photo": {"title": p["title"], "description": p["description"], "tags": (p["tags"] or "").split(),
-                      "albums": albums, "date_taken": p["date_taken"], "image": large, "thumb": p["thumb_url"],
+                      "albums": albums, "album_links": [{"title": t, "id": a} for t, a in in_albums], "date_taken": p["date_taken"], "image": large, "thumb": p["thumb_url"],
                       "url": photo_page(self.store.get_meta("nsid", "me"), photo_id),
                       "camera": self.store.cameras().get(photo_id, ""), "media": p["media"]},
             "stats": {"views": p["views"], "faves": p["faves"], "comments": p["comments"],

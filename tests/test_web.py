@@ -38,6 +38,27 @@ class WebTest(unittest.TestCase):
     def wait(self):
         self.app.state.runtime.review.wait()
 
+    def test_photos_filter_by_tag_year_camera_and_album(self):
+        x = self.store.db.execute
+        x("UPDATE photos SET tags='ramen tokyo', date_taken='2019-07-17 10:00:00' WHERE id='1'")
+        x("UPDATE photos SET tags='austin noodlesoup', date_taken='2024-01-01 00:00:00' WHERE id='2'")
+        x("INSERT OR REPLACE INTO cameras (photo_id, camera) VALUES ('2', 'Apple iPhone X')")
+        self.store.db.commit()
+        self.login()
+        ids = lambda **p: [ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]]
+        self.assertEqual(ids(tag="ramen"), ["1"])
+        self.assertEqual(ids(tag="Noodle Soup"), ["2"])                  # matched in Flickr's normalized form
+        self.assertEqual(ids(tag="ram"), [])                             # whole tags only
+        self.assertEqual(ids(year=2019), ["1"])
+        self.assertEqual(ids(camera="Apple iPhone X"), ["2"])
+        self.assertEqual(ids(tag="ramen", year=2024), [])                # filters combine
+        album, members = next((a, ids_) for a, ids_ in self.store.db.execute(
+            "SELECT album_id, group_concat(photo_id) FROM memberships GROUP BY album_id"))
+        self.assertEqual(set(ids(album=album, limit=200)), set(members.split(",")))
+        years = self.c.get("/api/photo-years").json()
+        self.assertIn({"year": 2019, "count": 1}, years)
+        self.assertEqual(self.c.get("/api/photos", params={"year": 99}).status_code, 422)
+
     def test_worker_view_needs_login(self):
         self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
         self.login()

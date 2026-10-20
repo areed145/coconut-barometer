@@ -70,9 +70,15 @@ export function DropZone({ onFiles, accept, disabled, children }) {
   </label>`;
 }
 
-// ---- router: #/photos, #/albums/123, ... -------------------------------------------
+// ---- router: #/photos?tag=ramen&year=2019, #/review, ... ------------------------------
+// route is the path split on "/", with route.params the query after "?".
 export function useRoute() {
-  const read = () => (location.hash.replace(/^#\/?/, "") || "photos").split("/");
+  const read = () => {
+    const [path, qs] = location.hash.replace(/^#\/?/, "").split("?");
+    const parts = (path || "photos").split("/");
+    parts.params = Object.fromEntries(new URLSearchParams(qs || ""));
+    return parts;
+  };
   const [route, setRoute] = useState(read);
   useEffect(() => {
     const on = () => setRoute(read());
@@ -82,6 +88,12 @@ export function useRoute() {
   return route;
 }
 export const go = (path) => { location.hash = "#/" + path; };
+
+// The Photos page filtered: photosLink({tag: "ramen"}) -> "#/photos?tag=ramen". Empty values drop out.
+export const photosLink = (params = {}) => {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
+  return "#/photos" + (qs ? "?" + qs : "");
+};
 
 // ---- formatting --------------------------------------------------------------------
 const nf = new Intl.NumberFormat();

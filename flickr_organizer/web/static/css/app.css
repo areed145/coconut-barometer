@@ -310,3 +310,11 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: 11px; cursor: pointer; }
 .trend span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .tagpage h2 { display: flex; justify-content: space-between; }
 .impact .kpis.small { grid-template-columns: repeat(2, 1fr); }
+
+/* ---- photo filters & tag links ---- */
+.chips.filters { margin: -4px 0 14px; align-items: center; }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); }
+.chip.on .link { padding: 0 0 0 4px; }
+a.chip { text-decoration: none; color: inherit; }
+a.chip:hover { border-color: var(--accent); color: var(--accent); }
+.tagpage h2 span { display: inline-flex; gap: 12px; align-items: center; font-weight: 400; }

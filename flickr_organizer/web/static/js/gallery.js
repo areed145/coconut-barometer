@@ -1,5 +1,5 @@
-// Photostream, albums, and the lightbox (zoom, keyboard navigation, info panel).
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, go } from "./lib.js";
+// Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
+import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -60,26 +60,52 @@ export function PhotoGrid({ paged }) {
         onClose=${() => setOpen(null)} onNearEnd=${more} />`}`;
 }
 
-export function Photostream() {
-  const [q, setQ] = useState(""), [query, setQuery] = useState("");
-  const [sort, setSort] = useState("newest"), [media, setMedia] = useState("");
-  useEffect(() => { const t = setTimeout(() => setQuery(q.trim()), 300); return () => clearTimeout(t); }, [q]);
-  const paged = usePaged((offset) => api("/api/photos", { params: { q: query, sort, media, offset, limit: PAGE } }),
-                         [query, sort, media]);
+const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
+               ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
+const FILTERS = ["album", "tag", "year", "camera", "media", "q", "sort"];
+
+// The Photos page, and every filtered view of it: the filters live in the address
+// (#/photos?album=…&tag=…&year=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
+export function Photos({ params = {} }) {
+  const f = Object.fromEntries(FILTERS.map((k) => [k, params[k] || ""]));
+  const set = (patch) => location.replace(photosLink({ ...f, ...patch }));     // no history entry per keystroke
+  const [q, setQ] = useState(f.q);
+  const [album, setAlbum] = useState(null);
+  const [years, setYears] = useState([]);
+  useEffect(() => setQ(f.q), [f.q]);
+  useEffect(() => { const t = setTimeout(() => q.trim() !== f.q && set({ q: q.trim() }), 350); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { api("/api/photo-years").then(setYears).catch(() => {}); }, []);
+  useEffect(() => {
+    setAlbum(null);
+    if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
+  }, [f.album]);
+  const key = FILTERS.map((k) => f[k]).join("|");
+  const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, camera: f.camera,
+    media: f.media, q: f.q, sort: f.sort || "newest", offset, limit: PAGE } }), [key]);
+  const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year], ["camera", "Camera", f.camera]]
+    .filter(([k]) => f[k]);
   return html`
+    ${f.album && html`<a href="#/albums">← Albums</a>
+      <h1 class="title">${album ? album.title : "…"}</h1>
+      ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}`}
+    ${f.tag && !f.album && html`<h1 class="title">#${f.tag}</h1>`}
     <div class="toolbar">
       <input type="search" placeholder="Search titles, descriptions, tags" value=${q}
              onInput=${(e) => setQ(e.target.value)} aria-label="Search" />
-      <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Sort">
-        <option value="newest">Newest uploads</option><option value="oldest">Oldest uploads</option>
-        <option value="taken">Date taken</option><option value="views">Most viewed</option>
-        <option value="faves">Most faved</option><option value="comments">Most commented</option>
+      <select value=${f.sort || "newest"} onChange=${(e) => set({ sort: e.target.value === "newest" ? "" : e.target.value })} aria-label="Sort">
+        ${SORTS.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
       </select>
-      <select value=${media} onChange=${(e) => setMedia(e.target.value)} aria-label="Media">
+      <select value=${f.media} onChange=${(e) => set({ media: e.target.value })} aria-label="Media">
         <option value="">Photos and videos</option><option value="photo">Photos</option><option value="video">Videos</option>
+      </select>
+      <select value=${f.year} onChange=${(e) => set({ year: e.target.value })} aria-label="Year taken">
+        <option value="">Any year</option>${years.map((y) => html`<option value=${y.year}>${y.year} (${num(y.count)})</option>`)}
       </select>
       <span class="muted">${paged.total !== null && `${num(paged.total)} items`}</span>
     </div>
+    ${chips.length > 0 && html`<div class="chips filters">${chips.map(([k, label, v]) => html`<span class="chip on" key=${k}>
+        ${label}: <b>${v}</b> <button class="link" onClick=${() => set({ [k]: "" })} aria-label=${`Remove the ${label} filter`}>✕</button></span>`)}
+      ${chips.length > 1 && html`<button class="link" onClick=${() => location.replace(photosLink({ sort: f.sort }))}>Clear all</button>`}</div>`}
     <${PhotoGrid} paged=${paged} />`;
 }
 
@@ -95,30 +121,11 @@ export function Albums() {
       <span class="muted">${num(shown.length)} albums</span>
     </div>
     <div class="albums">
-      ${shown.map((a) => html`<a class="album" key=${a.id} href=${"#/albums/" + a.id}>
+      ${shown.map((a) => html`<a class="album" key=${a.id} href=${photosLink({ album: a.id })}>
         <div class="cover">${a.cover_url && html`<img loading="lazy" alt="" src=${a.cover_url} />`}</div>
         <div class="meta"><b>${a.title}</b><span>${num(a.count)} items${a.date_update ? " · updated " + day(a.date_update) : ""}</span></div>
       </a>`)}
     </div>`;
-}
-
-export function AlbumView({ id }) {
-  const [album, setAlbum] = useState(null);
-  const [sort, setSort] = useState("newest");
-  useEffect(() => { api(`/api/albums/${encodeURIComponent(id)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => go("albums")); }, [id]);
-  const paged = usePaged((offset) => api("/api/photos", { params: { album: id, sort, offset, limit: PAGE } }), [id, sort]);
-  return html`
-    <a href="#/albums">← Albums</a>
-    <h1 class="title">${album ? album.title : "…"}</h1>
-    ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}
-    <div class="toolbar">
-      <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Sort">
-        <option value="newest">Newest uploads</option><option value="taken">Date taken</option>
-        <option value="views">Most viewed</option><option value="faves">Most faved</option>
-      </select>
-      <span class="muted">${paged.total !== null && `${num(paged.total)} items`}</span>
-    </div>
-    <${PhotoGrid} paged=${paged} />`;
 }
 
 export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
@@ -165,17 +172,20 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       ${daily.length > 1 && html`<${Chart} height=${120} days=${daily.map((r) => r.day)}
           series=${[{ label: "views/day", values: daily.map((r) => r.views), color: "--chart-1" }]} />`}
       ${d && html`<dl>
-        ${d.date_taken && html`<dt>Taken</dt><dd>${d.date_taken.slice(0, 10)}</dd>`}
-        ${d.camera && html`<dt>Camera</dt><dd>${d.camera}</dd>`}
+        ${d.date_taken && html`<dt>Taken</dt><dd><a href=${photosLink({ year: d.date_taken.slice(0, 4) })} onClick=${onClose}
+            title="All photos taken that year">${d.date_taken.slice(0, 10)}</a></dd>`}
+        ${d.camera && html`<dt>Camera</dt><dd><a href=${photosLink({ camera: d.camera })} onClick=${onClose}
+            title="All photos from this camera">${d.camera}</a></dd>`}
         ${d.lens && html`<dt>Lens</dt><dd>${d.lens}</dd>`}
         ${d.exif?.ExposureTime && html`<dt>Exposure</dt><dd>${[d.exif.ExposureTime, d.exif.FNumber, d.exif.ISO && "ISO " + d.exif.ISO, d.exif.FocalLengthIn35mmFormat || d.exif.FocalLength].filter(Boolean).join(" · ")}</dd>`}
         ${d.width && html`<dt>Size</dt><dd>${num(d.width)} × ${num(d.height)}</dd>`}
-        ${d.albums.length > 0 && html`<dt>Albums</dt><dd>${d.albums.map((a, i) => html`${i ? ", " : ""}<a href=${"#/albums/" + a.id} onClick=${onClose}>${a.title}</a>`)}</dd>`}
+        ${d.albums.length > 0 && html`<dt>Albums</dt><dd>${d.albums.map((a, i) => html`${i ? ", " : ""}<a href=${photosLink({ album: a.id })} onClick=${onClose}>${a.title}</a>`)}</dd>`}
         ${e?.groups.length > 0 && html`<dt>Groups</dt><dd>${e.groups.length}</dd>`}
       </dl>`}
       ${d?.lat != null && d?.lon != null && !(d.lat === 0 && d.lon === 0) && html`<${MiniMap} lat=${d.lat} lon=${d.lon} />
         <p class="maplink"><a href=${`#/map/@${d.lat},${d.lon},14`} onClick=${onClose}>Show on the map</a></p>`}
-      ${d?.tags.length > 0 && html`<div class="chips">${d.tags.map((t) => html`<span class="chip">${t}</span>`)}</div>`}
+      ${d?.tags.length > 0 && html`<div class="chips">${d.tags.map((t) => html`<a class="chip" href=${photosLink({ tag: t })}
+          onClick=${onClose} title=${`All photos tagged ${t}`}>${t}</a>`)}</div>`}
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}
       ${d && html`<p><a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}

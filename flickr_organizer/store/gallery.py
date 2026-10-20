@@ -27,12 +27,25 @@ def photo_card(p) -> dict:
 
 class GalleryStore(Database):
     def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
-                   limit: int = 60, offset: int = 0) -> dict:
+                   limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "") -> dict:
+        """One page of photos, by any mix of filters: album, search text, tag (Flickr's
+        normalized form), year taken, camera, photo or video."""
+        from ..util import norm_tag
+
         where, args = [], []
         joins = ""
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
+        if camera:
+            joins += " JOIN cameras c ON c.photo_id = p.id AND c.camera = ?"
+            args.append(camera)
+        if tag:
+            where.append("(' ' || p.tags || ' ') LIKE ?")
+            args.append(f"% {norm_tag(tag)} %")
+        if year:
+            where.append("substr(p.date_taken, 1, 4) = ?")
+            args.append(f"{year:04d}")
         if q:
             where.append("(p.title LIKE ? OR p.description LIKE ? OR (' ' || p.tags || ' ') LIKE ?)")
             args += [f"%{q}%", f"%{q}%", f"% {q.lower().replace(' ', '')} %"]
@@ -70,6 +83,11 @@ class GalleryStore(Database):
         return [r[0] for r in self.db.execute(
             f"SELECT DISTINCT CAST(substr(p.date_taken, 1, 4) AS INTEGER) AS y FROM photos p "
             f"WHERE {self.GEOTAGGED} AND p.date_taken IS NOT NULL AND y > 1800 ORDER BY y")]
+
+    def years_taken(self) -> list[dict]:
+        return [{"year": int(r[0]), "count": r[1]} for r in self.db.execute(
+            "SELECT substr(date_taken, 1, 4) y, COUNT(*) FROM photos WHERE date_taken IS NOT NULL "
+            "AND y GLOB '[12][0-9][0-9][0-9]' GROUP BY y ORDER BY y DESC")]
 
     def cards(self, photo_ids: list[str]) -> dict[str, dict]:
         """photo_id -> card (title, counts, image sizes) for a list of photos."""

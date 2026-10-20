@@ -1,6 +1,6 @@
 // The Tags tab: a word cloud by any measure, niche winners vs overused tags, trending tags,
 // a sortable table, and a tag's own page (its photos, views over time, tags it goes with).
-import { html, useState, useEffect, useMemo, api, num } from "./lib.js";
+import { html, useState, useEffect, useMemo, api, num, photosLink } from "./lib.js";
 import { Chart } from "./chart.js";
 import { WordCloud, Scatter, Table, TopGrid, usePhotoBox, pct, times } from "./viz.js";
 
@@ -22,7 +22,8 @@ function TagPage({ tag, onPick, onClose }) {
   useEffect(() => { setD(null); api(`/api/analytics/tags/${encodeURIComponent(tag)}`).then(setD); }, [tag]);
   const days = useMemo(() => (d?.series || []).map((r) => r.day), [d]);
   const series = useMemo(() => [{ label: "views", values: (d?.series || []).map((r) => r.views), color: "--chart-1" }], [d]);
-  return html`<div class="card tagpage"><h2>#${tag} <button class="link" onClick=${onClose} aria-label="Close">✕</button></h2>
+  return html`<div class="card tagpage"><h2>#${tag} <span><a class="small" href=${photosLink({ tag })}>All its photos →</a>
+      <button class="link" onClick=${onClose} aria-label="Close">✕</button></span></h2>
     ${!d ? html`<p class="muted">Loading…</p>` : html`
       <p class="muted">${num(d.photos)} photos · ${num(d.views)} views · ${num(d.faves)} faves</p>
       ${d.often_with.length > 0 && html`<p class="chips"><span class="why">Often with:</span>${d.often_with.map((o) => html`<button

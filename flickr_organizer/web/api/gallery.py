@@ -14,9 +14,18 @@ Sort = Literal["newest", "oldest", "taken", "views", "faves", "comments", "title
 
 @router.get("/photos")
 def photos(q: str = Query("", max_length=100), sort: Sort = "newest", media: Literal["photo", "video"] | None = None,
-           album: str | None = Query(None, max_length=40), limit: int = Query(60, ge=1, le=200),
-           offset: int = Query(0, ge=0), db=Depends(store)):
-    return db.photo_page(album_id=album, q=q, sort=sort, media=media, limit=limit, offset=offset)
+           album: str | None = Query(None, max_length=40), tag: str = Query("", max_length=100),
+           year: int | None = Query(None, ge=1800, le=3000), camera: str = Query("", max_length=200),
+           limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0), db=Depends(store)):
+    """The Photos page and every filtered view of it (album, tag, year, camera, search)."""
+    return db.photo_page(album_id=album, q=q, sort=sort, media=media, limit=limit, offset=offset, tag=tag,
+                         year=year, camera=camera)
+
+
+@router.get("/photo-years")
+def photo_years(db=Depends(store)):
+    """Years taken, with counts, for the Photos page's year filter."""
+    return db.years_taken()
 
 
 @router.get("/photos/{photo_id}")
