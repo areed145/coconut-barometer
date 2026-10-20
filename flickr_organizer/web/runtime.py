@@ -48,7 +48,8 @@ class Runtime:
         new = load_config(self.cfg_path)
         old = self.cfg
         vision_changed = any(new["vision"][k] != old["vision"][k] for k in ("provider", "model", "api_key", "base_url"))
-        keys_changed = any(new["flickr"][k] != old["flickr"][k] for k in ("api_key", "api_secret", "calls_per_second"))
+        keys_changed = (any(new["flickr"][k] != old["flickr"][k] for k in ("api_key", "api_secret", "calls_per_second"))
+                        or self.client is None)
         self.cfg.clear()
         self.cfg.update(new)
         if vision_changed:
@@ -110,6 +111,8 @@ class Runtime:
 
         if not self.client_factory:
             raise RuntimeError("connecting Flickr isn't available in this session")
+        if not (self.cfg["flickr"]["api_key"] and self.cfg["flickr"]["api_secret"]):
+            raise ValueError("set the Flickr API key and secret first")
         now = time.time()
         for token, (_, started, _u) in list(self.flickr_pending.items()):
             if now - started > self.FLICKR_LOGIN_TTL:
@@ -134,7 +137,7 @@ class Runtime:
 
     def flickr_status(self) -> dict:
         try:
-            ok = bool(self.client.api.token_valid(perms="write"))
+            ok = self.client is not None and bool(self.client.api.token_valid(perms="write"))
         except Exception:
             ok = False
         nsid = self.store().get_meta("nsid") if ok else None

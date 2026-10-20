@@ -59,6 +59,8 @@ class ReviewApp:
         """Queue a sync (whatever's due, or mode: full | photo_list | incremental). Returns at once."""
         if self.cfg is None:
             raise RuntimeError("syncing isn't available in this session")
+        if self.client is None:
+            return {"status": "no_flickr"}          # no API keys yet
         if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("sync", mode or ""))

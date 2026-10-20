@@ -154,5 +154,7 @@ def flickr_connect(request: Request, sess=Depends(session), rt=Depends(runtime))
     callback = str(request.url_for("flickr_callback"))
     try:
         return {"url": rt.flickr_login_start(callback, sess["username"])}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     except Exception as e:
         raise HTTPException(502, f"Flickr didn't start the login: {e}")

@@ -136,7 +136,8 @@ class ServerTest(unittest.TestCase):
         sync(FakeFlickr(), store, log=lambda *a: None)
         store.set_password_hash("owner", hash_password(PASSWORD))
         self.made = []
-        cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]}})
+        cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]},
+                         "flickr": {"api_key": "test-key", "api_secret": "test-secret"}})
         self.app = create_app(cfg, FakeFlickrAuth(cfg), scheduler=False,
                               client_factory=lambda c: self.made.append(FakeFlickrAuth(c)) or self.made[-1])
         self.c = TestClient(self.app, base_url="https://testserver")
@@ -177,6 +178,43 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.content[:2]), (200, b"\x1f\x8b"))                # gzip
         self.assertEqual(self.c.post("/api/admin/backups/..%2Fdb.sqlite/download", json={"password": PASSWORD},
                                      headers=self.h).status_code, 404)
+
+
+class FreshServerTest(unittest.TestCase):
+    """A fresh deploy: no API keys and no Flickr login yet. It must start, wait, and pick
+    the keys up from the Settings page without a restart (and never prompt)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.env = mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_KEY_FILE": os.path.join(self.tmp, "secret.key")})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        for var in ("FLICKR_API_KEY", "FLICKR_API_SECRET", "ANTHROPIC_API_KEY"):
+            os.environ.pop(var, None)
+        self.cfg_path = os.path.join(self.tmp, "config.yaml")
+        with open(self.cfg_path, "w") as f:
+            f.write("database: db.sqlite\nweb:\n  allowed_hosts: [testserver]\n")
+        Store(os.path.join(self.tmp, "db.sqlite")).set_password_hash("owner", hash_password(PASSWORD))
+        from flickr_organizer.cli import _new_client
+        from flickr_organizer.config import load_config
+        cfg = load_config(self.cfg_path)
+        self.assertIsNone(_new_client(cfg))                                 # no keys: no client, no prompt
+        self.built = []
+        self.app = create_app(cfg, None, scheduler=False, cfg_path=self.cfg_path,
+                              client_factory=lambda c: self.built.append(c["flickr"]["api_key"]) or FakeFlickr())
+        self.c = TestClient(self.app, base_url="https://testserver")
+        self.h = {"X-CSRF-Token": self.c.post("/api/auth/login", json={"username": "owner", "password": PASSWORD}).json()["csrf"]}
+
+    def test_waits_for_keys_then_connects_without_a_restart(self):
+        self.assertEqual(self.c.post("/api/sync/run", json={}, headers=self.h).json(), {"status": "no_flickr"})
+        self.assertEqual(self.c.get("/api/admin/flickr").json()["connected"], False)
+        self.assertEqual(self.c.post("/api/admin/flickr/connect", headers=self.h).status_code, 409)
+        for name, value in (("flickr.api_key", "fresh-key-0001"), ("flickr.api_secret", "fresh-secret-0002")):
+            r = self.c.put(f"/api/admin/secrets/{name}", json={"value": value, "password": PASSWORD}, headers=self.h)
+            self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.built[-1], "fresh-key-0001")
+        self.assertIsNotNone(self.app.state.runtime.client)
+        self.assertEqual(self.c.post("/api/sync/run", json={"mode": "incremental"}, headers=self.h).json()["status"], "queued")
 
 
 if __name__ == "__main__":

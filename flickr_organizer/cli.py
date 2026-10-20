@@ -20,10 +20,13 @@ def _client(cfg):
 
 
 def _new_client(cfg):
-    """A Flickr client for new API keys, without prompting (the web app can't). If these
-    keys have no saved login yet, calls fail until `flickr-organizer auth` is run."""
+    """A Flickr client for the web app: never prompts (a server can't answer), and None until
+    the API keys are set. Without a saved Flickr login, calls fail until you use Settings →
+    Connect Flickr (or `flickr-organizer auth`)."""
     from .flickr_client import FlickrClient
 
+    if not (cfg["flickr"]["api_key"] and cfg["flickr"]["api_secret"]):
+        return None
     return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], cfg["flickr"]["calls_per_second"])
 
 
@@ -237,8 +240,10 @@ def cmd_serve(cfg, store, args):
             sys.exit(f"FLICKR_ORGANIZER_ADMIN_PASSWORD: {e}")
         print(f"Created the login {boot_user!r} from FLICKR_ORGANIZER_ADMIN_USER / _PASSWORD.")
     if not store.usernames():
-        sys.exit("No login yet. Create one first:  flickr-organizer user add <name>\n"
-                 "(on a server: set FLICKR_ORGANIZER_ADMIN_USER and FLICKR_ORGANIZER_ADMIN_PASSWORD for the first start)")
+        # Keep running (nobody can sign in without a user): on a server this is how a
+        # database gets uploaded as restore.db.gz before the first restart.
+        print("! No login yet, so nobody can sign in. Either run `flickr-organizer user add <name>`, set "
+              "FLICKR_ORGANIZER_ADMIN_USER / _PASSWORD and restart, or upload a database as restore.db.gz and restart.")
 
     class _NoQuery(logging.Filter):
         """Access log without query strings (Flickr's one-time login code arrives in one)."""
@@ -255,8 +260,10 @@ def cmd_serve(cfg, store, args):
             sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
     vcfg = cfg["vision"]
     provider = (lambda: _provider(cfg)) if vcfg["enabled"] and vcfg["categories"] else None
-    app = create_app(cfg, _client(cfg), provider_factory=provider, cfg_path=args.config,
-                     client_factory=_new_client)
+    client = _new_client(cfg)
+    if client is None:
+        print("! No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
+    app = create_app(cfg, client, provider_factory=provider, cfg_path=args.config, client_factory=_new_client)
     print(f"Serving on http://{host}:{port}  (sync every {web['sync_every_minutes']} min; Ctrl-C stops)")
     uvicorn.run(app, host=host, port=port, proxy_headers=True, server_header=False,
                 forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info")

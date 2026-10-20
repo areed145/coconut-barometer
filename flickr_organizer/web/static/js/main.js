@@ -41,7 +41,8 @@ function SyncBox() {
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
   const run = async () => {
     try { const r = await api("/api/sync/run", { method: "POST", body: {} });
-      toast(r.status === "busy" ? "A sync is already running." : "Sync started."); load();
+      toast(r.status === "busy" ? "A sync is already running." : r.status === "no_flickr"
+        ? "Set the Flickr API keys in Settings first." : "Sync started."); load();
     } catch (e) { toast("Couldn't start a sync: " + e.message); }
   };
   if (!s) return null;
