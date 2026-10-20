@@ -4,6 +4,7 @@ import { Photostream, Albums, AlbumView } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
 import { MapPage } from "./map.js";
+import { QueuePage } from "./queue.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
@@ -50,7 +51,7 @@ function SyncBox() {
   if (!s) return null;
   const err = s.last_result?.error;
   return html`<div class="syncbox" title=${err ? "Last sync failed: " + err : `Due next: ${s.due.join(" + ")}`}>
-    ${s.running ? html`<span class="spin">⟳</span> syncing…`
+    ${s.running ? html`<a href="#/queue" title="Open the queue"><span class="spin">⟳</span> syncing…</a>`
       : html`<span>${err ? "⚠ sync failed" : "synced " + ago(s.last_sync)}${s.next_run ? ` · next ${until(s.next_run)}` : ""}</span>`}
     <button class="link" onClick=${run} disabled=${s.running}>Sync now</button>
   </div>`;
@@ -71,9 +72,10 @@ function Shell({ session, onLogout }) {
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (tab === "analytics") page = html`<${Analytics} />`;
   else if (tab === "map") page = html`<${MapPage} at=${route[1]} />`;
+  else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   else page = html`<${Photostream} />`;
-  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "map", "review", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
+  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
       <a class="brand" href="#/photos">Flickr Organizer</a>

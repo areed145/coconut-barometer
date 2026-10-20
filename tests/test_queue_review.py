@@ -144,6 +144,35 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(self.store.queue_item("1")["status"], "applied")
         self.assertIn("1", self.fl.sets["102"]["photos"])
 
+    def test_queue_view_lanes_and_results(self):
+        view = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg)
+        for job in (("apply", "1"), ("process", "2"), ("sync", "")):
+            view.jobs.put(job)
+        view.running = {"kind": "process", "photo_id": "3", "started": 1.0}
+        q = view.queue_view()
+        self.assertEqual(q["waiting"], 3)
+        self.assertEqual([(j["kind"], j["position"]) for j in q["flickr"]["jobs"]], [("apply", 1), ("sync", 3)])
+        self.assertEqual([(j["photo_id"], j["position"]) for j in q["vision"]["jobs"]], [("2", 2)])
+        self.assertEqual(q["flickr"]["jobs"][0]["title"], "Ramen in Tokyo")
+        self.assertTrue(q["flickr"]["jobs"][0]["thumb"].endswith("_q.jpg"))
+        self.assertEqual((q["running"]["photo_id"], q["vision"]["model"]), ("3", "m1"))
+        # A real job through the background worker: timed, and listed under recent.
+        choices = [{"approve": True} for _ in self.store.queue_item("1")["changes"]]
+        self.decide("1", choices)
+        done = self.app.queue_view()["recent"][0]
+        self.assertEqual((done["kind"], done["photo_id"], done["status"]), ("apply", "1", "applied"))
+        self.assertGreaterEqual(done["seconds"], 0)
+        self.assertIsNone(self.app.queue_view()["running"])
+
+    def test_processing_counts_vision_tokens(self):
+        app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        self.store.db.execute("DELETE FROM classifications")
+        self.store.db.commit()
+        app.process("1")
+        self.assertEqual(app.vision_usage["photos"], 1)
+        self.assertGreater(app.vision_usage["input_tokens"], 0)
+
 
 class NewPhotosTest(unittest.TestCase):
     """After a sync, photos uploaded since go under To review: processed now, or when opened."""

@@ -171,7 +171,7 @@ export function Reviewer({ onCount }) {
       <form onSubmit=${find}><input value=${goto} onInput=${(e) => setGoto(e.target.value)} placeholder="Go to photo ID or Flickr URL" aria-label="Go to photo" /></form>
       <span class="muted">${ids.length ? `${idx + 1} of ${num(ids.length)}` : ""}</span>
       <span class="spacer"></span>
-      ${working > 0 && html`<span class="status s-applying"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</span>`}
+      ${working > 0 && html`<a class="status s-applying" href="#/queue" title="Open the queue"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</a>`}
       <span class="muted" style="font-size:12px"><kbd>Enter</kbd> approve · <kbd>R</kbd> reject · <kbd>P</kbd> process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
     </div>
     ${!item ? html`<div class="empty">Nothing here.</div>` : html`<div class="review">

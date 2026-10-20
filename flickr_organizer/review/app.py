@@ -42,8 +42,10 @@ class ReviewApp:
         self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
         self.syncing = False
         self.processing: set[str] = set()
-        self.recent: deque[dict] = deque(maxlen=20)   # finished jobs, newest last
+        self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
+        self.running: dict | None = None                # the job the worker is on: {kind, photo_id, started}
+        self.vision_usage = {"photos": 0, "input_tokens": 0, "output_tokens": 0}   # since start
         self.licenses = self._licenses()
         if background:
             threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
@@ -162,6 +164,37 @@ class ReviewApp:
         return {"applying": self.store.queue_counts().get("applying", 0), "processing": len(self.processing),
                 "syncing": self.syncing, "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
+    def queue_view(self) -> dict:
+        """Everything the worker has to do, for the Queue page. One worker runs every job in
+        order, so `position` is the place in that one line. Flickr: approvals (writes) and
+        syncs. Vision: processing (EXIF from Flickr, then the vision model)."""
+        waiting = list(self.jobs.queue)                       # a snapshot; the worker may move on
+        ids = [pid for kind, pid in waiting[:300] if kind != "sync"]
+        if self.running and self.running["kind"] != "sync":
+            ids.append(self.running["photo_id"])
+        cards = self.store.cards(ids)
+
+        def job(kind, pid, **extra):
+            c = cards.get(pid) if kind != "sync" else None
+            return {"kind": kind, "photo_id": pid if kind != "sync" else None, "mode": (pid or "due") if kind == "sync" else None,
+                    "title": "Sync" if kind == "sync" else ((c or {}).get("title") or pid),
+                    "thumb": ((c or {}).get("sizes") or {}).get("q", ""), **extra}
+
+        lanes = {"flickr": [], "vision": []}
+        for i, (kind, pid) in enumerate(waiting[:300], 1):
+            lanes["vision" if kind == "process" else "flickr"].append(job(kind, pid, position=i))
+        vcfg = (self.cfg or {}).get("vision", {})
+        return {
+            "running": job(self.running["kind"], self.running["photo_id"], started=self.running["started"])
+                       if self.running else None,
+            "waiting": len(waiting),
+            "flickr": {"jobs": lanes["flickr"], "calls": getattr(self.client, "call_count", 0),
+                       "calls_per_second": (self.cfg or {}).get("flickr", {}).get("calls_per_second")},
+            "vision": {"jobs": lanes["vision"], "model": vcfg.get("model"), "provider": vcfg.get("provider"),
+                       **self.vision_usage},
+            "recent": list(reversed(self.recent)),
+        }
+
     def wait(self) -> None:
         """Block until every queued job is done (tests, shutdown)."""
         self.jobs.join()
@@ -170,6 +203,8 @@ class ReviewApp:
         store = self.store   # this thread's own connection
         while True:
             kind, pid = self.jobs.get()
+            started = time.time()
+            self.running = {"kind": kind, "photo_id": pid, "started": started}
             try:
                 if kind == "sync":
                     out = self._sync(store, pid or None)
@@ -184,13 +219,16 @@ class ReviewApp:
                 self.syncing = False
                 out = {"status": "failed", "error": str(e)}
             finally:
+                self.running = None
                 self.jobs.task_done()
             photo = store.photo(pid) if kind != "sync" else None
             self._seq += 1
             self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
                                 "title": "sync" if kind == "sync" else (photo["title"] if photo else "") or pid,
                                 "applied": out.get("stats", {}).get("applied", 0),
-                                "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", "")})
+                                "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
+                                "started": started, "seconds": round(time.time() - started, 1),
+                                "input_tokens": out.get("input_tokens", 0), "output_tokens": out.get("output_tokens", 0)})
 
     def _sync(self, store, mode: str | None) -> dict:
         from ..pipeline import process
@@ -226,9 +264,15 @@ class ReviewApp:
                 provider = self._vision()
             except RuntimeError:          # no vision key yet: they wait under To review
                 return len(new)
-            process(self.cfg, store, self.client, provider, photo_ids=new[:200], rebuild=True,
-                    log=lambda *a: None, **self.process_kw)
+            self._count_vision(process(self.cfg, store, self.client, provider, photo_ids=new[:200], rebuild=True,
+                                       log=lambda *a: None, **self.process_kw))
         return len(new)
+
+    def _count_vision(self, stats: dict) -> dict:
+        self.vision_usage["photos"] += stats.get("queued", 0) + stats.get("nothing_to_change", 0)
+        self.vision_usage["input_tokens"] += stats.get("input_tokens", 0)
+        self.vision_usage["output_tokens"] += stats.get("output_tokens", 0)
+        return stats
 
     def _vision(self):
         """The vision provider, made on first use. A missing key is a RuntimeError here, not
@@ -248,9 +292,11 @@ class ReviewApp:
                             log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)
+        self._count_vision(stats)
+        tokens = {"input_tokens": stats["input_tokens"], "output_tokens": stats["output_tokens"]}
         if stats["retry_later"]:
-            return {"status": "failed", "error": "EXIF or classification failed; try again"}
-        return {"status": store.queue_item(photo_id)["status"]}   # pending | none
+            return {"status": "failed", "error": "EXIF or classification failed; try again", **tokens}
+        return {"status": store.queue_item(photo_id)["status"], **tokens}   # pending | none
 
     def _apply(self, store, photo_id: str) -> dict:
         q = store.queue_item(photo_id)

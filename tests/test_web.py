@@ -38,6 +38,12 @@ class WebTest(unittest.TestCase):
     def wait(self):
         self.app.state.runtime.review.wait()
 
+    def test_worker_view_needs_login(self):
+        self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
+        self.login()
+        q = self.c.get("/api/review/worker").json()
+        self.assertEqual(set(q), {"running", "waiting", "flickr", "vision", "recent"})
+
     # ---- security -----------------------------------------------------------
     def test_everything_but_login_needs_a_session(self):
         for path in ("/api/photos", "/api/albums", "/api/review/summary", "/api/analytics/overview",
