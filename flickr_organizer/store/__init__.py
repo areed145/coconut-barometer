@@ -6,6 +6,7 @@ One connection, methods grouped by area:
   cache.py       classifications (vision results by photo + settings fingerprint), cameras (EXIF)
   queue.py       the review queue and decisions (applied / rejected / failed)
   engagement.py  account totals, groups and pools, comments, faves
+  stats.py       per-day stats from Flickr: photo_daily, account_daily, stats_days
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -18,6 +19,9 @@ Tables
   flickr_groups    groups you belong to; group_photos: which of your photos are in each pool
   comments, faves  comments on your photos and who faved them (fetched only where counts changed)
   social_fetched   the count each photo had when its comments/faves were last fetched
+  photo_daily      views / comments / faves per photo per day (Flickr stats, days in GMT)
+  account_daily    the account's views per day, split by photos / photostream / albums ...
+  stats_days       which days have been fetched completely ('done'), or have no stats ('none')
   queue            per-photo proposed changes for the review tool:
                    pending | applying | none (nothing to change) | applied | rejected | failed
   decisions        per (photo, action, target): applied / rejected / failed.
@@ -31,11 +35,12 @@ from .db import SCHEMA_VERSION, Database
 from .engagement import EngagementStore
 from .library import LibraryStore
 from .queue import QueueStore
+from .stats import StatsStore
 
 __all__ = ["Store", "Database", "SCHEMA_VERSION"]
 
 
-class Store(LibraryStore, CacheStore, QueueStore, EngagementStore):
+class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

@@ -13,7 +13,7 @@ from typing import Any, Iterator
 from .ratelimit import SharedRateLimiter, limiter_path
 
 PHOTO_EXTRAS = ("description,tags,geo,media,date_taken,date_upload,last_update,url_q,url_n,url_m,url_z,"
-                "views,count_faves,count_comments,license,o_dims")
+                "url_l,url_h,url_k,views,count_faves,count_comments,license,o_dims")
 
 
 REQUEST_TIMEOUT = 60  # seconds per Flickr API request
@@ -52,6 +52,7 @@ class FlickrClient:
         self.api = flickrapi.FlickrAPI(api_key, api_secret, format="parsed-json", store_token=True,
                                        timeout=REQUEST_TIMEOUT)
         self.limiter = limiter or SharedRateLimiter(limiter_path(api_key), calls_per_second)
+        self.call_count = 0   # requests made, retries included (for "used N calls" reports)
         self._nsid: str | None = None
 
     # ---- auth -------------------------------------------------------------
@@ -82,6 +83,7 @@ class FlickrClient:
         delay = 2.0
         for attempt in range(5):
             self.limiter.wait()
+            self.call_count += 1
             try:
                 return fn(**params)
             except self._flickrapi.exceptions.FlickrError as e:

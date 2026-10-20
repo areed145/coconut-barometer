@@ -32,6 +32,21 @@ class FakeFlickr:
                      "104": {"title": "United States", "photos": []},
                      "105": {"title": "Landscapes", "photos": []}}
         self.calls = []
+        self.clock = 1700000000                  # Flickr's "now", moved on by every write
+        self.activity = []                       # activity.userPhotos items
+        self.daily = {}                          # stats day -> {"total": n, "photos": [(id, views, comments, faves)]}
+
+    @property
+    def call_count(self):
+        return len(self.calls)
+
+    def _touch(self, photo_id=None, set_id=None):
+        self.clock += 10
+        for ph in self.photos:
+            if ph["id"] == photo_id:
+                ph["lastupdate"] = str(self.clock)
+        if set_id:
+            self.sets[set_id]["date_update"] = self.clock
 
     def nsid(self):
         return "12345@N00"
@@ -46,7 +61,9 @@ class FakeFlickr:
             chunk, pages = paged(self.photos)
             return {"photos": {"photo": chunk, "page": page, "pages": pages}}
         if method == "flickr.photosets.getList":
-            items = [{"id": k, "title": {"_content": v["title"]}, "photos": len(v["photos"]), "videos": 0}
+            items = [{"id": k, "title": {"_content": v["title"]}, "photos": len(v["photos"]), "videos": 0,
+                      "date_update": str(v.get("date_update", 1700000000)),
+                      "primary_photo_extras": {"url_q": f"https://live.staticflickr.com/1/{k}_q.jpg"}}
                      for k, v in self.sets.items()]
             chunk, pages = paged(items)
             return {"photosets": {"photoset": chunk, "page": page, "pages": pages}}
@@ -58,6 +75,7 @@ class FakeFlickr:
             if p["photo_id"] in s:
                 raise FlickrCallError(method, 3, "Photo already in set")
             s.append(p["photo_id"])
+            self._touch(set_id=p["photoset_id"])
             return {}
         if method == "flickr.photosets.create":
             new = str(200 + len(self.sets))
@@ -69,11 +87,29 @@ class FakeFlickr:
                 if ph["id"] == p["photo_id"]:
                     ph["title"] = p["title"]
                     ph["description"] = {"_content": p["description"]}
+            self._touch(photo_id=p["photo_id"])
             return {}
         if method == "flickr.photos.licenses.getInfo":
             return {"licenses": {"license": [{"id": 0, "name": "All Rights Reserved"}]}}
         if method == "flickr.stats.getTotalViews":
-            return {"stats": {"total": {"views": 1234}}}
+            if "date" not in p:
+                return {"stats": {"total": {"views": 1234}}}
+            if p["date"] not in self.daily:
+                raise FlickrCallError(method, 2, "No stats for that date")
+            return {"stats": {"total": {"views": self.daily[p["date"]]["total"]}, "photos": {"views": "1"}}}
+        if method == "flickr.stats.getPopularPhotos":
+            rows = [{"id": i, "stats": {"views": v, "comments": c, "favorites": f}}
+                    for i, v, c, f in self.daily[p["date"]]["photos"]]
+            chunk, pages = paged(rows)
+            return {"photos": {"photo": chunk, "page": page, "pages": pages}}
+        if method == "flickr.photos.recentlyUpdated":
+            chunk, pages = paged([ph for ph in self.photos if int(ph["lastupdate"]) >= int(p["min_date"])])
+            return {"photos": {"photo": chunk, "page": page, "pages": pages}}
+        if method == "flickr.people.getInfo":
+            return {"person": {"photos": {"count": {"_content": len(self.photos)}}}}
+        if method == "flickr.activity.userPhotos":
+            chunk, pages = paged(self.activity)
+            return {"items": {"item": chunk, "page": page, "pages": pages}}
         if method == "flickr.groups.pools.getGroups":
             chunk, pages = paged([{"nsid": "g1", "name": "Ramen Lovers", "members": "50", "photos": "900"},
                                   {"nsid": "g2", "name": "Texas", "members": "10", "photos": "30"}])
@@ -109,6 +145,7 @@ class FakeFlickr:
             for ph in self.photos:
                 if ph["id"] == p["photo_id"]:
                     ph["tags"] = (ph["tags"] + " " + p["tags"]).strip()
+            self._touch(photo_id=p["photo_id"])
             return {}
         raise AssertionError(method)
 

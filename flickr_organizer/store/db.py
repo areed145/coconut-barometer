@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS photos (
     media TEXT, thumb_url TEXT, secret TEXT, server TEXT,
     date_taken TEXT, date_upload INTEGER, last_update INTEGER,
     ispublic INTEGER, date_taken_unknown INTEGER,
-    views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER
+    views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER,
+    url_l TEXT, url_h TEXT, url_k TEXT
 );
 CREATE TABLE IF NOT EXISTS albums (
-    id TEXT PRIMARY KEY, title TEXT, count INTEGER
+    id TEXT PRIMARY KEY, title TEXT, count INTEGER,
+    date_update INTEGER, cover_url TEXT, description TEXT
 );
 CREATE TABLE IF NOT EXISTS memberships (
     album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id)
@@ -69,6 +71,19 @@ CREATE TABLE IF NOT EXISTS faves (
 CREATE TABLE IF NOT EXISTS social_fetched (
     photo_id TEXT, kind TEXT, count INTEGER, fetched_at INTEGER, PRIMARY KEY (photo_id, kind)
 );
+""" + """
+CREATE TABLE IF NOT EXISTS photo_daily (
+    photo_id TEXT, day TEXT, views INTEGER, comments INTEGER, favorites INTEGER,
+    PRIMARY KEY (photo_id, day)
+);
+CREATE INDEX IF NOT EXISTS photo_daily_day ON photo_daily(day);
+CREATE TABLE IF NOT EXISTS account_daily (
+    day TEXT PRIMARY KEY, total INTEGER, photos INTEGER, photostream INTEGER, sets INTEGER,
+    collections INTEGER, galleries INTEGER, fetched_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS stats_days (
+    day TEXT PRIMARY KEY, status TEXT, photos_viewed INTEGER, fetched_at INTEGER
+);
 """
 
 
@@ -89,7 +104,16 @@ def _baseline(db: sqlite3.Connection) -> None:
     _add_columns(db, "cameras", [("lens", "TEXT"), ("exif", "TEXT")])
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline]
+def _daily_stats(db: sqlite3.Connection) -> None:
+    """2: zoom-size image URLs, album dates and covers (incremental sync, gallery), and
+    per-day stats from Flickr: photo_daily (views/comments/faves per photo per day),
+    account_daily (daily totals), stats_days (which days are fully fetched)."""
+    _add_columns(db, "photos", [("url_l", "TEXT"), ("url_h", "TEXT"), ("url_k", "TEXT")])
+    _add_columns(db, "albums", [("date_update", "INTEGER"), ("cover_url", "TEXT"), ("description", "TEXT")])
+    db.executescript(SCHEMA)   # creates the new tables; CREATE ... IF NOT EXISTS leaves the rest
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

@@ -57,6 +57,12 @@ DEFAULTS: dict[str, Any] = {
         "title": {"enabled": False, "max_words": 8, "replace": "generic_or_place", "instructions": None},
         "categories": {},
     },
+    "schedule": {
+        "full_every_days": 7,        # full sync: every photo, album and album's photos (~180 calls)
+        "photo_list_every_hours": 24,  # every photo re-read: view counts + the daily snapshot (~22 calls)
+        "stats": True,               # per-day stats (Flickr Pro): yesterday, plus backfill
+        "backfill_days_per_run": 7,  # older days fetched per run until Flickr has none (~6 calls/day)
+    },
     "standard_tags": {
         "max_tags_per_photo": 75,   # Flickr's limit
         "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"], "skip_if_dated": True},
@@ -84,7 +90,8 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("standard_tags", "max_tags_per_photo"): (1, 75), ("rename", "min_accuracy"): (1, 16),
-          ("standard_tags", "coords", "min_accuracy"): (1, 16)}
+          ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
+          ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400)}
 PLACEHOLDERS = {
     ("vision", "describe", "instructions"): {"max_words"},
     ("vision", "title", "instructions"): {"max_words"},

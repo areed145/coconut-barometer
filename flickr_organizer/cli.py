@@ -31,9 +31,48 @@ def cmd_auth(cfg, store, args):
 
 
 def cmd_sync(cfg, store, args):
-    from .sync import sync
+    """Bring the database up to date with Flickr: whatever's due (see schedule.py)."""
+    from .schedule import run_due
 
-    sync(_client(cfg), store, cfg["vision"]["thumbnail"])
+    force = getattr(args, "mode", None)
+    out = run_due(cfg, _client(cfg), store, force=force, log=print)
+    for key in ("full", "photo_list", "incremental", "stats"):
+        if key in out:
+            print(f"  {key}: {out[key]}")
+    print(f"Used {out['calls']} Flickr call(s).")
+
+
+def _quick_sync(cfg, store, client) -> None:
+    """Before process/social: just the incremental changes (or whatever sync is overdue)."""
+    from .schedule import run_due
+
+    out = run_due(cfg, client, store, stats=False, log=lambda *a: None)
+    print(f"Synced ({', '.join(out['ran'])}, {out['calls']} call(s)).")
+
+
+def cmd_stats(cfg, store, args):
+    """Per-day stats collected so far; --backfill N fetches N more days now."""
+    from . import stats_history
+
+    if args.backfill:
+        out = stats_history.update(_client(cfg), store, args.backfill)
+        print(f"Fetched {out['days']} day(s).")
+    days = store.stats_days()
+    done = sorted(d for d, s in days.items() if s == "done")
+    if not done:
+        print("No per-day stats yet. `sync` collects them (Flickr Pro), or run `stats --backfill 30`.")
+        return
+    boundary = max((d for d, s in days.items() if s == "none"), default=None)
+    print(f"Per-day stats for {len(done)} day(s): {done[0]} to {done[-1]}"
+          + (f" (Flickr has none before {boundary})" if boundary else " (backfill continues on each sync)"))
+    totals = store.daily_totals(since=done[-1] if len(done) < 7 else done[-7])
+    print("\nRecent days (views):")
+    for t in totals[-7:]:
+        print(f"  {t['day']}  {t['total']:>7,}")
+    since = done[-7] if len(done) >= 7 else done[0]
+    print(f"\nMost viewed since {since}:")
+    for p in store.top_photos(since, limit=args.top):
+        print(f"  {p['views']:>7,} views  {p['favorites']:>4} faves  {(p['title'] or p['photo_id'])[:60]}")
 
 
 def cmd_albums(cfg, store, args):
@@ -181,7 +220,7 @@ def cmd_process(cfg, store, args):
 
     client = _client(cfg)
     if not args.no_sync:
-        cmd_sync(cfg, store, args)
+        _quick_sync(cfg, store, client)
     vcfg = cfg["vision"]
     provider = _provider(cfg) if vcfg["enabled"] and vcfg["categories"] else None
     skip = set(store.queue_ids(["applying"])) | (set() if args.rebuild else set(store.queue_ids()))
@@ -210,7 +249,7 @@ def cmd_social(cfg, store, args):
 
     client = _client(cfg)
     if not args.no_sync:
-        cmd_sync(cfg, store, args)
+        _quick_sync(cfg, store, client)
     todo = social.plan(store)
     counts = {p["id"]: p for p in store.photos()}
     comments = [] if args.skip_comments else todo["comments"][:args.limit] if args.limit else todo["comments"]
@@ -246,7 +285,16 @@ def main(argv=None):
     ap.add_argument("-c", "--config", default=os.environ.get("FLICKR_ORGANIZER_CONFIG", "config.yaml"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("auth", help="authorize with Flickr (write access)")
-    sub.add_parser("sync", help="download photo list + album membership")
+    p = sub.add_parser("sync", help="bring the database up to date with Flickr (whatever's due; cheap)")
+    p.add_argument("--full", dest="mode", action="store_const", const="full",
+                   help="re-read everything (~180 calls for 10k photos)")
+    p.add_argument("--photo-list", dest="mode", action="store_const", const="photo_list",
+                   help="re-read every photo (counts, daily snapshot) + incremental")
+    p.add_argument("--incremental", dest="mode", action="store_const", const="incremental",
+                   help="only what changed since last time")
+    p = sub.add_parser("stats", help="per-day views/faves/comments collected so far")
+    p.add_argument("--backfill", type=int, default=0, metavar="DAYS", help="fetch this many more past days now")
+    p.add_argument("--top", type=int, default=10, help="how many top photos to list")
     sub.add_parser("albums", help="list cached albums (to help write config)")
     sub.add_parser("status", help="show local state")
     sub.add_parser("check", help="validate config.yaml and check it against your library")
@@ -286,7 +334,7 @@ def main(argv=None):
 
     cfg = load_config(args.config)
     store = Store(cfg["database"])
-    {"auth": cmd_auth, "sync": cmd_sync, "albums": cmd_albums, "status": cmd_status,
+    {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
      "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 

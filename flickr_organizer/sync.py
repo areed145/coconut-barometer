@@ -76,6 +76,7 @@ def normalize_photo(p: dict, thumb_key: str) -> dict:
         "license": p.get("license"),
         "width": _int(p.get("o_width")),
         "height": _int(p.get("o_height")),
+        "url_l": p.get("url_l"), "url_h": p.get("url_h"), "url_k": p.get("url_k"),   # 1024 / 1600 / 2048 px
     }
 
 
@@ -104,34 +105,55 @@ def refresh_photo(client, store, photo_id: str, albums: bool = False) -> None:
         store.set_photo_albums(photo_id, [str(s["id"]) for s in sets])
 
 
-def sync(client, store: Store, thumb_key: str = "url_m", log=print) -> dict:
-    started = int(time.time())
-    nsid = client.nsid()
-    store.set_meta("nsid", nsid)
-
-    log("Fetching photo list…")
+def fetch_photo_list(client, thumb_key: str = "url_m", log=print) -> list[dict]:
+    """Every photo, with the extras the tool uses (about one call per 500 photos)."""
     photos = []
     for p in paginate(client, "flickr.people.getPhotos", "photos", "photo", user_id="me", extras=PHOTO_EXTRAS):
         photos.append(normalize_photo(p, thumb_key))
         if len(photos) % 2000 == 0:
             log(f"  {len(photos)} photos")
+    return photos
+
+
+def fetch_albums(client, nsid: str) -> list[dict]:
+    """Every album with its count, last update and a cover thumbnail (one call per 500 albums)."""
+    albums = []
+    for a in paginate(client, "flickr.photosets.getList", "photosets", "photoset", user_id=nsid,
+                      primary_photo_extras="url_q,url_m"):
+        title, desc = a.get("title"), a.get("description")
+        title = title.get("_content", "") if isinstance(title, dict) else title
+        desc = desc.get("_content", "") if isinstance(desc, dict) else desc
+        cover = (a.get("primary_photo_extras") or {})
+        albums.append({"id": str(a["id"]), "title": title or "", "description": desc or "",
+                       "count": int(a.get("photos", 0)) + int(a.get("videos", 0)),
+                       "date_update": _int(a.get("date_update")),
+                       "cover_url": cover.get("url_m") or cover.get("url_q")})
+    return albums
+
+
+def fetch_album_members(client, nsid: str, album_id: str) -> list[str]:
+    return [str(p["id"]) for p in paginate(client, "flickr.photosets.getPhotos", "photoset", "photo",
+                                           photoset_id=album_id, user_id=nsid, media="all")]
+
+
+def sync(client, store: Store, thumb_key: str = "url_m", log=print) -> dict:
+    """Full sync: every photo, every album, every album's photos (~180 calls for 10k photos)."""
+    started = int(time.time())
+    nsid = client.nsid()
+    store.set_meta("nsid", nsid)
+
+    log("Fetching photo list…")
+    photos = fetch_photo_list(client, thumb_key, log)
     log(f"  {len(photos)} photos total")
 
     log("Fetching albums…")
-    albums = []
-    for a in paginate(client, "flickr.photosets.getList", "photosets", "photoset", user_id=nsid):
-        title = a.get("title")
-        if isinstance(title, dict):
-            title = title.get("_content", "")
-        albums.append({"id": str(a["id"]), "title": title or "", "count": int(a.get("photos", 0)) + int(a.get("videos", 0))})
+    albums = fetch_albums(client, nsid)
     log(f"  {len(albums)} albums")
 
     log("Fetching album membership…")
     memberships = []
     for i, a in enumerate(albums, 1):
-        for p in paginate(client, "flickr.photosets.getPhotos", "photoset", "photo",
-                          photoset_id=a["id"], user_id=nsid, media="all"):
-            memberships.append((a["id"], str(p["id"])))
+        memberships += [(a["id"], pid) for pid in fetch_album_members(client, nsid, a["id"])]
         if i % 25 == 0:
             log(f"  {i}/{len(albums)} albums")
 
@@ -141,6 +163,8 @@ def sync(client, store: Store, thumb_key: str = "url_m", log=print) -> dict:
     if kept:
         log(f"  kept {kept} change(s) applied during the sync")
     store.replace_library(photos, albums, memberships)
+    for key in ("last_full_sync", "last_photo_list", "last_incremental"):
+        store.set_meta(key, started)
     try:  # account-wide totals; needs stats enabled (Flickr Pro), so skip quietly if not
         store.save_account_stats(client.call("flickr.stats.getTotalViews").get("stats", {}))
     except Exception:

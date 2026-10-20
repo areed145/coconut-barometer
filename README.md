@@ -94,6 +94,21 @@ Tags you add by convention, each group with its own flag under `standard_tags`: 
 - Date tags skip photos that already have a year tag (`y2019` or `2019`) and photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
 - Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `camera.albums` also adds photos to your camera albums.
 
+### Keeping in sync, and stats history
+
+`sync` does whatever is due, so it's cheap to run often (the web app will run it hourly):
+
+| | when | Flickr calls (10k photos) |
+|---|---|---|
+| incremental | otherwise | ~4: recently updated photos, the photo count (finds deletions), the album list (only changed albums are re-read), recent activity (new comments/faves) |
+| photo list | every `schedule.photo_list_every_hours` (24) | ~22: every photo re-read, so view counts and the daily snapshot stay current |
+| full | every `schedule.full_every_days` (7) | ~180: everything, as a safety net |
+| stats | each run, if `schedule.stats` (Flickr Pro) | ~6 per day fetched: yesterday once it's final, plus `schedule.backfill_days_per_run` older days until Flickr has none (about a year back) |
+
+`sync --full`, `--photo-list` or `--incremental` forces one. `process` and `social` start with a quick sync (no stats). `stats` shows what's been collected (daily totals, most viewed photos); `stats --backfill 60` fetches more days now.
+
+Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and faves per photo per day; `account_daily`: daily totals), so they're exact, not estimated. Days run midnight to midnight GMT.
+
 ### Engagement data
 
 - `sync` also records each photo's views, faves and comment count, license and original size (no extra calls), keeps a daily snapshot of those counts in `photo_stats` so you can see growth over time, and saves your account's total views in `account_stats` (1 call; needs Flickr Pro stats).
