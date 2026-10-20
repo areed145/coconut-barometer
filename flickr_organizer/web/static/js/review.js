@@ -24,9 +24,9 @@ function Change({ c, ch, i, editable, out, onChange }) {
     const kept = new Set(ch.tags.filter((x) => x.on).map((x) => norm(x.t)));
     const dropped = c.action === "set_tags" ? (c.old || "").split(/\s+/).filter((t) => t && !kept.has(norm(t))) : [];
     return html`<div class="row"><div class="what">${c.action === "set_tags" ? html`<b>Replace all tags</b> with` : "Add tags"} <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
-      ${dropped.length > 0 && html`<div class="chips removed" style="margin-top:6px" title="Removed from the photo on approval">
+      ${dropped.length > 0 && html`<div class="chips removed mt-1" title="Removed from the photo on approval">
         <span class="why">removes:</span>${dropped.map((t) => html`<span class="chip gone">${t}</span>`)}</div>`}
-      <div class="chips" style="margin-top:6px">${ch.tags.map((ts, j) => {
+      <div class="chips mt-1">${ch.tags.map((ts, j) => {
         const st = out?.tags?.[ts.t];
         return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off"))} disabled=${!editable}
           aria-pressed=${ts.on} onClick=${() => set({ tags: ch.tags.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
@@ -51,11 +51,11 @@ function Engagement({ s }) {
   if (!s) return null;
   const growth = s.first_snapshot && s.views != null && s.views > s.first_snapshot.views;
   return html`<div class="card"><h2>Engagement</h2>
-    <div class="kpis" style="margin:0 0 10px">
+    <div class="kpis mb-2">
       ${[["views", s.views], ["faves", s.faves], ["comments", s.comments], ["groups", s.groups.length]].map(([k, v]) =>
         html`<div class="kpi"><span>${k}</span><b>${num(v)}</b></div>`)}
     </div>
-    <p class="muted" style="margin:0 0 8px">${[growth && `+${num(s.views - s.first_snapshot.views)} views since ${s.first_snapshot.day}`,
+    <p class="muted m-0 mb-2">${[growth && `+${num(s.views - s.first_snapshot.views)} views since ${s.first_snapshot.day}`,
       s.license, s.width && `${num(s.width)} × ${num(s.height)}`, s.uploaded && "uploaded " + day(s.uploaded)].filter(Boolean).join(" · ")}</p>
     <dl class="kv">
       ${s.groups.length > 0 && html`<dt>In ${s.groups.length} group${s.groups.length > 1 ? "s" : ""}</dt><dd class="chips">
@@ -185,7 +185,7 @@ export function Reviewer({ onCount }) {
       <span class="muted">${ids.length ? `${idx + 1} of ${num(ids.length)}` : ""}</span>
       <span class="spacer"></span>
       ${working > 0 && html`<a class="status s-applying" href="#/queue" title="Open the queue"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</a>`}
-      <span class="muted" style="font-size:12px"><kbd>Enter</kbd> approve · <kbd>R</kbd> reject · <kbd>P</kbd> process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
+      <span class="muted small hint-keys"><kbd>Enter</kbd> approve · <kbd>R</kbd> reject · <kbd>P</kbd> process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
     </div>
     ${!item ? html`<div class="empty">Nothing here.</div>` : html`<div class="review">
       <div class="pic">

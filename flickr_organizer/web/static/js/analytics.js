@@ -25,10 +25,10 @@ function Overview({ days, setDays }) {
   const social = useMemo(() => [
     { label: "faves", values: series.map((r) => r.faves), color: "--chart-2", bars: true },
     { label: "comments", values: series.map((r) => r.comments), color: "--chart-3", bars: true }], [d]);
-  if (!d) return html`<${Range} days=${days} setDays=${setDays} /><div class="boot">Loading…</div>`;
+  if (!d) return html`<div class="toolbar"><${Range} days=${days} setDays=${setDays} /></div><div class="boot">Loading…</div>`;
   const prev = d.previous;
   const h = d.highlights;
-  return html`<${Range} days=${days} setDays=${setDays} />
+  return html`<div class="toolbar"><${Range} days=${days} setDays=${setDays} /></div>
     <div class="kpis">
       <${Kpi} label="Views" now=${d.period.views} before=${prev?.views} note=${days >= 3650 ? "in the days collected" : `in ${days} days`} />
       <${Kpi} label="Faves received" now=${d.period.faves} before=${prev?.faves} />

@@ -27,7 +27,8 @@ function Login({ onLogin }) {
     setBusy(false);
   };
   return html`<form class="login" onSubmit=${submit}>
-    <h1>Flickr Organizer</h1>
+    <img class="logo hero" src="/static/img/logo-320.png" width="200" height="195" alt="" />
+    <h1 class="sr-only">Flickr Organizer</h1>
     <label for="u">Username</label>
     <input id="u" autocomplete="username" value=${username} onInput=${(e) => setUsername(e.target.value)} required />
     <label for="p">Password</label>
@@ -52,7 +53,7 @@ function SyncBox() {
   const err = s.last_result?.error;
   return html`<div class="syncbox" title=${err ? "Last sync failed: " + err : `Due next: ${s.due.join(" + ")}`}>
     ${s.running ? html`<a href="#/queue" title="Open the queue"><span class="spin">⟳</span> syncing…</a>`
-      : html`<span>${err ? "⚠ sync failed" : "synced " + ago(s.last_sync)}${s.next_run ? ` · next ${until(s.next_run)}` : ""}</span>`}
+      : html`<span>${err ? "⚠ sync failed" : "synced " + ago(s.last_sync)}${s.next_run ? html`<span class="next"> · next ${until(s.next_run)}</span>` : ""}</span>`}
     <button class="link" onClick=${run} disabled=${s.running}>Sync now</button>
   </div>`;
 }
@@ -71,6 +72,11 @@ function Shell({ session, onLogout }) {
     load(); const t = setInterval(load, 10000); return () => clearInterval(t);
   }, []);
   const tab = route[0];
+  // On narrow screens the tab rows scroll sideways: keep the selected tab in view.
+  useEffect(() => {
+    requestAnimationFrame(() => document.querySelectorAll("nav.tabs a.on, .subtabs a.on, .admin .sections button.on")
+      .forEach((el) => el.scrollIntoView({ block: "nearest", inline: "nearest" })));
+  }, [location.hash]);
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   let page;
   useEffect(() => {     // old album links (#/albums/123) are the Photos page filtered to the album
@@ -88,17 +94,19 @@ function Shell({ session, onLogout }) {
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${section === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(section)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
-      <a class="brand" href="#/photos">Flickr Organizer</a>
-      <nav class="tabs">
+      <a class="brand" href="#/photos" aria-label="Flickr Organizer: Photos">
+        <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="Flickr Organizer" /></a>
+      <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos")}${link("albums", "Albums")}${link("map", "Map")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
         ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
         ${link("analytics", "Analytics")}${link("settings", "Settings")}
       </nav>
-      <span class="spacer"></span>
-      <${SyncBox} />
-      <span class="muted">${session.username}</span>
-      <button class="link" onClick=${logout}>Sign out</button>
+      <div class="account">
+        <${SyncBox} />
+        <span class="muted who">${session.username}</span>
+        <button class="link" onClick=${logout}>Sign out</button>
+      </div>
     </header>
     <main class="page">${page}</main>`;
 }

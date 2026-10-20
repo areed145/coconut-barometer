@@ -117,7 +117,7 @@ export function MapPage({ at }) {
       </select>
       <span class="muted">${data ? `${num(data.points.length)} geotagged photo${data.points.length === 1 ? "" : "s"}` : "Loading…"}</span>
       <span class="spacer"></span>
-      <span class="muted" style="font-size:12px">Click a cluster to zoom in; small ones open into thumbnails</span>
+      <span class="muted small hint-pointer">Click a cluster to zoom in; small ones open into thumbnails</span>
     </div>
     <div class="mapwrap" ref=${el}></div>
     ${box && html`<${Lightbox} photos=${box.photos} index=${box.index} onIndex=${(i) => setBox({ ...box, index: i })}

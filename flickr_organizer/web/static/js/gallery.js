@@ -175,8 +175,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   const big = pick(p.sizes, prefs);
   const d = detail, e = d?.engagement;
   const daily = timeline?.daily || [];
-  return html`<div class="lightbox" role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}
-      style=${info ? "" : "grid-template-columns: 1fr"}>
+  return html`<div class=${"lightbox" + (info ? "" : " noinfo")} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
     <div class=${"stage" + (zoom ? " zoomed" : "")}>
       <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => setZoom(!zoom)} onError=${fallback(p.sizes, prefs)} />
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>
