@@ -100,7 +100,7 @@ Tags you add by convention, each group with its own flag under `standard_tags`: 
 ## Costs and limits
 
 - Each photo sends one ~500px thumbnail plus a short prompt, roughly 1k input tokens. Run `--limit 50` and look at the token counts it prints before doing the whole library. Check current API pricing.
-- Flickr allows 3600 API calls per hour. `calls_per_second: 0.9` (3240/hour) leaves headroom for a `sync` running alongside. Each applied row costs one call, except that a retitle and a description for the same photo share one `setMeta` call. A sync costs about one call per 500 photos plus one per album.
+- Flickr allows 3600 API calls per hour per API key. `flickr.calls_per_second` (0.9 if unset; the example config uses 1) is shared by every command using the key: `review`, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
 - Reverse geocoding runs offline and returns the nearest town, so a photo taken right at a border can occasionally land in the neighbouring country. That's one reason to review before applying.
 
 ## Adding a vision provider
