@@ -83,6 +83,10 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
             response.headers.setdefault(k, v)
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/static/"):
+            # Always ask before using a saved copy (unchanged files come back as 304): the
+            # scripts import each other, so one stale file after a deploy breaks the whole app.
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     # Outermost: refuse Host headers that aren't ours (DNS rebinding, stray vhosts).

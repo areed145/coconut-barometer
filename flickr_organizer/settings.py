@@ -23,7 +23,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .config import CHOICES, COLORS, DEFAULTS, ENV_OVERRIDES, FREE_MAPS, ITEM_KEYS, OPTIONAL, _merge, validate
+from .config import CHOICES, COLORS, DEFAULTS, ENV_OVERRIDES, FREE_MAPS, ITEM_KEYS, OPTIONAL, RENAMED, _merge, validate
 
 SECRETS = ("flickr.api_key", "flickr.api_secret", "vision.api_key")
 LOCKED = {"database": "where the database is", "web.host": "what address the server listens on",
@@ -148,6 +148,16 @@ def env_paths(environ=os.environ) -> dict[str, str]:
             **platform_paths(environ)}
 
 
+def stored_settings(store) -> dict:
+    """The admin page's settings, with any saved under an old (RENAMED) path moved to the new one."""
+    stored = store.admin_settings()
+    for old, new in RENAMED.items():
+        if old in stored:
+            value = stored.pop(old)
+            stored.setdefault(new, value)
+    return stored
+
+
 def layer(file_raw: dict, store, environ=os.environ) -> tuple[dict, dict[str, str], list[str]]:
     """(raw config with all four layers, source per setting path, problems reading secrets)."""
     from .config import apply_env
@@ -156,7 +166,7 @@ def layer(file_raw: dict, store, environ=os.environ) -> tuple[dict, dict[str, st
     sources = {p: ("file" if get_path(file_raw, p) is not None else "default") for p in leaves()}
     problems = []
     if store is not None:
-        for path, value in store.admin_settings().items():
+        for path, value in stored_settings(store).items():
             if path in sources and path not in LOCKED and path not in SECRETS:
                 set_path(raw, path, value)
                 sources[path] = "admin"
@@ -197,7 +207,7 @@ def save(cfg_path, file_raw: dict, store, changes: dict[str, object], removed: l
     if errors:
         raise SettingsError(errors)
     stored = store.admin_settings()
-    current = {p: v for p, v in stored.items() if p in known}    # retired settings: dropped below
+    current = {p: v for p, v in stored_settings(store).items() if p in known}   # retired: dropped below
     proposed = {**current, **changes}
     for path in removed:
         proposed.pop(path, None)
@@ -217,7 +227,8 @@ def save(cfg_path, file_raw: dict, store, changes: dict[str, object], removed: l
     effective = lambda overrides, p: overrides.get(p, get_path(underlying, p))
     log = [(p, json.dumps(effective(current, p))[:500], json.dumps(effective(proposed, p))[:500])
            for p in sorted(set(current) | set(proposed)) if effective(current, p) != effective(proposed, p)]
-    store.save_admin_settings({p: v for p, v in proposed.items() if current.get(p) != v},
+    # Against what's stored, not `current`: a setting under an old path is written anew here.
+    store.save_admin_settings({p: v for p, v in proposed.items() if stored.get(p) != v},
                               [p for p in stored if p not in proposed], username, log)
     return {"changed": [p for p, _, _ in log]}
 

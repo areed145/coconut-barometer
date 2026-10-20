@@ -1,5 +1,5 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, upload, toast, ago, day } from "./lib.js";
+import { html, useState, useEffect, api, download, upload, toast, ago, day, loadTheme } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
@@ -205,7 +205,7 @@ export function Admin() {
   const save = async (reset = []) => {
     setSaving(true);
     try { const d = await api("/api/admin/settings", { method: "PUT", body: { changes: edits, reset } });
-      loaded(d); setEdits({}); toast(d.saved.length ? `Saved ${d.saved.length} setting(s). Applied now.` : "Nothing changed.");
+      loaded(d); setEdits({}); loadTheme(); toast(d.saved.length ? `Saved ${d.saved.length} setting(s). Applied now.` : "Nothing changed.");
     } catch (e) { setErrors(e.status === 422 ? e.message.split("; ") : [e.message]); }
     setSaving(false);
   };

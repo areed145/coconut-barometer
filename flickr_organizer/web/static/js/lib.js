@@ -70,6 +70,21 @@ export function DropZone({ onFiles, accept, disabled, children }) {
   </label>`;
 }
 
+// ---- the colour gradient (Settings → Colours), for anything showing an amount -----------
+let gradient = [[0xf7, 0xd1, 0x25], [0x1d, 0xab, 0x45]];
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+export const loadTheme = () => api("/api/theme").then((t) => { gradient = t.colors.map(rgbOf); }).catch(() => {});
+// t in 0..1 -> "rgb(…)" between the low and high colours.
+export const shade = (t) => {
+  const [a, b] = gradient, k = Math.max(0, Math.min(1, t || 0));
+  return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * k)).join(",")})`;
+};
+// Where v sits between lo and hi on a log scale: 0 for the smallest, 1 for the largest.
+export const logShare = (v, hi, lo = 0) => {
+  const a = Math.log1p(Math.max(0, lo)), b = Math.log1p(Math.max(0, hi));
+  return b > a ? (Math.log1p(Math.max(0, v)) - a) / (b - a) : 1;
+};
+
 // ---- router: #/photos?tag=ramen&year=2019, #/review, ... ------------------------------
 // route is the path split on "/", with route.params the query after "?".
 export function useRoute() {

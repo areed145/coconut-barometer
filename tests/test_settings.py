@@ -82,6 +82,18 @@ class LayersTest(Base):
         self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file"})
         self.assertEqual([r["path"] for r in self.store.settings_log()][:2], ["vision.concurrency", "vision.concurrency"])
 
+    def test_moved_settings_keep_their_value(self):
+        """The gradient moved from map.* to theme.*: a colour saved under the old path still counts,
+        in the database and in config.yaml, and the next save stores it under the new one."""
+        self.store.save_admin_settings({"map.color_high": "#00ff00"}, [], "old", [])
+        raw, sources, _ = S.layer(self.file_raw(), self.store)
+        self.assertEqual((raw["theme"]["color_high"], sources["theme.color_high"]), ("#00ff00", "admin"))
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 9}, [], "owner")
+        self.assertEqual(self.store.admin_settings(), {"theme.color_high": "#00ff00", "vision.concurrency": 9})
+        from flickr_organizer.config import retire
+        self.assertEqual(retire({"map": {"color_low": "#000000", "expand_at": 9}}),
+                         {"map": {"expand_at": 9}, "theme": {"color_low": "#000000"}})
+
     def test_import_file_keeps_page_changes(self):
         import argparse, contextlib, io
         from flickr_organizer.cli import cmd_settings

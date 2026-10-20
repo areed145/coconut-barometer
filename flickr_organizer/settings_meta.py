@@ -17,6 +17,8 @@ SECTIONS = [
     ("tags", "Tags", PROPOSALS + "Tags come from the model, the location and your own conventions."),
     ("albums", "Albums", PROPOSALS + "Albums come from what's in the photo, where it was taken, and the camera."),
     ("map", "Map", "The Map page: photos clustered by where they were taken."),
+    ("theme", "Colours", "One gradient for everything that shows an amount: map clusters and the bars in "
+                         "Analytics. Small amounts get the first colour, the largest the second, on a log scale."),
     ("vision", "Vision model", "The model that looks at each photo and writes the proposals."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
@@ -131,11 +133,12 @@ META = {
                         "say \"API KEY REQUIRED\". It goes in the address of every map tile, so anyone who can "
                         "open the map can see it (that's how CARTO keys work): restrict it to your sites in "
                         "CARTO's dashboard. Reload the map after changing it.", group="Map tiles"),
-    "map.color_low": _m("map", "Colour for small clusters", group="Clusters"),
-    "map.color_high": _m("map", "Colour for the biggest clusters", "In between, the colour and size follow the "
-                         "number of photos on a log scale.", group="Clusters"),
     "map.expand_at": _m("map", "Show thumbnails from (photos)", "Clicking a cluster zooms in one level; once it "
                         "holds this many photos or fewer, it opens into thumbnails instead.", group="Clusters"),
+
+    # ---- Colours
+    "theme.color_low": _m("theme", "Low", "e.g. a cluster of a few photos, or a short bar."),
+    "theme.color_high": _m("theme", "High", "e.g. the biggest cluster, or the longest bar."),
 
     # ---- Vision model
     "vision.provider": _m("vision", "Provider", "claude / anthropic, openai, or ollama (local)."),

@@ -21,8 +21,8 @@ class Ids(BaseModel):
 def config(rt=Depends(runtime)):
     """What the browser needs to draw a map. The CARTO key is public by design (it's in every
     tile URL), unlike the API keys kept encrypted."""
-    mcfg = rt.cfg["map"]
-    return {"carto_key": mcfg["carto_key"] or "", "colors": [mcfg["color_low"], mcfg["color_high"]],
+    mcfg, theme = rt.cfg["map"], rt.cfg["theme"]
+    return {"carto_key": mcfg["carto_key"] or "", "colors": [theme["color_low"], theme["color_high"]],
             "expand_at": mcfg["expand_at"]}
 
 
@@ -32,9 +32,9 @@ def points(request: Request, album: str | None = Query(None, max_length=40),
            rt=Depends(runtime), db=Depends(store)):
     """{points: [[id, lat, lon, server, secret], ...], years, colors, expand_at}. Gzipped here
     (it's the one big response, ~10 bytes a photo compressed); nothing secret is in it."""
-    mcfg = rt.cfg["map"]
+    mcfg, theme = rt.cfg["map"], rt.cfg["theme"]
     body = json.dumps({"points": db.map_points(album, year_from, year_to), "years": db.map_years(),
-                       "colors": [mcfg["color_low"], mcfg["color_high"]], "expand_at": mcfg["expand_at"]},
+                       "colors": [theme["color_low"], theme["color_high"]], "expand_at": mcfg["expand_at"]},
                       separators=(",", ":")).encode()
     headers = {"Vary": "Accept-Encoding"}
     if "gzip" in request.headers.get("accept-encoding", ""):

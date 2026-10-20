@@ -1,5 +1,5 @@
 // The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink, loadTheme } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
@@ -60,9 +60,15 @@ function SyncBox() {
 function Shell({ session, onLogout }) {
   const route = useRoute();
   const [pending, setPending] = useState(null);
+  const [working, setWorking] = useState(0);         // jobs the background worker is applying or processing
   useEffect(() => {
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
     load(); const t = setInterval(load, 30000); return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const load = () => api("/api/review/jobs", { params: { since: 1e9 } })
+      .then((j) => setWorking(j.applying + j.processing + (j.syncing ? 1 : 0))).catch(() => {});
+    load(); const t = setInterval(load, 10000); return () => clearInterval(t);
   }, []);
   const tab = route[0];
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
@@ -86,6 +92,7 @@ function Shell({ session, onLogout }) {
       <nav class="tabs">
         ${link("photos", "Photos")}${link("albums", "Albums")}${link("map", "Map")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
+        ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
         ${link("analytics", "Analytics")}${link("settings", "Settings")}
       </nav>
       <span class="spacer"></span>
@@ -99,7 +106,7 @@ function Shell({ session, onLogout }) {
 function App() {
   const [session, setSession] = useState(undefined);     // undefined = checking, null = signed out
   const [setup, setSetup] = useState(false);              // no login yet: first-run setup
-  const signedIn = (s) => { setCsrf(s.csrf); setSetup(false); setSession(s); };
+  const signedIn = (s) => { setCsrf(s.csrf); setSetup(false); loadTheme().then(() => setSession(s)); };
   const signedOut = () => { setCsrf(null); setSession(null); };
   useEffect(() => {
     api("/api/auth/session").then(signedIn).catch(() => {

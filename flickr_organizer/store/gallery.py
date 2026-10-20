@@ -9,6 +9,32 @@ SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "taken":
          "views": "p.views DESC", "faves": "p.faves DESC", "comments": "p.comments DESC", "title": "p.title COLLATE NOCASE"}
 
 
+# Presets for the Photos page (?is=a,b: all must hold). Fixed SQL only, chosen by id.
+_CAMERA_NAME = " OR ".join(f"p.title GLOB '{g}'" for g in (
+    "IMG_*", "IMG-*", "DSC*", "PXL_*", "MVI_*", "VID_*", "GOPR*", "P10[0-9][0-9]*", "[0-9][0-9][0-9][0-9][0-9][0-9]*"))
+_TAG_COUNT = "(CASE WHEN COALESCE(p.tags, '') = '' THEN 0 ELSE length(p.tags) - length(replace(p.tags, ' ', '')) + 1 END)"
+PRESETS = {
+    "untitled": ("Untitled or camera names", "Needs work",
+                 f"(COALESCE(p.title, '') = '' OR lower(p.title) = 'untitled' OR {_CAMERA_NAME})"),
+    "no_description": ("No description", "Needs work", "COALESCE(p.description, '') = ''"),
+    "few_tags": ("Fewer than 5 tags", "Needs work", f"{_TAG_COUNT} < 5"),
+    "no_album": ("In no album", "Needs work", "NOT EXISTS (SELECT 1 FROM memberships mm WHERE mm.photo_id = p.id)"),
+    "no_group": ("In no group", "Needs work", "NOT EXISTS (SELECT 1 FROM group_photos gp WHERE gp.photo_id = p.id)"),
+    "no_geotag": ("No geotag", "Needs work", "(p.lat IS NULL OR (p.lat = 0 AND p.lon = 0))"),
+    "popular": ("1,000+ views", "Engagement", "p.views >= 1000"),
+    "faved": ("Faved", "Engagement", "p.faves > 0"),
+    "commented": ("Commented", "Engagement", "p.comments > 0"),
+    "unseen": ("Barely seen (under 10 views)", "Engagement", "COALESCE(p.views, 0) < 10"),
+    "to_review": ("Waiting in To review", "Status",
+                  "EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id AND q.status IN ('pending', 'new'))"),
+    "not_processed": ("Not processed", "Status", "NOT EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id)"),
+    "changed_here": ("Changed by this app", "Status",
+                     "EXISTS (SELECT 1 FROM decisions dd WHERE dd.photo_id = p.id AND dd.status = 'applied')"),
+    "recent": ("Uploaded in the last 30 days", "Status", "p.date_upload > CAST(strftime('%s', 'now') AS INTEGER) - 30 * 86400"),
+    "private": ("Private", "Status", "p.ispublic = 0"),
+}
+
+
 def sizes(p) -> dict:
     """Image URLs by Flickr size suffix. q n w z c b share the photo's secret; l h k need their own."""
     base = f"https://live.staticflickr.com/{p['server']}/{p['id']}_{p['secret']}" if p["server"] and p["secret"] else None
@@ -27,9 +53,10 @@ def photo_card(p) -> dict:
 
 class GalleryStore(Database):
     def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
-                   limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "") -> dict:
+                   limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "",
+                   presets: list[str] | None = None) -> dict:
         """One page of photos, by any mix of filters: album, search text, tag (Flickr's
-        normalized form), year taken, camera, photo or video."""
+        normalized form), year taken, camera, photo or video, and presets (all must hold)."""
         from ..util import norm_tag
 
         where, args = [], []
@@ -46,6 +73,8 @@ class GalleryStore(Database):
         if year:
             where.append("substr(p.date_taken, 1, 4) = ?")
             args.append(f"{year:04d}")
+        for name in presets or []:
+            where.append(PRESETS[name][2])          # KeyError for an unknown one: the API checks first
         if q:
             where.append("(p.title LIKE ? OR p.description LIKE ? OR (' ' || p.tags || ' ') LIKE ?)")
             args += [f"%{q}%", f"%{q}%", f"% {q.lower().replace(' ', '')} %"]
@@ -83,6 +112,13 @@ class GalleryStore(Database):
         return [r[0] for r in self.db.execute(
             f"SELECT DISTINCT CAST(substr(p.date_taken, 1, 4) AS INTEGER) AS y FROM photos p "
             f"WHERE {self.GEOTAGGED} AND p.date_taken IS NOT NULL AND y > 1800 ORDER BY y")]
+
+    def preset_counts(self) -> list[dict]:
+        """Each preset with how many photos it matches (over the whole library), in one query."""
+        cols = ", ".join(f"SUM(CASE WHEN {sql} THEN 1 ELSE 0 END)" for _, _, sql in PRESETS.values())
+        counts = self.db.execute(f"SELECT {cols} FROM photos p").fetchone()
+        return [{"id": k, "label": label, "group": group, "count": counts[i] or 0}
+                for i, (k, (label, group, _)) in enumerate(PRESETS.items())]
 
     def years_taken(self) -> list[dict]:
         return [{"year": int(r[0]), "count": r[1]} for r in self.db.execute(

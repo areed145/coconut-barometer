@@ -80,9 +80,9 @@ class MapTest(unittest.TestCase):
         self.assertTrue(any("map.carto_key" in e for e in validate(raw, _merge(DEFAULTS, raw))[0]))
 
     def test_colour_settings_are_checked(self):
-        raw = {"map": {"color_low": "yellow", "expand_at": 1}}
+        raw = {"theme": {"color_low": "yellow"}, "map": {"expand_at": 1}}
         errors, _ = validate(raw, _merge(DEFAULTS, raw))
-        self.assertTrue(any("map.color_low: should be a colour" in e for e in errors))
+        self.assertTrue(any("theme.color_low: should be a colour" in e for e in errors))
         self.assertTrue(any("map.expand_at" in e for e in errors))
 
     def test_tiles_are_allowed_and_the_libraries_are_here(self):

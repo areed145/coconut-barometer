@@ -67,9 +67,11 @@ DEFAULTS: dict[str, Any] = {
         "api_docs": False,            # /api/docs (OpenAPI); only after login when on
         "trusted_proxies": ["127.0.0.1"],   # where X-Forwarded-For/-Proto are believed from
     },
+    "theme": {
+        "color_low": "#f7d125",       # the gradient for map clusters and chart bars: low values ...
+        "color_high": "#1dab45",      # ... to high (log scale)
+    },
     "map": {
-        "color_low": "#f7d125",       # clusters with few photos ...
-        "color_high": "#1dab45",      # ... to the most (log scale)
         "expand_at": 40,              # a cluster this small opens into thumbnails when clicked
         "carto_key": None,            # CARTO basemaps key (carto.com/basemaps/apikey); goes in every tile URL
     },
@@ -102,7 +104,7 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200)}
-COLORS = {("map", "color_low"), ("map", "color_high")}   # #rrggbb
+COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
 # Secrets can come from the environment instead of config.yaml (on a server, keep them there).
 ENV_OVERRIDES = {"FLICKR_API_KEY": ("flickr", "api_key"), "FLICKR_API_SECRET": ("flickr", "api_secret"),
@@ -124,11 +126,21 @@ RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "i
            ("standard_tags", "filler")}
 
 
+# Settings that moved: old path -> new path (the old one is used if the new one isn't set).
+RENAMED = {"map.color_low": "theme.color_low", "map.color_high": "theme.color_high"}
+
+
 def retire(raw: dict) -> dict:
-    """raw without RETIRED settings (a copy). web.process_new: true becomes schedule.new_photos: process."""
+    """raw without RETIRED settings (a copy), with RENAMED ones moved. web.process_new: true
+    becomes schedule.new_photos: process."""
     import copy
 
     raw = copy.deepcopy(raw)
+    for old, new in RENAMED.items():
+        o, n = old.split("."), new.split(".")
+        value = (raw.get(o[0]) or {}).pop(o[1], None) if isinstance(raw.get(o[0]), dict) else None
+        if value is not None and n[1] not in (raw.get(n[0]) or {}):
+            raw.setdefault(n[0], {})[n[1]] = value
     if (raw.get("web") or {}).get("process_new") is True and "new_photos" not in (raw.get("schedule") or {}):
         raw.setdefault("schedule", {})["new_photos"] = "process"
     for path in RETIRED:

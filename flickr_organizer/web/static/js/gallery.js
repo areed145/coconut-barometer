@@ -62,7 +62,7 @@ export function PhotoGrid({ paged }) {
 
 const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
                ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
-const FILTERS = ["album", "tag", "year", "camera", "media", "q", "sort"];
+const FILTERS = ["album", "tag", "year", "camera", "media", "q", "sort", "is"];
 
 // The Photos page, and every filtered view of it: the filters live in the address
 // (#/photos?album=…&tag=…&year=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
@@ -72,18 +72,27 @@ export function Photos({ params = {} }) {
   const [q, setQ] = useState(f.q);
   const [album, setAlbum] = useState(null);
   const [years, setYears] = useState([]);
+  const [presets, setPresets] = useState([]);
+  const [showPresets, setShowPresets] = useState(!!f.is);
+  const active = f.is ? f.is.split(",").filter(Boolean) : [];
+  const togglePreset = (id) => set({ is: (active.includes(id) ? active.filter((x) => x !== id) : [...active, id]).join(",") });
   useEffect(() => setQ(f.q), [f.q]);
   useEffect(() => { const t = setTimeout(() => q.trim() !== f.q && set({ q: q.trim() }), 350); return () => clearTimeout(t); }, [q]);
-  useEffect(() => { api("/api/photo-years").then(setYears).catch(() => {}); }, []);
+  useEffect(() => {
+    api("/api/photo-years").then(setYears).catch(() => {});
+    api("/api/photo-presets").then(setPresets).catch(() => {});
+  }, []);
   useEffect(() => {
     setAlbum(null);
     if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
   const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, camera: f.camera,
-    media: f.media, q: f.q, sort: f.sort || "newest", offset, limit: PAGE } }), [key]);
+    media: f.media, q: f.q, sort: f.sort || "newest", is: f.is, offset, limit: PAGE } }), [key]);
   const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year], ["camera", "Camera", f.camera]]
     .filter(([k]) => f[k]);
+  const label = Object.fromEntries(presets.map((p) => [p.id, p.label]));
+  const groups = [...new Set(presets.map((p) => p.group))];
   return html`
     ${f.album && html`<a href="#/albums">← Albums</a>
       <h1 class="title">${album ? album.title : "…"}</h1>
@@ -101,11 +110,21 @@ export function Photos({ params = {} }) {
       <select value=${f.year} onChange=${(e) => set({ year: e.target.value })} aria-label="Year taken">
         <option value="">Any year</option>${years.map((y) => html`<option value=${y.year}>${y.year} (${num(y.count)})</option>`)}
       </select>
+      <button class=${showPresets || active.length ? "on" : ""} onClick=${() => setShowPresets(!showPresets)}
+              aria-expanded=${showPresets}>Presets${active.length ? ` (${active.length})` : ""}</button>
       <span class="muted">${paged.total !== null && `${num(paged.total)} items`}</span>
     </div>
-    ${chips.length > 0 && html`<div class="chips filters">${chips.map(([k, label, v]) => html`<span class="chip on" key=${k}>
+    ${showPresets && presets.length > 0 && html`<div class="presets">${groups.map((g) => html`<div class="pgroup" key=${g}>
+        <span class="why">${g}</span>
+        ${presets.filter((p) => p.group === g).map((p) => html`<button key=${p.id} class=${"preset" + (active.includes(p.id) ? " on" : "")}
+            disabled=${!p.count && !active.includes(p.id)} aria-pressed=${active.includes(p.id)} onClick=${() => togglePreset(p.id)}
+            title=${p.count ? `${num(p.count)} photos in the whole library` : "No photos match"}>${p.label} <span class="n">${num(p.count)}</span></button>`)}
+      </div>`)}<p class="muted small">Presets combine with each other and with the filters above: a photo has to match all of them.</p></div>`}
+    ${(chips.length > 0 || active.length > 0) && html`<div class="chips filters">${chips.map(([k, label, v]) => html`<span class="chip on" key=${k}>
         ${label}: <b>${v}</b> <button class="link" onClick=${() => set({ [k]: "" })} aria-label=${`Remove the ${label} filter`}>✕</button></span>`)}
-      ${chips.length > 1 && html`<button class="link" onClick=${() => location.replace(photosLink({ sort: f.sort }))}>Clear all</button>`}</div>`}
+      ${active.map((id) => html`<span class="chip on" key=${"is" + id}>${label[id] || id}
+        <button class="link" onClick=${() => togglePreset(id)} aria-label=${`Remove ${label[id] || id}`}>✕</button></span>`)}
+      ${chips.length + active.length > 1 && html`<button class="link" onClick=${() => location.replace(photosLink({ sort: f.sort }))}>Clear all</button>`}</div>`}
     <${PhotoGrid} paged=${paged} />`;
 }
 

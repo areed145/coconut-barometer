@@ -1,8 +1,8 @@
-// The Tags tab: a word cloud by any measure, niche winners vs overused tags, trending tags,
+// The Tags tab: the top tags by any measure as ranked bars, niche winners vs overused tags, trending tags,
 // a sortable table, and a tag's own page (its photos, views over time, tags it goes with).
 import { html, useState, useEffect, useMemo, api, num, photosLink } from "./lib.js";
 import { Chart } from "./chart.js";
-import { WordCloud, Scatter, Table, TopGrid, usePhotoBox, pct, times } from "./viz.js";
+import { Bars, Scatter, Table, TopGrid, usePhotoBox, pct, times } from "./viz.js";
 
 const METRICS = [
   ["photos", "Use", "How many of your photos carry the tag", (t) => `${num(t.photos)} photos`],
@@ -47,8 +47,10 @@ export function TagsTab() {
   }, [metric, source, hide.join(","), min]);
   const m = METRICS.find((x) => x[0] === metric);
   const tags = data?.tags || [];
-  const words = useMemo(() => tags.slice(0, 110).map((t) => ({ text: t.tag, weight: t[metric] || 0, tone: tone(t),
-    title: `${t.tag}: ${m[3](t)} · ${num(t.photos)} photos${t.trend != null ? ` · ${pct(t.trend)} in 14 days` : ""}` })), [data]);
+  const ranked = useMemo(() => tags.slice(0, 40).map((t) => ({ ...t, label: t.tag })), [data]);
+  const fmt = { photos: (t) => num(t.photos), views: (t) => num(t.views), avg_views: (t) => num(t.avg_views),
+                faves_per_1k: (t) => t.faves_per_1k, comments: (t) => num(t.comments), lift: (t) => times(t.lift) }[metric];
+  const arrow = (t) => (t.trend == null ? "" : t.trend > 0.15 ? " ▲" : t.trend < -0.15 ? " ▼" : "");
   const points = useMemo(() => tags.map((t) => ({ label: t.tag, x: t.photos, y: t.avg_views, tone: tone(t),
     r: 3 + Math.min(6, Math.sqrt(t.faves_per_1k || 0) / 1.5),
     title: `${t.tag}: ${num(t.photos)} photos, ${num(t.avg_views)} views each, lift ${times(t.lift)}` })), [data]);
@@ -70,9 +72,12 @@ export function TagsTab() {
     </div>
     ${tag && html`<${TagPage} tag=${tag} onPick=${pick} onClose=${() => setTag(null)} />`}
     ${!data ? html`<div class="boot">Loading…</div>` : html`
-      <div class="card"><h2>${m[1]} <span class="muted">· ${m[2]}</span></h2>
-        <${WordCloud} words=${words} onPick=${pick} />
-        <p class="muted small">Size: ${m[1].toLowerCase()}. Colour: <span class="up">rising</span> or <span class="down">falling</span> views over the last 14 days against the 14 before (of the ${num(data.days_collected)} days collected). Click a tag for its page.</p>
+      <div class="card"><h2>Top 40 by ${m[1].toLowerCase()} <span class="muted">· ${m[2]}</span></h2>
+        <div class="tagbars"><${Bars} rows=${ranked} value=${metric} onPick=${(r) => pick(r.tag)}
+          right=${(t) => html`${fmt(t)}<span class=${t.trend > 0.15 ? "up" : t.trend < -0.15 ? "down" : ""}>${arrow(t)}</span>`}
+          title=${(t) => `${t.tag}: ${m[3](t)} · ${num(t.photos)} photos${t.trend != null ? ` · ${pct(t.trend)} views in 14 days` : ""}`} /></div>
+        <p class="muted small">Bar colour follows Settings → Colours. ▲ ▼: views rising or falling over the last 14 days against the 14 before
+          (of the ${num(data.days_collected)} days collected). Click a tag for its page.</p>
       </div>
       <div class="cols">
         <div class="card"><h2>Niche winners and overused tags</h2>

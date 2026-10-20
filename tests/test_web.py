@@ -59,6 +59,39 @@ class WebTest(unittest.TestCase):
         self.assertIn({"year": 2019, "count": 1}, years)
         self.assertEqual(self.c.get("/api/photos", params={"year": 99}).status_code, 422)
 
+    def test_photo_presets(self):
+        x = self.store.db.execute
+        x("UPDATE photos SET title='IMG_1234', description='', tags='a b' WHERE id='2'")
+        x("UPDATE photos SET views=5000, faves=3 WHERE id='1'")
+        x("UPDATE photos SET lat=NULL, lon=NULL WHERE id='3'")
+        x("INSERT INTO queue (photo_id, status, changes) VALUES ('5', 'pending', '[]')")
+        self.store.db.commit()
+        self.login()
+        ids = lambda preset, **p: {ph["id"] for ph in self.c.get("/api/photos", params={"is": preset, **p}).json()["photos"]}
+        self.assertIn("2", ids("untitled"))
+        self.assertNotIn("1", ids("untitled"))                          # "Ramen in Tokyo"
+        self.assertIn("2", ids("few_tags"))
+        self.assertEqual(ids("popular"), {"1"})
+        self.assertIn("3", ids("no_geotag"))
+        self.assertEqual(ids("to_review"), {"5"})
+        self.assertEqual(ids("untitled,few_tags"), ids("untitled") & ids("few_tags"))   # all must hold
+        self.assertEqual(ids("popular", tag="nope"), set())
+        self.assertEqual(self.c.get("/api/photos", params={"is": "untitled,drop table"}).status_code, 422)
+        counts = {p["id"]: p for p in self.c.get("/api/photo-presets").json()}
+        self.assertEqual(counts["popular"]["count"], 1)
+        self.assertEqual(counts["popular"]["group"], "Engagement")
+
+    def test_static_files_are_revalidated(self):
+        r = self.c.get("/static/js/main.js")
+        self.assertEqual(r.headers["cache-control"], "no-cache")
+        again = self.c.get("/static/js/main.js", headers={"If-None-Match": r.headers["etag"]})
+        self.assertEqual(again.status_code, 304)                         # unchanged: nothing re-sent
+
+    def test_theme(self):
+        self.assertEqual(self.c.get("/api/theme").status_code, 401)
+        self.login()
+        self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})
+
     def test_worker_view_needs_login(self):
         self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
         self.login()
