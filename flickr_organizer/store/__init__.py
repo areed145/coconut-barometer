@@ -41,7 +41,7 @@ from __future__ import annotations
 from .analytics import AnalyticsStore
 from .auth import AuthStore
 from .cache import CacheStore
-from .db import SCHEMA_VERSION, Database
+from .db import SCHEMA_VERSION, Database, SchemaTooNew
 from .engagement import EngagementStore
 from .gallery import GalleryStore
 from .library import LibraryStore
@@ -49,7 +49,7 @@ from .queue import QueueStore
 from .settings import SettingsStore
 from .stats import StatsStore
 
-__all__ = ["Store", "Database", "SCHEMA_VERSION"]
+__all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,

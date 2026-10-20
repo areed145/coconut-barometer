@@ -6,6 +6,8 @@ the review worker and the sync scheduler in the background.
 """
 from __future__ import annotations
 
+import json
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,12 +17,38 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..store import SchemaTooNew
 from .api import admin, analytics, auth, gallery, review, sync
 from .deps import session
 from .runtime import Runtime
 from .security import security_headers
 
 STATIC = Path(__file__).parent / "static"
+
+
+class NoExit:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = False
+
+        async def tracking_send(message):
+            nonlocal started
+            started = started or message["type"] == "http.response.start"
+            await send(message)
+        try:
+            await self.app(scope, receive, tracking_send)
+        except (SystemExit, SchemaTooNew) as e:
+            print(f"ERROR {scope.get('path')}: {e if isinstance(e, SchemaTooNew) else e.code}", file=sys.stderr, flush=True)
+            if started:
+                return
+            body = json.dumps({"detail": "The server needs attention; see its log."}).encode()
+            await send({"type": "http.response.start", "status": 503,
+                        "headers": [(b"content-type", b"application/json"), (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": body})
 
 
 def create_app(cfg: dict, client, provider_factory=None, background: bool = True, scheduler: bool = True,
@@ -40,6 +68,12 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
                   openapi_url="/api/openapi.json" if web["api_docs"] else None)
     app.state.runtime = rt
     headers = security_headers(web["secure_cookies"])
+
+    # Innermost (added first): a SystemExit raised while handling a request - the library's
+    # "stop with a message", e.g. a database from a newer version or a config error during a
+    # reload - would otherwise stop the whole server. It becomes a 503 for that request;
+    # the message goes to the log only (it can include file paths).
+    app.add_middleware(NoExit)
 
     @app.middleware("http")
     async def add_headers(request: Request, call_next):

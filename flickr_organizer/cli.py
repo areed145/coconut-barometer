@@ -534,8 +534,13 @@ def main(argv=None):
     if args.cmd == "check":   # before load_config, which stops at the first config error
         sys.exit(cmd_check(args.config))
 
-    cfg = load_config(args.config)
-    store = Store(cfg["database"])
+    from .store import SchemaTooNew
+
+    try:
+        cfg = load_config(args.config)
+        store = Store(cfg["database"])
+    except SchemaTooNew as e:
+        sys.exit(f"{e}\n(If the web app or another command is running older code, restart it on this version.)")
     {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
      "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "backup": cmd_backup, "restore": cmd_restore, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from fakes import FakeFlickr
-from flickr_organizer.store import SCHEMA_VERSION, Store
+from flickr_organizer.store import SCHEMA_VERSION, SchemaTooNew, Store
 from flickr_organizer.sync import sync
 
 
@@ -41,7 +41,7 @@ class SchemaTest(unittest.TestCase):
 
     def test_refuses_a_database_from_a_newer_version(self):
         Store(self.path).set_meta("schema_version", SCHEMA_VERSION + 1)
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SchemaTooNew):
             Store(self.path)
 
 

@@ -51,5 +51,38 @@ class ConcurrencyTest(unittest.TestCase):
         self.assertEqual([x for x in codes if x[1] != 200], [])
 
 
+class NewerDatabaseTest(unittest.TestCase):
+    """A database upgraded by newer code under a running server (what happened when
+    commands from a newer version ran while an older `serve` was up): each request gets a
+    503, and the server keeps running instead of shutting down."""
+
+    def test_server_survives_and_says_so(self):
+        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        store = Store(path)
+        sync(FakeFlickr(), store, log=lambda *a: None)
+        store.set_password_hash("owner", hash_password("correct horse battery"))
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        cfg = from_dict({**CFG, "database": path,
+                         "web": {"allowed_hosts": ["127.0.0.1"], "secure_cookies": False, "sync_every_minutes": 0}})
+        server = uvicorn.Server(uvicorn.Config(create_app(cfg, FakeFlickr(), scheduler=False), host="127.0.0.1",
+                                               port=port, log_level="critical"))
+        threading.Thread(target=server.run, daemon=True).start()
+        deadline = time.time() + 10
+        while not server.started and time.time() < deadline:
+            time.sleep(0.05)
+        self.addCleanup(setattr, server, "should_exit", True)
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}") as c:
+            c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).raise_for_status()
+            store.set_meta("schema_version", 99)              # "a newer version" upgraded it
+            for _ in range(3):        # the review tool opens its connections with the version check
+                r = c.get("/api/review/summary")
+                self.assertEqual(r.status_code, 503)
+                self.assertNotIn(path, r.text)               # the details go to the log, not the client
+            self.assertFalse(server.should_exit)
+            self.assertEqual(c.get("/").status_code, 200)    # still serving
+
+
 if __name__ == "__main__":
     unittest.main()

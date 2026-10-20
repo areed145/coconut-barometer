@@ -147,6 +147,10 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stat
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
+class SchemaTooNew(RuntimeError):
+    """The database was upgraded by a newer version of the tool than this one."""
+
+
 class Database:
     """The connection plus meta key/values. The other store classes build on this."""
 
@@ -172,7 +176,7 @@ class Database:
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
         version = int(self.get_meta("schema_version", 0))
         if version > SCHEMA_VERSION:
-            raise SystemExit(f"{self.path} is from a newer version of this tool (schema {version}); "
+            raise SchemaTooNew(f"{self.path} is from a newer version of this tool (schema {version}); "
                              f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
         for number, step in enumerate(MIGRATIONS[version:], start=version + 1):
             with self.db:
