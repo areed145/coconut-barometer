@@ -12,10 +12,12 @@ Apart from renaming generic titles and filling blank descriptions, it only ever 
 
 ## Setup
 
+Uses [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`). `uv sync` creates `.venv` with the exact versions in `uv.lock` and installs this project in editable mode. Run commands with `uv run flickr-organizer …`, or activate `.venv` and use `python -m flickr_organizer …` as below.
+
 ```bash
 cd flickr-organizer
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .            # add [openai] for OpenAI/Ollama: pip install -e '.[openai]'
+uv sync                     # add --extra openai for OpenAI/Ollama; --no-dev on a server
+source .venv/bin/activate
 
 cp config.example.yaml config.yaml
 # edit config.yaml: set flickr.api_key, flickr.api_secret and vision.api_key
@@ -110,7 +112,7 @@ Subclass `flickr_organizer.vision.base.VisionProvider`, implement `classify(imag
 ## Tests
 
 ```bash
-python -m unittest discover tests
+uv run python -m unittest discover tests
 ```
 
 The tests run the whole sync → classify → plan → queue → review → apply → re-plan loop against a fake Flickr, a fake geocoder and a fake model (`tests/fakes.py`), one file per area.

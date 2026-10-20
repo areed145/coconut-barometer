@@ -15,6 +15,10 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.40"]   # also used for Ollama / other OpenAI-compatible servers
 
+# `uv sync` installs the project (editable) plus the dev group; `uv sync --no-dev` for a server.
+[dependency-groups]
+dev = []
+
 [project.scripts]
 flickr-organizer = "flickr_organizer.cli:main"
 
