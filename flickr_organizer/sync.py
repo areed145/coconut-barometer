@@ -19,8 +19,7 @@ def _f(v):
 def _keep_changes_since(store: Store, since: int, photos: list[dict], memberships: list[tuple[str, str]]) -> int:
     by_id = {p["id"]: p for p in photos}
     n = 0
-    for pid, action, target in store.db.execute(
-            "SELECT photo_id, action, target FROM decisions WHERE status='applied' AND at >= ? ORDER BY at", (since,)):
+    for pid, action, target in store.applied_since(since):
         p = by_id.get(pid)
         if p is None:
             continue
@@ -33,10 +32,9 @@ def _keep_changes_since(store: Store, since: int, photos: list[dict], membership
             if norm_tag(target) not in (p["tags"] or "").split():
                 p["tags"] = f"{p['tags']} {norm_tag(target)}".strip()
         elif action == "add_to_album":
-            album = store.db.execute("SELECT album_id FROM memberships m JOIN albums a ON a.id = m.album_id "
-                                     "WHERE m.photo_id=? AND a.title=?", (pid, target)).fetchone()
-            if album:
-                memberships.append((album[0], pid))
+            album_id = store.album_id(target)
+            if album_id:
+                memberships.append((album_id, pid))
     return n
 
 

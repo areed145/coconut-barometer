@@ -1,0 +1,125 @@
+"""The SQLite connection, the schema, and numbered schema upgrades.
+
+To change the schema: update SCHEMA (what a fresh database gets) *and* append a
+function to MIGRATIONS that brings an existing database to the same shape. Each
+upgrade runs once; the version reached is stored in meta.schema_version.
+"""
+from __future__ import annotations
+
+import sqlite3
+from typing import Callable
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS photos (
+    id TEXT PRIMARY KEY,
+    title TEXT, description TEXT, tags TEXT,
+    lat REAL, lon REAL, accuracy INTEGER,
+    media TEXT, thumb_url TEXT, secret TEXT, server TEXT,
+    date_taken TEXT, date_upload INTEGER, last_update INTEGER,
+    ispublic INTEGER, date_taken_unknown INTEGER,
+    views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER
+);
+CREATE TABLE IF NOT EXISTS albums (
+    id TEXT PRIMARY KEY, title TEXT, count INTEGER
+);
+CREATE TABLE IF NOT EXISTS memberships (
+    album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id)
+);
+CREATE INDEX IF NOT EXISTS memberships_photo ON memberships(photo_id);
+CREATE TABLE IF NOT EXISTS classifications (
+    photo_id TEXT, fingerprint TEXT, result TEXT, created_at INTEGER,
+    PRIMARY KEY (photo_id, fingerprint)
+);
+CREATE TABLE IF NOT EXISTS cameras (
+    photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at INTEGER,
+    lens TEXT, exif TEXT
+);
+CREATE TABLE IF NOT EXISTS decisions (
+    photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, at INTEGER,
+    PRIMARY KEY (photo_id, action, target)
+);
+CREATE TABLE IF NOT EXISTS queue (
+    photo_id TEXT PRIMARY KEY, status TEXT, changes TEXT, built_at INTEGER,
+    reviewed_at INTEGER, result TEXT
+);
+CREATE INDEX IF NOT EXISTS queue_status ON queue(status);
+CREATE TABLE IF NOT EXISTS photo_stats (
+    photo_id TEXT, day TEXT, views INTEGER, faves INTEGER, comments INTEGER,
+    PRIMARY KEY (photo_id, day)
+);
+CREATE TABLE IF NOT EXISTS account_stats (day TEXT PRIMARY KEY, stats TEXT);
+CREATE TABLE IF NOT EXISTS flickr_groups (
+    id TEXT PRIMARY KEY, name TEXT, path_alias TEXT, members INTEGER, pool_count INTEGER,
+    privacy TEXT, info TEXT, fetched_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS group_photos (
+    group_id TEXT, photo_id TEXT, date_added INTEGER, PRIMARY KEY (group_id, photo_id)
+);
+CREATE INDEX IF NOT EXISTS group_photos_photo ON group_photos(photo_id);
+CREATE TABLE IF NOT EXISTS comments (
+    id TEXT PRIMARY KEY, photo_id TEXT, author TEXT, author_name TEXT, real_name TEXT,
+    date_created INTEGER, permalink TEXT, text TEXT
+);
+CREATE INDEX IF NOT EXISTS comments_photo ON comments(photo_id);
+CREATE TABLE IF NOT EXISTS faves (
+    photo_id TEXT, user_id TEXT, username TEXT, real_name TEXT, date_faved INTEGER,
+    PRIMARY KEY (photo_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS social_fetched (
+    photo_id TEXT, kind TEXT, count INTEGER, fetched_at INTEGER, PRIMARY KEY (photo_id, kind)
+);
+"""
+
+
+def _add_columns(db: sqlite3.Connection, table: str, columns: list[tuple[str, str]]) -> None:
+    have = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+    for name, kind in columns:
+        if name not in have:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+
+
+def _baseline(db: sqlite3.Connection) -> None:
+    """1: every table as of the first versioned release. Databases created before
+    versioning existed may lack columns added along the way, so add any missing."""
+    db.executescript(SCHEMA)
+    _add_columns(db, "photos", [("date_taken_unknown", "INTEGER"), ("views", "INTEGER"), ("faves", "INTEGER"),
+                                ("comments", "INTEGER"), ("license", "TEXT"), ("width", "INTEGER"),
+                                ("height", "INTEGER")])
+    _add_columns(db, "cameras", [("lens", "TEXT"), ("exif", "TEXT")])
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline]
+SCHEMA_VERSION = len(MIGRATIONS)
+
+
+class Database:
+    """The connection plus meta key/values. The other store classes build on this."""
+
+    def __init__(self, path: str):
+        self.path = path
+        # The review tool's background worker opens its own connection to the same file;
+        # WAL lets the page keep reading while it writes, and the timeout waits out locks.
+        self.db = sqlite3.connect(path, timeout=30)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.migrate()
+
+    def migrate(self) -> None:
+        self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        version = int(self.get_meta("schema_version", 0))
+        if version > SCHEMA_VERSION:
+            raise SystemExit(f"{self.path} is from a newer version of this tool (schema {version}); "
+                             f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
+        for number, step in enumerate(MIGRATIONS[version:], start=version + 1):
+            with self.db:
+                step(self.db)
+                self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(number),))
+
+    def get_meta(self, key: str, default=None):
+        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_meta(self, key: str, value) -> None:
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, str(value)))

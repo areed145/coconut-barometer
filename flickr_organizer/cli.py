@@ -184,7 +184,7 @@ def cmd_social(cfg, store, args):
     faves = [] if args.skip_faves else todo["faves"][:args.limit] if args.limit else todo["faves"]
     calls = (sum(1 for pid in comments if counts[pid]["comments"])
              + sum(-(-(counts[pid]["faves"] or 0) // 50) for pid in faves)
-             + (0 if args.skip_groups else 2 * max(len(store.db.execute("SELECT 1 FROM flickr_groups").fetchall()), 200)))
+             + (0 if args.skip_groups else 2 * max(store.group_count(), 200)))
     print(f"To fetch: {'' if args.skip_groups else 'groups + your photos in each pool, '}"
           f"comments on {len(comments)} photo(s), faves on {len(faves)} photo(s): "
           f"~{calls} Flickr calls (~{calls / cfg['flickr']['calls_per_second'] / 60:.0f} min). Safe to stop and resume.")
