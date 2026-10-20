@@ -13,26 +13,7 @@ services:
       name: data
       mountPath: /var/data      # the database, Flickr login, rate-limit file, backups
       sizeGB: 5
-    envVars:
-      - key: FLICKR_ORGANIZER_DATA
-        value: /var/data
-      # Encrypts API keys stored in the database. If you bring your existing database,
-      # replace this with your local key (~/.config/flickr-organizer/secret.key).
-      - key: FLICKR_ORGANIZER_SECRET_KEY
-        generateValue: true
-      # The first login, created on first start if there's no user yet. Change the password
-      # in Settings → Account afterwards, then delete both.
-      - key: FLICKR_ORGANIZER_ADMIN_USER
-        sync: false
-      - key: FLICKR_ORGANIZER_ADMIN_PASSWORD
-        sync: false
-      # Your custom domain(s), comma-separated. The onrender.com name is allowed automatically.
-      - key: FLICKR_ORGANIZER_ALLOWED_HOSTS
-        sync: false
-      # API keys: here, or set them in Settings once you're in (stored encrypted).
-      - key: FLICKR_API_KEY
-        sync: false
-      - key: FLICKR_API_SECRET
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
+    # No environment variables needed: open the app and finish setup (create a login or
+    # restore a backup) with the code from the Logs. API keys go in Settings (encrypted;
+    # the key is secret.key on the disk). Optional: FLICKR_ORGANIZER_ALLOWED_HOSTS for a
+    # custom domain (the onrender.com name is allowed automatically).

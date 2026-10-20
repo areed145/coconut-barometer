@@ -4,6 +4,7 @@ Changing an API key or the password needs the current password again, so a stole
 session can't swap keys; wrong attempts count towards the login throttle."""
 from __future__ import annotations
 
+import os
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -158,3 +159,49 @@ def flickr_connect(request: Request, sess=Depends(session), rt=Depends(runtime))
         raise HTTPException(409, str(e))
     except Exception as e:
         raise HTTPException(502, f"Flickr didn't start the login: {e}")
+
+
+@router.post("/restore")
+async def upload_restore(request: Request, sess=Depends(session), rt=Depends(runtime), db=Depends(store)):
+    """Upload a backup (.db.gz or .db) as the raw request body, your password in
+    X-Confirm-Password. Checked, then restored by restarting the app."""
+    from urllib.parse import unquote
+
+    _confirm_password(rt, db, request, sess["username"], unquote(request.headers.get("X-Confirm-Password", "")))
+    return await receive_restore(request, rt)
+
+
+MAX_UPLOAD = 2 * 1024 ** 3   # 2 GB
+
+
+async def receive_restore(request: Request, rt) -> dict:
+    """The request body (a backup) into the data directory, checked and staged, then a
+    restart restores it. X-Encryption-Key (optional, URI-encoded): the key its API keys are
+    encrypted with (the contents of secret.key), when it comes from another machine."""
+    import tempfile
+    from pathlib import Path
+    from urllib.parse import unquote
+
+    from ...config import data_dir
+
+    folder = data_dir() or Path(rt.cfg["database"]).parent
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix="upload-", suffix=".part")
+    size = 0
+    try:
+        with open(fd, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    raise HTTPException(413, "that file is too big for a backup")
+                f.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "no file received")
+        try:
+            out = B.stage_restore(rt.cfg, tmp, unquote(request.headers.get("X-Encryption-Key", "")))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    rt.restart_soon()
+    return {**out, "size": size, "restarting": True}

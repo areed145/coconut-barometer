@@ -1,4 +1,4 @@
-"""Login and logout. The only routes that work without a session."""
+"""Login and logout. With the first-run setup page, the only routes that work without a session."""
 from __future__ import annotations
 
 import time
@@ -32,13 +32,17 @@ def login(body: Login, request: Request, response: Response, db=Depends(store), 
     throttle.succeeded(*keys)
     if upgraded:
         db.set_password_hash(body.username, upgraded)
+    return start_session(rt, db, request, response, body.username)
+
+
+def start_session(rt, db, request: Request, response: Response, username: str) -> dict:
     token, csrf = new_token(), new_token()
     days = rt.cfg["web"]["session_days"]
-    db.create_session(token_hash(token), body.username, csrf, int(time.time()) + days * 86400, ip,
+    db.create_session(token_hash(token), username, csrf, int(time.time()) + days * 86400, client_ip(request),
                       request.headers.get("user-agent", ""))
     response.set_cookie(COOKIE, token, max_age=days * 86400, httponly=True, samesite="strict",
                         secure=rt.cfg["web"]["secure_cookies"], path="/")
-    return {"username": body.username, "csrf": csrf}
+    return {"username": username, "csrf": csrf}
 
 
 @router.get("/session")

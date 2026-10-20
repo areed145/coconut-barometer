@@ -10,50 +10,39 @@ The repository includes a Blueprint (`render.yaml`) and a `Dockerfile`. Render b
 
 ## 1. Prepare locally (to keep your history)
 
-Bringing your current database keeps everything: the review decisions (so nothing you rejected comes back), the paid-for vision results, the stats history, comments, faves and groups. Skip to step 2 to start fresh instead.
+Bringing your current database keeps everything: the review decisions (so nothing you rejected comes back), the paid-for vision results, the stats history, comments, faves, groups, your login and your settings. Skip to step 2 to start fresh instead.
 
 ```bash
-uv run flickr-organizer settings import-file config.yaml   # every setting + API keys (encrypted) into the database
-uv run flickr-organizer user list                          # make sure you have a login (else: user add <name>)
-uv run flickr-organizer backup                             # → backups/flickr_organizer-<time>.db.gz
-cat ~/.config/flickr-organizer/secret.key                  # the key the API keys are encrypted with
+uv run flickr-organizer settings import-file config.yaml
+uv run flickr-organizer backup
+ls -lh backups/
 ```
 
-After `import-file`, the deployed app needs no config.yaml: the settings travel inside the database. The settings that protect the server itself (host, port, allowed hosts and so on) aren't stored; Render's environment provides them.
+`import-file` copies every setting, and the API keys (encrypted), into the database, so the server needs no config.yaml. The settings that protect the server itself (host, port, allowed hosts and so on) aren't copied; the server works them out. Keep two files at hand: the newest `backups/flickr_organizer-….db.gz`, and `~/.config/flickr-organizer/secret.key` (the key the API keys are encrypted with).
 
 ## 2. Create the service
 
 1. Push to GitHub (`git push`).
-2. In Render: **New → Blueprint**, pick the repository. Render reads `render.yaml`.
-3. Fill in the environment variables it asks for:
+2. In Render: **New → Blueprint**, pick the repository. Render reads `render.yaml`. No environment variables are needed.
+3. Create it. The first deploy builds the image (a few minutes) and starts the app. `/healthz` tells Render it's up.
 
-| Variable | Fresh start | Bringing your database |
-|---|---|---|
-| `FLICKR_ORGANIZER_SECRET_KEY` | leave the generated value | **replace it with the contents of your local `secret.key`**, or the stored API keys can't be read |
-| `FLICKR_ORGANIZER_ADMIN_USER` / `_PASSWORD` | your login (12+ characters); created on first start | leave empty (your login is in the database) |
-| `FLICKR_ORGANIZER_ALLOWED_HOSTS` | your custom domain, if any (comma-separated); the `onrender.com` name is allowed automatically | same |
-| `FLICKR_API_KEY`, `FLICKR_API_SECRET`, `ANTHROPIC_API_KEY` | optional: or set them in Settings once you're in (stored encrypted) | leave empty (they're in the database) |
+## 3. First-run setup
 
-Environment variables win over the admin page, and show as locked there. Keep API keys in one place or the other.
+With no login yet, the app opens on a setup page instead of the sign-in page.
 
-4. Create it. The first deploy builds the image (a few minutes) and starts the app. `/healthz` tells Render it's up.
+1. In Render, open the service's **Logs** and find `finish setup with this code: XXXX-XXXX-XXXX`. The page asks for it, so a stranger who finds the new address first can't claim the server. A new code is made at every start until setup is done.
+2. Open `https://<service>.onrender.com`, enter the code, and either:
+   - **Restore a backup:** drag `flickr_organizer-….db.gz` and `secret.key` onto the drop zone (or paste the key), then **Restore**. The backup is checked (an intact Flickr Organizer database, and the key must open its API keys), then the app restarts into it, keeping the empty database beside it. The page reloads by itself; sign in with your usual login.
+   - **Create a login:** a username and a password of 12+ characters. You're signed in straight away.
+3. **Settings → API keys**: set the keys if you started fresh, then **Connect Flickr**. That opens flickr.com to approve access and brings you back; the login is saved on the disk. (If Flickr refuses the return address, set your Flickr app's callback URL to `https://<your host>/api/flickr/callback` at flickr.com/services/apps.)
+4. Fresh start only: **Settings** for categories, briefs and the rest (or bring them later: `settings import-file` locally, back up, and restore it in **Settings → Backups**).
 
-## 3. Bring your database (if you're keeping it)
+The encryption key lives at `/var/data/secret.key` on the disk. It's made when you first set an API key, or comes with a restore.
 
-Upload the backup to the disk as `restore.db.gz`, then restart. On start, the app checks it, restores it before anything opens the database, keeps the empty one beside it, and renames the file so it's never applied twice.
+### Optional environment variables
 
-- **SSH / scp** (set up SSH for the service in Render first):
-  `scp -s backups/flickr_organizer-<time>.db.gz <service>@ssh.<region>.render.com:/var/data/restore.db.gz`
-- **Or Render's Shell** (Dashboard → the service → Shell): run `wormhole receive` there after `wormhole send <file>` locally (magic-wormhole; in the Shell install it with `pip install magic-wormhole` first), then `mv <file> /var/data/restore.db.gz`.
-
-Then **Manual Deploy → Restart service**. The log shows `Restored the database from restore.db.gz`.
-
-## 4. First sign-in
-
-1. Open `https://<service>.onrender.com` and sign in.
-2. Fresh start: **Settings → Account → change the password**, then delete `FLICKR_ORGANIZER_ADMIN_USER` and `FLICKR_ORGANIZER_ADMIN_PASSWORD` in Render.
-3. **Settings → API keys**: set the keys if you didn't use environment variables, then **Connect Flickr**. That opens flickr.com to approve access and brings you back; the login is saved on the disk. (If Flickr refuses the return address, set your Flickr app's callback URL to `https://<your host>/api/flickr/callback` at flickr.com/services/apps.)
-4. Fresh start only: **Settings** for categories, briefs and the rest (or import them: `settings import-file` locally, then bring the database as in step 3).
+- `FLICKR_ORGANIZER_ALLOWED_HOSTS`: a custom domain (see below). The `onrender.com` name is allowed automatically.
+- `FLICKR_ORGANIZER_SECRET_KEY`, `FLICKR_API_KEY`, `FLICKR_API_SECRET`, `ANTHROPIC_API_KEY`: these win over the disk and the Settings page, and show as locked there. If an earlier Blueprint set `FLICKR_ORGANIZER_SECRET_KEY`, delete it, or a restored backup's API keys can't be read.
 
 The scheduler then keeps itself up to date: an incremental sync every hour (~4 calls), every photo re-read daily, a full sync weekly, per-day stats with backfill, and a backup every 24 h. A fresh start's first sync is a full one (~180 calls, a few minutes). Queue photos for review with **Review → Not processed → Process now**, or set **Settings → Web app → Queue new photos after each sync**.
 
@@ -69,14 +58,14 @@ Push to `main`; Render rebuilds and redeploys (`autoDeployTrigger: commit`). Dat
 
 - Automatic every `backup.every_hours` (24), keeping `backup.keep` (7), compressed, in `/var/data/backups`. **Settings → Backups** lists them, makes one now, and downloads one (asks for your password: it's the whole database).
 - They're on the same disk as the database, so download one now and then and keep it elsewhere. Render also snapshots the disk daily, but a snapshot of a live database can be inconsistent; prefer the app's backups.
-- API keys stay encrypted in backups. Keep `FLICKR_ORGANIZER_SECRET_KEY` somewhere safe and separate (a password manager): without it, a restored database's API keys can't be read and have to be set again.
-- To restore on Render: upload the backup as `/var/data/restore.db.gz` and restart (step 3).
+- API keys stay encrypted in backups; the key isn't in them. Keep a copy of `secret.key` somewhere safe and separate (a password manager): without it, a restored database's API keys can't be read and have to be set again.
+- To restore: **Settings → Backups → Restore a backup** (your password; the key only if the backup came from another machine). The app restarts into it.
 
 ## Security checklist
 
 - [ ] Repository private; no `config.yaml`, database, backups or keys in it (`.gitignore` and `.dockerignore` keep them out).
-- [ ] A long, unique password; the bootstrap variables deleted after the first sign-in.
-- [ ] `FLICKR_ORGANIZER_SECRET_KEY` saved somewhere safe, not next to the backups.
+- [ ] A long, unique password.
+- [ ] A copy of `secret.key` somewhere safe, not next to the downloaded backups.
 - [ ] API keys in one place (Settings, encrypted, or Render's environment), not both.
 - [ ] `FLICKR_ORGANIZER_ALLOWED_HOSTS` lists only your domains.
 - [ ] Settings → Account: check signed-in sessions now and then.

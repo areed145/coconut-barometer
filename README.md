@@ -35,10 +35,10 @@ Edit `config.yaml` so that the category `album:` names, US state `title:` format
 
 ## Web app
 
-To run it on Render from GitHub (HTTPS, a persistent disk, the hourly scheduler), see [docs/DEPLOY.md](docs/DEPLOY.md). Backups: `flickr-organizer backup` (and `backup --list`), `restore <file>` with the app stopped; on a server, drop a backup into the data directory as `restore.db.gz` and restart.
+To run it on Render from GitHub (HTTPS, a persistent disk, the hourly scheduler), see [docs/DEPLOY.md](docs/DEPLOY.md). Backups: `flickr-organizer backup` (and `backup --list`), `restore <file>` with the app stopped, or **Settings → Backups → Restore a backup** in the web app (it restarts into it). A new server with no login opens on a setup page: create a login or drag in a backup, with the setup code from the server's log.
 
 ```bash
-flickr-organizer user add <name>     # the login (password prompt; 12+ characters)
+flickr-organizer user add <name>     # the login (or create it on the setup page; 12+ characters)
 flickr-organizer serve               # http://127.0.0.1:8000
 ```
 
@@ -53,7 +53,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 **Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables. The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
 
-API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database, in `FLICKR_ORGANIZER_SECRET_KEY` or a key file (`~/.config/flickr-organizer/secret.key`, readable only by you; `FLICKR_ORGANIZER_KEY_FILE` moves it). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. `flickr-organizer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides; `settings new-key` makes a key for `FLICKR_ORGANIZER_SECRET_KEY` on a server. Keep that key safe and separate from database backups: without it, stored keys can't be read (set them again).
+API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database, in `FLICKR_ORGANIZER_SECRET_KEY` or a key file (`~/.config/flickr-organizer/secret.key`, readable only by you; on a server, `secret.key` in the data directory; `FLICKR_ORGANIZER_KEY_FILE` moves it). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. `flickr-organizer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides; `settings new-key` makes a key for `FLICKR_ORGANIZER_SECRET_KEY` on a server. Keep that key safe and separate from database backups: without it, stored keys can't be read (set them again).
 
 The page's Account section changes your password (which signs out every session), lists signed-in sessions so you can end one, and shows the change history.
 

@@ -9,7 +9,7 @@ API keys (SECRETS) set on the page are stored AES-256-GCM encrypted, each bound 
 setting name. The encryption key never goes in the database: it comes from the
 FLICKR_ORGANIZER_SECRET_KEY environment variable, or a key file (default
 ~/.config/flickr-organizer/secret.key, created on first use, readable only by you;
-FLICKR_ORGANIZER_KEY_FILE moves it). A copy of the database alone doesn't reveal them.
+FLICKR_ORGANIZER_KEY_FILE moves it; on a server it's secret.key on the data disk). A copy of the database alone doesn't reveal them.
 """
 from __future__ import annotations
 
@@ -90,10 +90,20 @@ def _key_from_text(text: str) -> bytes:
     return hashlib.sha256(text.encode()).digest()
 
 
+def key_file() -> Path:
+    """FLICKR_ORGANIZER_KEY_FILE, else secret.key in the data directory (on a server, the
+    disk, so it survives redeploys), else ~/.config/flickr-organizer/secret.key."""
+    from .config import data_dir
+
+    if os.environ.get(KEY_FILE_ENV):
+        return Path(os.path.expanduser(os.environ[KEY_FILE_ENV]))
+    return data_dir() / "secret.key" if data_dir() else Path(os.path.expanduser(DEFAULT_KEY_FILE))
+
+
 def _key(create: bool) -> bytes | None:
     if os.environ.get(KEY_ENV):
         return _key_from_text(os.environ[KEY_ENV])
-    path = Path(os.path.expanduser(os.environ.get(KEY_FILE_ENV) or DEFAULT_KEY_FILE))
+    path = key_file()
     if path.exists():
         return _key_from_text(path.read_text())
     if not create:
@@ -114,9 +124,9 @@ def encrypt(name: str, value: str) -> tuple[bytes, bytes]:
     return nonce, AESGCM(_key(create=True)).encrypt(nonce, value.encode(), name.encode())
 
 
-def decrypt(name: str, nonce: bytes, ciphertext: bytes) -> str | None:
+def decrypt(name: str, nonce: bytes, ciphertext: bytes, key: bytes | None = None) -> str | None:
     """None if there's no key, or it's the wrong one (e.g. a database moved without its key)."""
-    key = _key(create=False)
+    key = key or _key(create=False)
     if key is None:
         return None
     try:

@@ -1,9 +1,10 @@
-// The app shell: login, top bar (tabs, review count, sync status), and the pages.
+// The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until } from "./lib.js";
 import { Photostream, Albums, AlbumView } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
 import { Admin } from "./admin.js";
+import { Setup } from "./setup.js";
 
 function Login({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -89,15 +90,19 @@ function Shell({ session, onLogout }) {
 
 function App() {
   const [session, setSession] = useState(undefined);     // undefined = checking, null = signed out
-  const signedIn = (s) => { setCsrf(s.csrf); setSession(s); };
+  const [setup, setSetup] = useState(false);              // no login yet: first-run setup
+  const signedIn = (s) => { setCsrf(s.csrf); setSetup(false); setSession(s); };
   const signedOut = () => { setCsrf(null); setSession(null); };
   useEffect(() => {
-    api("/api/auth/session").then(signedIn).catch(signedOut);
+    api("/api/auth/session").then(signedIn).catch(() => {
+      api("/api/setup").then((s) => setSetup(s.needed)).catch(() => {}).finally(signedOut);
+    });
     window.addEventListener("fo:logged-out", signedOut);
     return () => window.removeEventListener("fo:logged-out", signedOut);
   }, []);
   return html`${session === undefined ? html`<div class="boot">Loading…</div>`
-    : session ? html`<${Shell} session=${session} onLogout=${signedOut} />` : html`<${Login} onLogin=${signedIn} />`}
+    : session ? html`<${Shell} session=${session} onLogout=${signedOut} />`
+    : setup ? html`<${Setup} onLogin=${signedIn} />` : html`<${Login} onLogin=${signedIn} />`}
     <${Toasts} />`;
 }
 

@@ -37,6 +37,39 @@ export async function download(path, body, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
+// POST a file as the raw body (e.g. a backup to restore). Header values are URI-encoded,
+// since headers can't carry every character (a password might).
+export async function upload(path, file, extra = {}) {
+  const headers = { "Content-Type": "application/octet-stream", "X-CSRF-Token": csrf || "" };
+  for (const [k, v] of Object.entries(extra)) if (v) headers[k] = encodeURIComponent(v);
+  const r = await fetch(path, { method: "POST", credentials: "same-origin", body: file, headers });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ApiError(r.status, data.detail, r.headers);
+  return data;
+}
+
+// After a restore the server restarts itself: wait until it answers again, then reload.
+export async function waitForRestart() {
+  await new Promise((ok) => setTimeout(ok, 3000));
+  for (let i = 0; i < 120; i++) {
+    try { if ((await fetch("/healthz", { cache: "no-store" })).ok) break; } catch { /* still restarting */ }
+    await new Promise((ok) => setTimeout(ok, 2000));
+  }
+  location.reload();
+}
+
+// A drop zone that's also a file picker. onFiles gets the dropped / picked files.
+export function DropZone({ onFiles, accept, disabled, children }) {
+  const [over, setOver] = useState(false);
+  const pick = (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length) onFiles(f); };
+  return html`<label class=${"dropzone" + (over ? " over" : "") + (disabled ? " disabled" : "")}
+      onDragOver=${(e) => { e.preventDefault(); setOver(true); }} onDragLeave=${() => setOver(false)}
+      onDrop=${(e) => { e.preventDefault(); setOver(false); if (!disabled && e.dataTransfer.files.length) onFiles([...e.dataTransfer.files]); }}>
+    <input type="file" multiple accept=${accept} disabled=${disabled} onChange=${pick} />
+    ${children}
+  </label>`;
+}
+
 // ---- router: #/photos, #/albums/123, ... -------------------------------------------
 export function useRoute() {
   const read = () => (location.hash.replace(/^#\/?/, "") || "photos").split("/");

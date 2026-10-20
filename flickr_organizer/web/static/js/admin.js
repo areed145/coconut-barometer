@@ -1,5 +1,6 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, toast, ago, day } from "./lib.js";
+import { html, useState, useEffect, api, download, upload, toast, ago, day } from "./lib.js";
+import { RestoreBackup } from "./setup.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
 const lines = (v) => (v || []).join("\n");
@@ -137,19 +138,26 @@ function BackupsPanel() {
   const load = () => api("/api/admin/backups").then(setB);
   useEffect(() => { load(); }, []);
   const now = async () => { setBusy(true); try { const r = await api("/api/admin/backups", { method: "POST" }); toast("Backed up: " + r.name); load(); } catch (e) { toast(e.message); } setBusy(false); };
-  const download = async (name) => {
+  const fetchBackup = async (name) => {
     const password = prompt("Your password (a backup is the whole database):");
     if (!password) return;
     try { await download(`/api/admin/backups/${encodeURIComponent(name)}/download`, { password }, name); }
     catch (e) { toast(e.status === 403 ? "Wrong password." : `Couldn't download (${e.message}).`); }
+  };
+  const restore = (file, key) => {
+    const password = prompt(`Replace this whole database with ${file.name}? The app restarts into it. Your password:`);
+    return password ? upload("/api/admin/restore", file, { "X-Confirm-Password": password, "X-Encryption-Key": key }) : null;
   };
   if (!b) return null;
   return html`<div class="card"><h2>Backups</h2>
     <p class="muted">${b.every_hours ? `Automatic every ${b.every_hours} h` : "Automatic backups are off"} · last ${ago(b.last_backup)}</p>
     ${b.last_error && html`<p class="problem">Last problem: ${b.last_error}</p>`}
     ${b.backups.map((x) => html`<div class="sessionrow" key=${x.name}><span>${x.name} <span class="muted">· ${(x.size / 1048576).toFixed(1)} MB · ${day(x.created_at)}</span></span>
-      <button class="link" onClick=${() => download(x.name)}>Download</button></div>`)}
+      <button class="link" onClick=${() => fetchBackup(x.name)}>Download</button></div>`)}
     <button onClick=${now} disabled=${busy}>${busy ? "Backing up…" : "Back up now"}</button>
+    <h3>Restore a backup</h3>
+    <p class="why">Replaces this database (the current one is kept beside it). Leave the key empty if the backup came from this server.</p>
+    <${RestoreBackup} send=${restore} />
   </div>`;
 }
 

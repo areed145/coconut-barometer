@@ -203,6 +203,7 @@ def _restore_on_start(cfg, store):
     renamed so it's never applied twice."""
     from pathlib import Path
 
+    from . import settings as S
     from .backup import restore
     from .config import data_dir
 
@@ -214,6 +215,17 @@ def _restore_on_start(cfg, store):
             kept = restore(cfg, str(source))
             source.rename(folder / f"restored-{time.strftime('%Y%m%d-%H%M%S')}-{name}")
             print(f"Restored the database from {name}; the previous one is kept at {kept}.")
+            staged_key = folder / "restore.key"
+            if staged_key.exists():        # the key the backup's API keys are encrypted with
+                target = S.key_file()
+                if target.exists():
+                    target.rename(target.with_name(f"{target.name}.before-restore-{time.strftime('%Y%m%d-%H%M%S')}"))
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.replace(staged_key, target)
+                os.chmod(target, 0o600)
+                print(f"Installed the backup's encryption key at {target}.")
+                if os.environ.get(S.KEY_ENV):
+                    print(f"! {S.KEY_ENV} is set, so it's used instead: delete it to use the backup's key.")
             return Store(cfg["database"])
     return store
 
@@ -226,24 +238,8 @@ def cmd_serve(cfg, store, args):
 
     import logging
 
-    from .web.security import hash_password
-
     web = cfg["web"]
     store = _restore_on_start(cfg, store)
-    boot_user, boot_pw = os.environ.get("FLICKR_ORGANIZER_ADMIN_USER"), os.environ.get("FLICKR_ORGANIZER_ADMIN_PASSWORD")
-    if not store.usernames() and boot_user and boot_pw:
-        # First start on a server: the login comes from the environment. Change the password
-        # in Settings → Account afterwards, then delete both variables.
-        try:
-            store.set_password_hash(boot_user, hash_password(boot_pw))
-        except ValueError as e:
-            sys.exit(f"FLICKR_ORGANIZER_ADMIN_PASSWORD: {e}")
-        print(f"Created the login {boot_user!r} from FLICKR_ORGANIZER_ADMIN_USER / _PASSWORD.")
-    if not store.usernames():
-        # Keep running (nobody can sign in without a user): on a server this is how a
-        # database gets uploaded as restore.db.gz before the first restart.
-        print("! No login yet, so nobody can sign in. Either run `flickr-organizer user add <name>`, set "
-              "FLICKR_ORGANIZER_ADMIN_USER / _PASSWORD and restart, or upload a database as restore.db.gz and restart.")
 
     class _NoQuery(logging.Filter):
         """Access log without query strings (Flickr's one-time login code arrives in one)."""

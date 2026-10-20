@@ -4,6 +4,9 @@ also runs syncs) and the scheduler that asks it to sync every web.sync_every_min
 All Flickr calls go through the one worker, in order, under the shared rate limit."""
 from __future__ import annotations
 
+import os
+import secrets
+import sys
 import threading
 import time
 
@@ -29,6 +32,26 @@ class Runtime:
         self._stop = threading.Event()
         self._scheduler: threading.Thread | None = None
         self.next_sync: float | None = None
+        self.restarter = lambda: os.execv(sys.executable, [sys.executable, *sys.argv])
+        # No login yet: the setup page creates one, or restores a backup. Whoever reaches a
+        # fresh server first could otherwise claim it, so it also asks for this code, which
+        # only the server's log shows (Render: the service's Logs).
+        self.setup_code = None
+        if self.needs_setup():
+            self.setup_code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
+            print(f"No login yet. Open the app and finish setup with this code: {self.setup_code}", flush=True)
+
+    def needs_setup(self) -> bool:
+        return not self.store().usernames()
+
+    def restart_soon(self, delay: float = 1.0) -> None:
+        """Start again in place (same process, same arguments), after this response is sent:
+        a staged restore.db.gz is restored on the way up. On Render the container keeps running."""
+        def go():
+            time.sleep(delay)
+            print("Restarting to restore the uploaded backup…", flush=True)
+            self.restarter()
+        threading.Thread(target=go, name="restart", daemon=True).start()
 
     def store(self) -> Store:
         """This thread's connection (sqlite connections belong to the thread that opened them)."""

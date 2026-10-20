@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from fastapi.testclient import TestClient
@@ -178,6 +179,93 @@ class ServerTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.content[:2]), (200, b"\x1f\x8b"))                # gzip
         self.assertEqual(self.c.post("/api/admin/backups/..%2Fdb.sqlite/download", json={"password": PASSWORD},
                                      headers=self.h).status_code, 404)
+
+    def test_restore_upload_is_checked_then_staged(self):
+        restarts = []
+        self.app.state.runtime.restart_soon = lambda: restarts.append(1)
+        folder = os.path.dirname(self.app.state.runtime.cfg["database"])
+        backup = B.make_backup(self.app.state.runtime.cfg).read_bytes()
+        up = lambda body, pw=PASSWORD: self.c.post("/api/admin/restore", content=body,
+                                                    headers={**self.h, "X-Confirm-Password": pw})
+        self.assertEqual(up(backup, "nope").status_code, 403)
+        self.assertEqual(up(b"").status_code, 400)
+        self.assertEqual(up(gzip.compress(b"not a database")).status_code, 422)
+        other = os.path.join(tempfile.mkdtemp(), "other.db")
+        sqlite3.connect(other).execute("CREATE TABLE t (x)").connection.commit()
+        with open(other, "rb") as f:
+            self.assertEqual(up(f.read()).status_code, 422)                              # a database, not ours
+        self.assertFalse(any(n.startswith("restore") or n.endswith(".part") for n in os.listdir(folder)))
+        r = up(backup)
+        self.assertEqual((r.status_code, r.json()["staged"], restarts), (200, "restore.db.gz", [1]))
+        self.assertEqual(oct(os.stat(os.path.join(folder, "restore.db.gz")).st_mode & 0o777), "0o600")
+        self.assertEqual(self.c.post("/api/admin/restore", content=backup, headers={"X-Confirm-Password": PASSWORD})
+                         .status_code, 403)                                               # no CSRF token
+
+
+class SetupTest(unittest.TestCase):
+    """No login yet: the setup page creates one or restores a backup, with the code from the log."""
+
+    def setUp(self):
+        self.data = tempfile.mkdtemp()
+        env = mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_DATA": self.data})
+        env.start()
+        self.addCleanup(env.stop)
+        for var in ("FLICKR_ORGANIZER_KEY_FILE", "FLICKR_ORGANIZER_SECRET_KEY"):
+            os.environ.pop(var, None)
+        self.cfg = from_dict({**CFG, "database": os.path.join(self.data, "flickr_organizer.db"),
+                              "web": {"allowed_hosts": ["testserver"]}})
+        Store(self.cfg["database"]).close()
+        self.app = create_app(self.cfg, None, scheduler=False)
+        self.rt = self.app.state.runtime
+        self.restarts = []
+        self.rt.restart_soon = lambda: self.restarts.append(1)
+        self.c = TestClient(self.app, base_url="https://testserver")
+
+    def test_first_login_needs_the_code_and_only_works_once(self):
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": True})
+        user = {"username": "owner", "password": PASSWORD}
+        self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": "0000-0000-0000"}).status_code, 403)
+        self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code,
+                                                               "password": "short"}).status_code, 422)
+        r = self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code.lower()})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.c.get("/api/auth/session").json()["username"], "owner")      # signed in
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": False})
+        self.assertEqual(self.c.post("/api/setup/user", json={**user, "username": "intruder", "code": "x"}).status_code, 409)
+
+    def test_wrong_codes_are_throttled(self):
+        for _ in range(20):
+            r = self.c.post("/api/setup/user", json={"username": "x", "password": PASSWORD, "code": "nope"})
+        self.assertEqual(r.status_code, 429)
+
+    def test_restore_from_another_machine_brings_its_key(self):
+        from flickr_organizer import settings as S
+        from flickr_organizer.cli import _restore_on_start
+
+        laptop = tempfile.mkdtemp()                       # the laptop: a database with an API key in it
+        laptop_key = S.new_key()
+        with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_SECRET_KEY": laptop_key}):
+            lcfg = from_dict({"database": os.path.join(laptop, "db.sqlite")})
+            ldb = Store(lcfg["database"])
+            sync(FakeFlickr(), ldb, log=lambda *a: None)
+            ldb.set_password_hash("me", hash_password(PASSWORD))
+            S.set_secret(ldb, "flickr.api_key", "laptop-flickr-key", "cli")
+            backup = B.make_backup(lcfg).read_bytes()
+        up = lambda key="", code=None: self.c.post("/api/setup/restore", content=backup, headers={
+            "X-Setup-Code": code or self.rt.setup_code, "X-Encryption-Key": key})
+        self.assertEqual(up(code="wrong").status_code, 403)
+        self.assertEqual(up(S.new_key()).status_code, 422)                                  # not its key
+        r = up(laptop_key)
+        self.assertEqual((r.status_code, r.json()["keys"], r.json()["readable"], self.restarts), (200, 1, True, [1]))
+        server = Store(self.cfg["database"])
+        server = _restore_on_start(self.cfg, server)       # what the restart does
+        self.assertEqual(server.usernames(), ["me"])
+        self.assertEqual(S.key_file(), Path(self.data) / "secret.key")
+        row = server.secret_rows()["flickr.api_key"]
+        self.assertEqual(S.decrypt("flickr.api_key", row["nonce"], row["ciphertext"]), "laptop-flickr-key")
+        self.assertFalse(any(n.startswith("restore.") for n in os.listdir(self.data)))
+        self.assertEqual(TestClient(create_app(self.cfg, None, scheduler=False), base_url="https://testserver")
+                         .get("/api/setup").json(), {"needed": False})
 
 
 class FreshServerTest(unittest.TestCase):
