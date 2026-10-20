@@ -67,6 +67,12 @@ DEFAULTS: dict[str, Any] = {
         "api_docs": False,            # /api/docs (OpenAPI); only after login when on
         "trusted_proxies": ["127.0.0.1"],   # where X-Forwarded-For/-Proto are believed from
     },
+    "map": {
+        "color_low": "#f7d125",       # clusters with few photos ...
+        "color_high": "#1dab45",      # ... to the most (log scale)
+        "expand_at": 40,              # a cluster this small opens into thumbnails when clicked
+        "carto_key": None,            # CARTO basemaps key (carto.com/basemaps/apikey); goes in every tile URL
+    },
     "standard_tags": {
         "max_tags_per_photo": 75,   # Flickr's limit
         "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"], "skip_if_dated": True},
@@ -84,7 +90,7 @@ DEFAULTS: dict[str, Any] = {
 FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra"),
              ("standard_tags", "place", "region_overrides"), ("standard_tags", "album_tags", "albums")}
 # Settings whose default is None but that take a value.
-OPTIONAL = {("backup", "dir"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
+OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
@@ -97,7 +103,9 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("standard_tags", "coords", "min_accuracy"): (1, 16), ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
-          ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60)}
+          ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
+          ("map", "expand_at"): (2, 200)}
+COLORS = {("map", "color_low"), ("map", "color_high")}   # #rrggbb
 
 # Secrets can come from the environment instead of config.yaml (on a server, keep them there).
 ENV_OVERRIDES = {"FLICKR_API_KEY": ("flickr", "api_key"), "FLICKR_API_SECRET": ("flickr", "api_secret"),
@@ -271,6 +279,15 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             if not c.get("album") and not c.get("tags"):
                 warnings.append(f"vision.categories.{cat}: has neither album nor tags, so it changes nothing")
     checks.append(categories)
+
+    def colors():
+        for path in sorted(COLORS):
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", get(path)):
+                errors.append(f"{name(path)}: should be a colour like #1dab45, not {get(path)!r}")
+        key = get(("map", "carto_key"))
+        if key and not re.fullmatch(r"[A-Za-z0-9._~-]{8,200}", key):
+            errors.append("map.carto_key: should be the key from CARTO's dashboard (letters, digits, - _ . ~)")
+    checks.append(colors)
 
     def credentials():
         if get(("vision", "provider")) != "ollama" and not get(("vision", "api_key")):

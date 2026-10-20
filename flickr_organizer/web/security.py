@@ -94,7 +94,8 @@ class LoginThrottle:
 
 
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
-       "img-src 'self' data: https://*.staticflickr.com https://*.flickr.com; connect-src 'self'; "
+       "img-src 'self' data: https://*.staticflickr.com https://*.flickr.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; "
+       "connect-src 'self'; "
        "font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 

@@ -221,3 +221,16 @@ h1.title { font-size: 22px; margin: 4px 0 6px; letter-spacing: -.01em; }
   padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.08); }
 .savebar .errors { flex-basis: 100%; margin: 0; padding-left: 18px; color: var(--no); font-size: 14px; }
 button.link.danger { color: var(--no); }
+
+/* ---- map ---- */
+.mapwrap { height: calc(100dvh - 150px); min-height: 360px; border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; isolation: isolate; background: var(--surface); }
+.mc-wrap { background: none; border: 0; }
+.mc { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-weight: 700;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .45), 0 1px 4px rgba(0, 0, 0, .35); cursor: pointer; }
+.mthumb { border-radius: 6px; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .4); object-fit: cover;
+  background: var(--line); cursor: pointer; }
+.minimap { height: 160px; border-radius: var(--radius); overflow: hidden; isolation: isolate; margin: 14px 0 4px; }
+.maplink { margin: 0 0 10px; font-size: 13px; }
+.colorfield { display: inline-flex; align-items: center; gap: 8px; }
+.colorfield input[type=color] { width: 44px; height: 30px; padding: 0 2px; }

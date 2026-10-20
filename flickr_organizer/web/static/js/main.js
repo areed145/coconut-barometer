@@ -3,6 +3,7 @@ import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toas
 import { Photostream, Albums, AlbumView } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
+import { MapPage } from "./map.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
@@ -69,14 +70,15 @@ function Shell({ session, onLogout }) {
   else if (tab === "albums") page = html`<${Albums} />`;
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (tab === "analytics") page = html`<${Analytics} />`;
+  else if (tab === "map") page = html`<${MapPage} at=${route[1]} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   else page = html`<${Photostream} />`;
-  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "review", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
+  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${tab === id || (id === "photos" && !["albums", "map", "review", "analytics", "settings"].includes(tab)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
       <a class="brand" href="#/photos">Flickr Organizer</a>
       <nav class="tabs">
-        ${link("photos", "Photos")}${link("albums", "Albums")}
+        ${link("photos", "Photos")}${link("albums", "Albums")}${link("map", "Map")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
         ${link("analytics", "Analytics")}${link("settings", "Settings")}
       </nav>

@@ -3,6 +3,7 @@ import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, p
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
+import { MiniMap } from "./leaflet.js";
 
 const PAGE = 60;
 
@@ -172,6 +173,8 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
         ${d.albums.length > 0 && html`<dt>Albums</dt><dd>${d.albums.map((a, i) => html`${i ? ", " : ""}<a href=${"#/albums/" + a.id} onClick=${onClose}>${a.title}</a>`)}</dd>`}
         ${e?.groups.length > 0 && html`<dt>Groups</dt><dd>${e.groups.length}</dd>`}
       </dl>`}
+      ${d?.lat != null && d?.lon != null && !(d.lat === 0 && d.lon === 0) && html`<${MiniMap} lat=${d.lat} lon=${d.lon} />
+        <p class="maplink"><a href=${`#/map/@${d.lat},${d.lon},14`} onClick=${onClose}>Show on the map</a></p>`}
       ${d?.tags.length > 0 && html`<div class="chips">${d.tags.map((t) => html`<span class="chip">${t}</span>`)}</div>`}
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}

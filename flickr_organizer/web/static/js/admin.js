@@ -95,6 +95,8 @@ function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
       onInput=${(e) => onChange(e.target.value === "" ? null : s.kind === "int" ? parseInt(e.target.value, 10) : parseFloat(e.target.value))} />`;
   else if (s.kind === "choice") input = html`<select value=${value} disabled=${disabled} onChange=${(e) => onChange(e.target.value)}>
       ${s.options.map((o) => html`<option value=${o}>${s.option_labels?.[o] || o}</option>`)}</select>`;
+  else if (s.kind === "color") input = html`<span class="colorfield"><input type="color" value=${value} disabled=${disabled}
+      onInput=${(e) => onChange(e.target.value)} aria-label=${s.label} /><code>${value}</code></span>`;
   else if (s.kind === "text") input = html`<textarea rows="6" value=${value || ""} disabled=${disabled} placeholder="(the built-in brief)"
       onInput=${(e) => onChange(e.target.value.trim() ? e.target.value : null)}></textarea>`;
   else if (s.kind === "list") input = html`<${ListField} value=${value} onChange=${onChange} disabled=${disabled} />`;

@@ -45,6 +45,32 @@ class GalleryStore(Database):
                                f"LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
         return {"total": total, "offset": offset, "photos": [photo_card(r) for r in rows]}
 
+    GEOTAGGED = "p.lat IS NOT NULL AND p.lon IS NOT NULL AND NOT (p.lat = 0 AND p.lon = 0)"
+
+    def map_points(self, album_id: str | None = None, year_from: int | None = None,
+                   year_to: int | None = None) -> list[list]:
+        """[id, lat, lon, server, secret] per geotagged photo (Flickr's 0,0 means none),
+        compact because the map takes all of them at once."""
+        joins, where, args = "", [self.GEOTAGGED], []
+        if album_id:
+            joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
+            args.append(album_id)
+        year = "CAST(substr(p.date_taken, 1, 4) AS INTEGER)"
+        if year_from:
+            where.append(f"{year} >= ?")
+            args.append(year_from)
+        if year_to:
+            where.append(f"{year} <= ?")
+            args.append(year_to)
+        rows = self.db.execute(f"SELECT p.id, p.lat, p.lon, p.server, p.secret FROM photos p {joins} "
+                               f"WHERE {' AND '.join(where)} ORDER BY p.date_upload DESC", args)
+        return [[r[0], round(r[1], 5), round(r[2], 5), r[3], r[4]] for r in rows]
+
+    def map_years(self) -> list[int]:
+        return [r[0] for r in self.db.execute(
+            f"SELECT DISTINCT CAST(substr(p.date_taken, 1, 4) AS INTEGER) AS y FROM photos p "
+            f"WHERE {self.GEOTAGGED} AND p.date_taken IS NOT NULL AND y > 1800 ORDER BY y")]
+
     def cards(self, photo_ids: list[str]) -> dict[str, dict]:
         """photo_id -> card (title, counts, image sizes) for a list of photos."""
         if not photo_ids:

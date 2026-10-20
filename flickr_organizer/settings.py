@@ -23,7 +23,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .config import CHOICES, DEFAULTS, ENV_OVERRIDES, FREE_MAPS, ITEM_KEYS, OPTIONAL, _merge, validate
+from .config import CHOICES, COLORS, DEFAULTS, ENV_OVERRIDES, FREE_MAPS, ITEM_KEYS, OPTIONAL, _merge, validate
 
 SECRETS = ("flickr.api_key", "flickr.api_secret", "vision.api_key")
 LOCKED = {"database": "where the database is", "web.host": "what address the server listens on",
@@ -241,6 +241,8 @@ def _kind(path: str, default) -> dict:
         labels = META.get(path, {}).get("options", {})
         return {"kind": "choice", "options": list(CHOICES[tpath]),
                 "option_labels": {o: labels.get(o, o) for o in CHOICES[tpath]}}
+    if tpath in COLORS:
+        return {"kind": "color"}
     if path == "vision.categories":
         return {"kind": "categories"}
     if tpath in FREE_MAPS:
