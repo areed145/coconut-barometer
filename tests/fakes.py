@@ -1,0 +1,153 @@
+"""Shared test doubles: a fake Flickr API, fake geocoder, fake vision model, base config."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from flickr_organizer.flickr_client import FlickrCallError  # noqa: E402
+from flickr_organizer.vision.base import VisionProvider  # noqa: E402
+
+
+def photo(pid, lat=0, lon=0, acc=16, title="", tags=""):
+    return {"id": pid, "secret": "s", "server": "1", "title": title, "ispublic": 1,
+            "description": {"_content": ""}, "tags": tags, "latitude": lat, "longitude": lon,
+            "accuracy": acc, "media": "photo", "url_m": f"https://live.staticflickr.com/1/{pid}_s.jpg",
+            "datetaken": "2024-01-01", "dateupload": "1700000000", "lastupdate": "1700000000"}
+
+
+class FakeFlickr:
+    def __init__(self):
+        self.photos = [
+            photo("1", 35.68, 139.69, title="Ramen in Tokyo"),   # Japan, food
+            photo("2", 30.27, -97.74),                            # Austin, TX
+            photo("3", 29.76, -95.37, acc=6),                     # Houston: state ok, city no
+            photo("4"),                                           # no geo
+            photo("5", 30.27, -97.74, tags="food"),               # already tagged food
+        ]
+        # Japan album already has photo 1? No. Texas has photo 2 already.
+        self.sets = {"100": {"title": "Japan", "photos": []},
+                     "101": {"title": "Texas", "photos": ["2"]},
+                     "102": {"title": "Food", "photos": []},
+                     "103": {"title": "Austin", "photos": []},
+                     "104": {"title": "United States", "photos": []},
+                     "105": {"title": "Landscapes", "photos": []}}
+        self.calls = []
+
+    def nsid(self):
+        return "12345@N00"
+
+    def call(self, method, **p):
+        self.calls.append((method, p))
+        page, per = int(p.get("page", 1)), 2   # tiny pages to exercise pagination
+        def paged(items):
+            chunk = items[(page - 1) * per: page * per]
+            return chunk, max(1, -(-len(items) // per))
+        if method == "flickr.people.getPhotos":
+            chunk, pages = paged(self.photos)
+            return {"photos": {"photo": chunk, "page": page, "pages": pages}}
+        if method == "flickr.photosets.getList":
+            items = [{"id": k, "title": {"_content": v["title"]}, "photos": len(v["photos"]), "videos": 0}
+                     for k, v in self.sets.items()]
+            chunk, pages = paged(items)
+            return {"photosets": {"photoset": chunk, "page": page, "pages": pages}}
+        if method == "flickr.photosets.getPhotos":
+            chunk, pages = paged([{"id": x} for x in self.sets[p["photoset_id"]]["photos"]])
+            return {"photoset": {"photo": chunk, "page": str(page), "pages": str(pages)}}
+        if method == "flickr.photosets.addPhoto":
+            s = self.sets[p["photoset_id"]]["photos"]
+            if p["photo_id"] in s:
+                raise FlickrCallError(method, 3, "Photo already in set")
+            s.append(p["photo_id"])
+            return {}
+        if method == "flickr.photosets.create":
+            new = str(200 + len(self.sets))
+            self.sets[new] = {"title": p["title"], "photos": [p["primary_photo_id"]]}
+            return {"photoset": {"id": new}}
+        if method == "flickr.photos.setMeta":
+            assert "description" in p
+            for ph in self.photos:
+                if ph["id"] == p["photo_id"]:
+                    ph["title"] = p["title"]
+                    ph["description"] = {"_content": p["description"]}
+            return {}
+        if method == "flickr.photos.licenses.getInfo":
+            return {"licenses": {"license": [{"id": 0, "name": "All Rights Reserved"}]}}
+        if method == "flickr.stats.getTotalViews":
+            return {"stats": {"total": {"views": 1234}}}
+        if method == "flickr.groups.pools.getGroups":
+            chunk, pages = paged([{"nsid": "g1", "name": "Ramen Lovers", "members": "50", "photos": "900"},
+                                  {"nsid": "g2", "name": "Texas", "members": "10", "photos": "30"}])
+            return {"groups": {"group": chunk, "page": page, "pages": pages}}
+        if method == "flickr.groups.pools.getPhotos":
+            assert p["user_id"] == "12345@N00"
+            ids = {"g1": ["1", "5"], "g2": ["2"]}[p["group_id"]]
+            chunk, pages = paged([{"id": x, "dateadded": "1700000001"} for x in ids])
+            return {"photos": {"photo": chunk, "page": page, "pages": pages}}
+        if method == "flickr.photos.comments.getList":
+            return {"comments": {"comment": [{"id": f"c{p['photo_id']}", "author": "9@N0", "authorname": "fan",
+                                              "datecreate": "1700000002", "_content": "Nice!"}]}}
+        if method == "flickr.photos.getFavorites":
+            people = [{"nsid": f"u{i}", "username": f"user{i}", "favedate": "1700000003"} for i in range(60)]
+            per, pg = int(p["per_page"]), int(p["page"])
+            return {"photo": {"person": people[(pg - 1) * per: pg * per], "page": pg, "pages": 2}}
+        if method == "flickr.photos.getInfo":
+            ph = next(x for x in self.photos if x["id"] == p["photo_id"])
+            return {"photo": {"title": {"_content": ph["title"]}, "description": ph["description"],
+                              "tags": {"tag": [{"_content": t} for t in ph["tags"].split()]},
+                              "dates": {"taken": ph["datetaken"], "takenunknown": "0", "lastupdate": "1"}}}
+        if method == "flickr.photos.getAllContexts":
+            return {"set": [{"id": k} for k, v in self.sets.items() if p["photo_id"] in v["photos"]]}
+        if method == "flickr.photos.getExif":
+            cams = {"1": "Nikon D90", "2": "Apple iPhone X"}
+            if p["photo_id"] == "4":
+                raise FlickrCallError(method, 2, "Permission denied")
+            return {"photo": {"camera": cams.get(p["photo_id"], ""), "exif": [
+                {"tag": "Make", "raw": {"_content": "x"}},
+                {"tag": "ExposureTime", "raw": {"_content": "0.004"}, "clean": {"_content": "1/250 sec"}},
+                {"tag": "LensModel", "raw": {"_content": "28-300mm"}}]}}
+        if method == "flickr.photos.addTags":
+            for ph in self.photos:
+                if ph["id"] == p["photo_id"]:
+                    ph["tags"] = (ph["tags"] + " " + p["tags"]).strip()
+            return {}
+        raise AssertionError(method)
+
+
+def fake_geocoder(points):
+    out = []
+    for lat, lon in points:
+        if lat < 0:
+            out.append({"cc": "AO", "admin1": "Luanda", "name": "Luanda"})
+        elif lat > 34:
+            out.append({"cc": "JP", "admin1": "Tokyo", "name": "Tokyo"})
+        elif lon < -97:
+            out.append({"cc": "US", "admin1": "Texas", "name": "Austin"})
+        else:
+            out.append({"cc": "US", "admin1": "Texas", "name": "Houston"})
+    return out
+
+
+class FakeVision(VisionProvider):
+    name = "fake"
+
+    def classify(self, image, media_type, prompt, schema):
+        assert set(schema["properties"]["scores"]["required"]) == {"food", "landscape"}
+        food = 0.95 if "Ramen" in prompt else 0.1
+        out = {"scores": {"food": food, "landscape": 0.2}, "caption": "a bowl of ramen" if food > .5 else "x",
+               "tags": ["ramen", "noodle soup"] if food > .5 else [], "_usage": {"input": 800, "output": 60}}
+        if "description" in schema["properties"]:
+            out["description"] = "A steaming bowl of ramen." if food > .5 else "Something else."
+            if "haiku" in prompt:
+                out["description"] = "Steam curls over the ramen."
+        if "title" in schema["properties"]:
+            out["title"] = '"Steam Rising, Tokyo."' if food > .5 else "Quiet Corner"
+        return out
+
+
+CFG = {
+    # JP alias so the test doesn't depend on pycountry being installed.
+    "geo": {"countries": {"aliases": {"JP": "Japan"}}, "cities": [{"album": "Austin", "lat": 30.2672, "lon": -97.7431, "radius_km": 30}]},
+    "vision": {"provider": "fake", "model": "m1",
+               "categories": {"food": {"album": "Food", "description": "food", "tags": ["food"]},
+                              "landscape": {"album": "Landscapes", "description": "scenery"}}},
+}
