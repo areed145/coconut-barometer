@@ -29,8 +29,10 @@
   --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
   color-scheme: light dark;
 }
+/* Dark: the device's setting (Auto), or chosen with the top bar's switch (data-theme on <html>).
+   The same values twice, because a media query and an attribute can't share one rule. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #141210; --surface: #1f1c1a; --surface-2: #2a2623; --fg: #f3f1ee; --muted: #a49d96; --line: #36312d;
     --accent: #5aa2ff; --accent-fg: #0b1a2e; --accent-soft: #1b2a3f;
     --ok: #4ade80; --no: #f87171; --warn: #fbbf24;
@@ -38,6 +40,15 @@
     --shadow-1: 0 1px 4px rgba(0, 0, 0, .5); --shadow-2: 0 6px 20px rgba(0, 0, 0, .55);
   }
 }
+:root[data-theme="dark"] {
+    --bg: #141210; --surface: #1f1c1a; --surface-2: #2a2623; --fg: #f3f1ee; --muted: #a49d96; --line: #36312d;
+    --accent: #5aa2ff; --accent-fg: #0b1a2e; --accent-soft: #1b2a3f;
+    --ok: #4ade80; --no: #f87171; --warn: #fbbf24;
+    --chart-1: #5aa2ff; --chart-2: #f17aa6; --chart-3: #4fc28e;
+    --shadow-1: 0 1px 4px rgba(0, 0, 0, .5); --shadow-2: 0 6px 20px rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 /* ---- 2 base ----------------------------------------------------------------------- */
 * { box-sizing: border-box; }
@@ -178,9 +189,12 @@ table.data tr.pick:hover td { background: var(--accent-soft); }
 .logo { display: block; height: auto; }
 .logo.hero { margin: 0 auto var(--s4); width: 200px; max-width: 60vw; }
 @media (prefers-color-scheme: dark) {
-  .logo { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 4px rgba(255, 255, 255, .55)); }
-  .logo.hero { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)) drop-shadow(0 0 9px rgba(255, 255, 255, .5)); }
+  :root:not([data-theme="light"]) .logo { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 4px rgba(255, 255, 255, .55)); }
+  :root:not([data-theme="light"]) .logo.hero { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)) drop-shadow(0 0 9px rgba(255, 255, 255, .5)); }
 }
+:root[data-theme="dark"] .logo { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 4px rgba(255, 255, 255, .55)); }
+:root[data-theme="dark"] .logo.hero { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)) drop-shadow(0 0 9px rgba(255, 255, 255, .5)); }
+button.themeswitch { min-width: var(--control-h); padding: 0 var(--s2); border-color: transparent; background: none; font-size: var(--text-md); }
 
 /* ---- 4 utilities (small and few) --------------------------------------------------------- */
 .muted { color: var(--muted); }

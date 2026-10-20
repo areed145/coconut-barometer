@@ -85,6 +85,36 @@ export const logShare = (v, hi, lo = 0) => {
   return b > a ? (Math.log1p(Math.max(0, v)) - a) / (b - a) : 1;
 };
 
+// ---- light / dark: Auto (the device's setting), or chosen in the top bar ----------------
+const THEME_KEY = "fo-theme";
+export const themeChoice = () => { try { return localStorage.getItem(THEME_KEY) || "auto"; } catch { return "auto"; } };
+const deviceDark = matchMedia("(prefers-color-scheme: dark)");
+export const isDark = () => {
+  const t = document.documentElement.getAttribute("data-theme");
+  return t ? t === "dark" : deviceDark.matches;
+};
+const themeChanged = () => {
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.content = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    m.removeAttribute("media");
+  });
+  window.dispatchEvent(new Event("fo:theme"));
+};
+export function setThemeChoice(choice) {
+  try { choice === "auto" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch { /* this session only */ }
+  if (choice === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", choice);
+  themeChanged();
+}
+deviceDark.addEventListener?.("change", () => { if (themeChoice() === "auto") themeChanged(); });
+// Re-render when the theme changes (for things drawn from the colours at render time).
+export function useThemeTick() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener("fo:theme", on);
+    return () => window.removeEventListener("fo:theme", on); }, []);
+  return tick;
+}
+
 // ---- router: #/photos?tag=ramen&year=2019, #/review, ... ------------------------------
 // route is the path split on "/", with route.params the query after "?".
 export function useRoute() {

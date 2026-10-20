@@ -1,5 +1,5 @@
 // The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink, loadTheme } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink, loadTheme, themeChoice, setThemeChoice } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
@@ -37,6 +37,17 @@ function Login({ onLogin }) {
     <button class="primary" disabled=${busy}>${busy ? "Signing in…" : "Sign in"}</button>
     ${error && html`<p class="error" role="alert">${error}</p>`}
   </form>`;
+}
+
+const THEMES = { auto: ["◐", "Theme: Auto (follows this device)"], light: ["☀", "Theme: Light"], dark: ["☾", "Theme: Dark"] };
+const NEXT = { auto: "light", light: "dark", dark: "auto" };
+
+function ThemeSwitch() {
+  const [choice, setChoice] = useState(themeChoice());
+  const [icon, label] = THEMES[choice];
+  const next = () => { setThemeChoice(NEXT[choice]); setChoice(NEXT[choice]); };
+  return html`<button class="themeswitch" onClick=${next} title=${`${label}. Click for ${THEMES[NEXT[choice]][1].slice(7)}.`}
+      aria-label=${label}>${icon}</button>`;
 }
 
 function SyncBox() {
@@ -104,6 +115,7 @@ function Shell({ session, onLogout }) {
       </nav>
       <div class="account">
         <${SyncBox} />
+        <${ThemeSwitch} />
         <span class="muted who">${session.username}</span>
         <button class="link" onClick=${logout}>Sign out</button>
       </div>

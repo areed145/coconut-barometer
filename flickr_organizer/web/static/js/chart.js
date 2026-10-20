@@ -1,12 +1,13 @@
 // A uPlot chart that sizes itself to its container and follows the light/dark colours.
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useEffect, useRef } from "./lib.js";
+import { html, useEffect, useRef, useThemeTick } from "./lib.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // series: [{label, values, color: "--chart-1", bars?}], x: day strings (YYYY-MM-DD, GMT)
 export function Chart({ days, series, height = 220 }) {
   const box = useRef(null);
+  const theme = useThemeTick();            // colours come from the CSS variables: redraw on a theme switch
   useEffect(() => {
     const el = box.current;
     if (!el || !days.length) return;
@@ -27,6 +28,6 @@ export function Chart({ days, series, height = 220 }) {
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }));
     ro.observe(el);
     return () => { ro.disconnect(); plot.destroy(); };
-  }, [days, series, height]);
+  }, [days, series, height, theme]);
   return days.length ? html`<div class="chart" ref=${box}></div>` : html`<p class="muted">No daily stats for this range yet.</p>`;
 }
