@@ -24,6 +24,38 @@ class SchemaTest(unittest.TestCase):
             Store(self.path)
 
 
+class ConcurrentWritersTest(unittest.TestCase):
+    """DuckDB fails a second writer at once instead of waiting for the first (SQLite waited)."""
+
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
+        self.a = Store(self.path)
+
+    def test_opening_another_connection_does_not_write(self):
+        with self.a.db:                                   # a is busy rewriting the version row
+            self.a.db.execute("UPDATE meta SET value = value WHERE key = 'schema_version'")
+            Store(self.path).close()                      # a request thread opening its own connection meanwhile
+
+    def test_a_single_statement_waits_its_turn_instead_of_failing(self):
+        import threading
+        import time
+        self.a.set_meta("k", "1")
+        held = threading.Event()
+
+        def hold():
+            with self.a.db:
+                self.a.db.execute("UPDATE meta SET value = 'a' WHERE key = 'k'")
+                held.set()
+                time.sleep(0.4)
+        t = threading.Thread(target=hold)
+        t.start()
+        held.wait(5)
+        b = Store(self.path)
+        b.set_meta("k", "b")                              # the same row, while a's transaction is open
+        t.join()
+        self.assertEqual(b.get_meta("k"), "b")
+
+
 class OneProcessTest(unittest.TestCase):
     def test_a_second_process_gets_a_clear_message_not_a_stack_trace(self):
         import subprocess

@@ -5,7 +5,9 @@ The store classes were written for SQLite, so Connection keeps its calling style
 import from the former SQLite file is in migration.py."""
 from __future__ import annotations
 
+import os
 import re
+import threading
 from pathlib import Path
 
 import duckdb
@@ -84,17 +86,43 @@ def _positional(sql: str, params: dict) -> tuple[str, list]:
     return sql, [params[n] for n in names]
 
 
+_locks: dict[str, threading.RLock] = {}
+_locks_guard = threading.Lock()
+
+
+def _write_lock(path: str) -> threading.RLock:
+    key = os.path.realpath(path)
+    with _locks_guard:
+        return _locks.setdefault(key, threading.RLock())
+
+
 class Connection:
     """One DuckDB connection. `with db:` is a transaction; nested ones join the outer one, and
-    outside any transaction each statement commits by itself."""
+    outside any transaction each statement commits by itself.
+
+    DuckDB doesn't make a second writer wait for the first (SQLite did, up to its timeout): it fails
+    at once with "Conflict on update". So everything that writes to a database file in this process
+    takes one lock per file, for a statement or for a whole transaction; reads never wait."""
     def __init__(self, path: str, read_only: bool = False):
         self.raw = duckdb.connect(path, read_only=read_only)
+        self._lock = _write_lock(path)
         self._depth = 0
+
+    @staticmethod
+    def _reads(sql: str) -> bool:
+        words = sql.split(None, 1)
+        return bool(words) and words[0].upper() in ("SELECT", "WITH", "DESCRIBE")
+
+    def _run(self, sql, call):
+        if self._reads(sql):
+            return call()
+        with self._lock:
+            return call()
 
     def execute(self, sql, params=()):
         if isinstance(params, dict):
             sql, params = _positional(sql, params)
-        return Result(self.raw.execute(sql, params))
+        return Result(self._run(sql, lambda: self.raw.execute(sql, params)))
 
     def executemany(self, sql, seq):
         seq = list(seq)
@@ -104,23 +132,31 @@ class Connection:
             marked, _ = _positional(sql, seq[0])
             seq = [_positional(sql, row)[1] for row in seq]
             sql = marked
-        return Result(self.raw.executemany(sql, seq))
+        return Result(self._run(sql, lambda: self.raw.executemany(sql, seq)))
 
     def executescript(self, sql):
         for statement in sql.split(";"):
             if statement.strip():
-                self.raw.execute(statement)
+                self._run(statement, lambda: self.raw.execute(statement))
 
     def __enter__(self):
-        if self._depth == 0:
-            self.raw.begin()
+        self._lock.acquire()
+        try:
+            if self._depth == 0:
+                self.raw.begin()
+        except BaseException:
+            self._lock.release()
+            raise
         self._depth += 1
         return self
 
     def __exit__(self, typ, value, tb):
         self._depth -= 1
-        if self._depth == 0:
-            self.raw.rollback() if typ else self.raw.commit()
+        try:
+            if self._depth == 0:
+                self.raw.rollback() if typ else self.raw.commit()
+        finally:
+            self._lock.release()
 
     def commit(self):
         """Kept for callers written against sqlite3: statements outside `with db:` already committed."""
@@ -169,9 +205,9 @@ class Database:
         if version > SCHEMA_VERSION:
             raise SchemaTooNew(f"{self.path} is from a newer version of this tool (schema {version}); "
                                f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
-        with self.db:
-            self.db.executescript(SCHEMA)       # every statement is IF NOT EXISTS
-            self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+        self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
+        if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
+            self.set_meta("schema_version", SCHEMA_VERSION)
 
     def get_meta(self, key: str, default=None):
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
