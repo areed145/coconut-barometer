@@ -221,7 +221,7 @@ header.top { position: sticky; top: 0; z-index: 20; display: grid; grid-template
   border-bottom: 1px solid var(--line); }
 header.top .brand { display: flex; align-items: center; gap: var(--s2); line-height: 1.1; text-decoration: none; white-space: nowrap; }
 header.top .logo { width: 46px; }
-header.top .brand-name { color: var(--fg); font-size: var(--text-sm); font-weight: 700; }
+header.top .brand-name { color: var(--fg); font-size: var(--text-lg); font-weight: 700; text-transform: lowercase; }
 header.top nav.tabs { overflow-x: auto; scrollbar-width: none; }
 header.top nav.tabs::-webkit-scrollbar { display: none; }
 .account { display: flex; align-items: center; gap: var(--s3); white-space: nowrap; }
@@ -243,7 +243,7 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 
 /* sign-in and first-run setup */
 .login { max-width: 360px; margin: 8vh auto; padding: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
-.login .site-name { margin: 0 0 var(--s4); text-align: center; font-size: var(--text-xl); }
+.login .site-name { text-transform: lowercase; margin: 0 0 var(--s4); text-align: center; font-size: var(--text-xl); }
 .login input { width: 100%; }
 .login button { width: 100%; margin-top: var(--s4); }
 .setup { max-width: 820px; margin: 6vh auto; padding: 0 var(--gutter); }
