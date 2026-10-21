@@ -104,7 +104,7 @@ function Shell({ session, onLogout }) {
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
   else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
-  else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} />`;
+  else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} targetPhotoId=${route.params.photo_id} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;

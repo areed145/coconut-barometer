@@ -68,7 +68,7 @@ function Engagement({ s }) {
     </dl></div>`;
 }
 
-export function Reviewer({ onCount }) {
+export function Reviewer({ onCount, targetPhotoId }) {
   const [summary, setSummary] = useState(null);
   const [status, setStatus] = useState("pending");
   const [sort, setSort] = useState("newest");
@@ -96,8 +96,13 @@ export function Reviewer({ onCount }) {
   };
   useEffect(() => { loadSummary(); }, []);
   useEffect(() => {
-    api("/api/review/queue", { params: { status, sort } }).then((list) => { setIds(list); setIdx(0); loadItem(list[0], list, 0); });
-  }, [status, sort]);
+    api("/api/review/queue", { params: { status, sort } }).then((list) => {
+      const targetAt = targetPhotoId ? list.indexOf(targetPhotoId) : -1;
+      const queue = targetPhotoId && targetAt < 0 ? [targetPhotoId, ...list] : list;
+      const at = targetPhotoId ? (targetAt < 0 ? 0 : targetAt) : 0;
+      setIds(queue); setIdx(at); loadItem(queue[at], queue, at);
+    });
+  }, [status, sort, targetPhotoId]);
 
   // Background work: outcomes of approvals and processing.
   useEffect(() => {
