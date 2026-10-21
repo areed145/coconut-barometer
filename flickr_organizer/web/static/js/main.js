@@ -59,7 +59,7 @@ function SyncBox() {
   </div>`;
 }
 
-const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"]];
+const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
 
 function Shell({ session, onLogout }) {
   const route = useRoute();
@@ -75,31 +75,32 @@ function Shell({ session, onLogout }) {
     load(); const t = setInterval(load, 10000); return () => clearInterval(t);
   }, []);
   const tab = route[0];
+  useEffect(() => { if (tab === "review") location.replace("#/photos/review"); }, [tab]);   // the old top-level address
   // On narrow screens the tab rows scroll sideways: keep the selected tab in view.
   useEffect(() => {
     requestAnimationFrame(() => document.querySelectorAll("nav.tabs a.on, .subtabs a.on, .admin .sections button.on")
       .forEach((el) => el.scrollIntoView({ block: "nearest", inline: "nearest" })));
   }, [location.hash]);
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
-  // Photos is a section: #/photos/<photostream|albums|map|analytics>. An album's photos are the
+  // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["weather", "review", "queue", "settings"].includes(tab);
+  const inPhotos = !["weather", "queue", "settings"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
   else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
+  else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} />`;
-  else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
   const subSection = sub === "photostream" && route.params.album ? "albums" : sub;
   const subtabs = inPhotos ? html`
     <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.map(([t, label]) => html`<a href=${"#/photos/" + t}
-      class=${t === subSection ? "on" : ""}>${label}</a>`)}</nav>`
+      class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.map(([t, label]) => html`<a href=${"#/weather/" + t}
       class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>` : "";
@@ -109,8 +110,7 @@ function Shell({ session, onLogout }) {
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
-        ${link("photos", "Photos")}${link("weather", "Weather")}
-        ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
+        ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}
         ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
         ${link("settings", "Settings")}
       </nav>

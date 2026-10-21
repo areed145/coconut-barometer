@@ -115,7 +115,7 @@ export function useThemeTick() {
   return tick;
 }
 
-// ---- router: #/photos/photostream?tag=ramen&year=2019, #/review, ... ------------------------------
+// ---- router: #/photos/photostream?tag=ramen&year=2019, #/photos/review, ... ------------------------------
 // route is the path split on "/", with route.params the query after "?".
 export function useRoute() {
   const read = () => {
