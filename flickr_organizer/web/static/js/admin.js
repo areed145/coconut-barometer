@@ -1,5 +1,5 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, upload, toast, ago, day, loadTheme } from "./lib.js";
+import { html, useState, useEffect, api, download, upload, toast, ago, day, loadTheme, themeChoice, setThemeChoice } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
@@ -8,6 +8,19 @@ const unlines = (s) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 const commas = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
 const uncommas = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const NUMERIC = new Set(["lat", "lon", "radius_km"]);
+
+function ThemeSetting() {
+  const [choice, setChoice] = useState(themeChoice());
+  const change = (e) => { const value = e.target.value; setChoice(value); setThemeChoice(value); };
+  return html`<div class="card theme-setting">
+    <label for="interface-theme"><b>Interface theme</b></label>
+    <select id="interface-theme" value=${choice} onChange=${change}>
+      <option value="auto">Auto (follow this device)</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </div>`;
+}
 
 function ListField({ value, onChange, disabled }) {
   const [text, setText] = useState(lines(value));
@@ -220,6 +233,7 @@ export function Admin() {
       ${section === "account" ? html`<${Account} />` : html`
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
+        ${section === "theme" && html`<${ThemeSetting} />`}
         ${section === "keys" && html`<${FlickrPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}

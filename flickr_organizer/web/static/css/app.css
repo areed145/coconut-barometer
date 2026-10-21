@@ -5,6 +5,13 @@
    Content-Security-Policy forbids them); dynamic values are set from script. */
 
 /* ---- 1 tokens ------------------------------------------------------------------ */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/static/fonts/dm-sans-latin.woff2") format("woff2");
+}
 :root {
   /* colour roles */
   --bg: #f6f5f3; --surface: #ffffff; --surface-2: #efede9; --fg: #1c1917; --muted: #6f6a65; --line: #e4e1dc;
@@ -17,7 +24,8 @@
   --lb-fg: #f3f1ee; --lb-text: #d4cfca; --lb-muted: #a49d96; --lb-link: #8cbcff;
   /* type: 7 sizes */
   --text-2xs: 11px; --text-xs: 12px; --text-sm: 13px; --text-base: 15px; --text-md: 17px; --text-lg: 20px; --text-xl: 24px;
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   /* spacing */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   /* shape and depth */
@@ -29,22 +37,22 @@
   --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
   color-scheme: light dark;
 }
-/* Dark: the device's setting (Auto), or chosen with the top bar's switch (data-theme on <html>).
+/* Dark: the device's setting (Auto), or chosen in Settings (data-theme on <html>).
    The same values twice, because a media query and an attribute can't share one rule. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141210; --surface: #1f1c1a; --surface-2: #2a2623; --fg: #f3f1ee; --muted: #a49d96; --line: #36312d;
-    --accent: #5aa2ff; --accent-fg: #0b1a2e; --accent-soft: #1b2a3f;
+    --accent: #36E8FF; --accent-fg: #07191b; --accent-soft: #163237;
     --ok: #4ade80; --no: #f87171; --warn: #fbbf24;
-    --chart-1: #5aa2ff; --chart-2: #f17aa6; --chart-3: #4fc28e;
+    --chart-1: #36E8FF; --chart-2: #f17aa6; --chart-3: #4fc28e;
     --shadow-1: 0 1px 4px rgba(0, 0, 0, .5); --shadow-2: 0 6px 20px rgba(0, 0, 0, .55);
   }
 }
 :root[data-theme="dark"] {
     --bg: #141210; --surface: #1f1c1a; --surface-2: #2a2623; --fg: #f3f1ee; --muted: #a49d96; --line: #36312d;
-    --accent: #5aa2ff; --accent-fg: #0b1a2e; --accent-soft: #1b2a3f;
+    --accent: #36E8FF; --accent-fg: #07191b; --accent-soft: #163237;
     --ok: #4ade80; --no: #f87171; --warn: #fbbf24;
-    --chart-1: #5aa2ff; --chart-2: #f17aa6; --chart-3: #4fc28e;
+    --chart-1: #36E8FF; --chart-2: #f17aa6; --chart-3: #4fc28e;
     --shadow-1: 0 1px 4px rgba(0, 0, 0, .5); --shadow-2: 0 6px 20px rgba(0, 0, 0, .55);
   color-scheme: dark;
 }
@@ -185,16 +193,15 @@ table.data tr.pick:hover td { background: var(--accent-soft); }
 .chart { width: 100%; min-height: 220px; }
 .u-legend { font-size: var(--text-xs); color: var(--muted); }
 
-/* the logo: in dark mode, a white blurred outline keeps its black tower and bolts visible */
+/* the logo: in dark mode, a turquoise glow keeps its black tower and bolts visible */
 .logo { display: block; height: auto; }
 .logo.hero { margin: 0 auto var(--s4); width: 200px; max-width: 60vw; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .logo { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 4px rgba(255, 255, 255, .55)); }
-  :root:not([data-theme="light"]) .logo.hero { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)) drop-shadow(0 0 9px rgba(255, 255, 255, .5)); }
+  :root:not([data-theme="light"]) .logo { filter: drop-shadow(0 0 1px rgba(54, 232, 255, .95)) drop-shadow(0 0 4px rgba(54, 232, 255, .55)); }
+  :root:not([data-theme="light"]) .logo.hero { filter: drop-shadow(0 0 1.5px rgba(54, 232, 255, .95)) drop-shadow(0 0 9px rgba(54, 232, 255, .5)); }
 }
-:root[data-theme="dark"] .logo { filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 4px rgba(255, 255, 255, .55)); }
-:root[data-theme="dark"] .logo.hero { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, .95)) drop-shadow(0 0 9px rgba(255, 255, 255, .5)); }
-button.themeswitch { min-width: var(--control-h); padding: 0 var(--s2); border-color: transparent; background: none; font-size: var(--text-md); }
+:root[data-theme="dark"] .logo { filter: drop-shadow(0 0 1px rgba(54, 232, 255, .95)) drop-shadow(0 0 4px rgba(54, 232, 255, .55)); }
+:root[data-theme="dark"] .logo.hero { filter: drop-shadow(0 0 1.5px rgba(54, 232, 255, .95)) drop-shadow(0 0 9px rgba(54, 232, 255, .5)); }
 
 /* ---- 4 utilities (small and few) --------------------------------------------------------- */
 .muted { color: var(--muted); }
@@ -374,6 +381,8 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .admin .sections button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .admin .settings { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
 .settings h2.group { margin: var(--s5) 0 var(--s1); padding-bottom: var(--s1); border-bottom: 1px solid var(--line); }
+.theme-setting { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); }
+.theme-setting select { width: min(100%, 280px); }
 .setting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 340px); gap: 6px var(--s4); padding: var(--s3) var(--s4);
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
 .setting.wide { grid-template-columns: 1fr; }
