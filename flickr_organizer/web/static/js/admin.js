@@ -1,5 +1,5 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, upload, toast, ago, day, loadTheme, themeChoice, setThemeChoice } from "./lib.js";
+import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
@@ -147,6 +147,26 @@ function FlickrPanel() {
   </div>`;
 }
 
+function SyncPanel() {
+  const [s, setS] = useState(null);
+  const load = () => api("/api/sync/status").then(setS).catch(() => {});
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  const run = async () => {
+    try { const r = await api("/api/sync/run", { method: "POST", body: {} });
+      toast(r.status === "busy" ? "A sync is already running." : r.status === "no_flickr"
+        ? "Connect Flickr first (API keys)." : "Sync started."); load();
+    } catch (e) { toast("Couldn't start a sync: " + e.message); }
+  };
+  if (!s) return null;
+  const err = s.last_result?.error;
+  return html`<div class="card"><h2>Sync now</h2>
+    <p>${s.running ? html`<a href="#/queue"><span class="spin">⟳</span> Syncing…</a>`
+      : err ? html`<b class="problem">Last sync failed:</b> ${err}`
+      : html`Synced ${ago(s.last_sync)}${s.next_run ? html` <span class="muted">· next ${until(s.next_run)}</span>` : ""}`}</p>
+    <button class="primary" onClick=${run} disabled=${s.running}>Sync now</button>
+  </div>`;
+}
+
 function BackupsPanel() {
   const [b, setB] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -235,6 +255,7 @@ export function Admin() {
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "theme" && html`<${ThemeSetting} />`}
         ${section === "keys" && html`<${FlickrPanel} />`}
+        ${section === "sync" && html`<${SyncPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}
           <${Field} key=${s.path} s=${s} albums=${data.albums}

@@ -1,5 +1,5 @@
 // The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, toast, ago, until, photosLink, loadTheme } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, ago, until, photosLink, loadTheme } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
@@ -44,18 +44,32 @@ function SyncBox() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
-  const run = async () => {
-    try { const r = await api("/api/sync/run", { method: "POST", body: {} });
-      toast(r.status === "busy" ? "A sync is already running." : r.status === "no_flickr"
-        ? "Set the Flickr API keys in Settings first." : "Sync started."); load();
-    } catch (e) { toast("Couldn't start a sync: " + e.message); }
-  };
   if (!s) return null;
   const err = s.last_result?.error;
-  return html`<div class="syncbox" title=${err ? "Last sync failed: " + err : `Due next: ${s.due.join(" + ")}`}>
-    ${s.running ? html`<a href="#/queue" title="Open the queue"><span class="spin">⟳</span> syncing…</a>`
-      : html`<span>${err ? "⚠ sync failed" : "synced " + ago(s.last_sync)}${s.next_run ? html`<span class="next"> · next ${until(s.next_run)}</span>` : ""}</span>`}
-    <button class="link" onClick=${run} disabled=${s.running}>Sync now</button>
+  const text = s.running ? "Syncing… (open the queue)" : err ? "Last sync failed: " + err
+    : `Synced ${ago(s.last_sync)}${s.next_run ? ` · next ${until(s.next_run)}` : ""}`;
+  const state = s.running ? "busy" : err ? "bad" : "ok";
+  return html`<a class=${"syncbox " + state} href=${s.running ? "#/queue" : "#/settings"}
+    title=${text} aria-label=${text}><span class="dot"></span></a>`;
+}
+
+function AccountMenu({ username, onLogout, onSettings }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (!e.target.closest?.(".menu")) setOpen(false); };
+    const esc = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("click", close); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return html`<div class="menu">
+    <button class=${"link burger" + (onSettings ? " on" : "")} aria-label="Menu" aria-haspopup="menu" aria-expanded=${open}
+      onClick=${() => setOpen(!open)}>☰</button>
+    ${open && html`<div class="menu-pop" role="menu">
+      <div class="who muted">${username}</div>
+      <a role="menuitem" href="#/settings" onClick=${() => setOpen(false)}>Settings</a>
+      <button class="link" role="menuitem" onClick=${onLogout}>Sign out</button>
+    </div>`}
   </div>`;
 }
 
@@ -112,12 +126,10 @@ function Shell({ session, onLogout }) {
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}
         ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
-        ${link("settings", "Settings")}
       </nav>
       <div class="account">
         <${SyncBox} />
-        <span class="muted who">${session.username}</span>
-        <button class="link" onClick=${logout}>Sign out</button>
+        <${AccountMenu} username=${session.username} onLogout=${logout} onSettings=${tab === "settings"} />
       </div>
     </header>
     <main class="page">${subtabs}${page}</main>`;
