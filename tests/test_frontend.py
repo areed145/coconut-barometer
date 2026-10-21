@@ -44,6 +44,18 @@ class FrontendTest(unittest.TestCase):
         for ref in refs:
             self.assertTrue(os.path.exists(os.path.join(STATIC, ref)), ref)
 
+    def test_send_to_review_deep_links_to_photo(self):
+        with open(os.path.join(STATIC, "js", "gallery.js")) as f:
+            gallery = f.read()
+        with open(os.path.join(STATIC, "js", "main.js")) as f:
+            main = f.read()
+        with open(os.path.join(STATIC, "js", "review.js")) as f:
+            review = f.read()
+        self.assertIn("#/photos/review?photo_id=${encodeURIComponent(p.id)}", gallery)
+        self.assertIn("targetPhotoId=${route.params.photo_id}", main)
+        self.assertIn("const queue = targetPhotoId && targetAt < 0 ? [targetPhotoId, ...list] : list", review)
+        self.assertIn("const at = targetPhotoId ? (targetAt < 0 ? 0 : targetAt) : 0", review)
+
 
 if __name__ == "__main__":
     unittest.main()

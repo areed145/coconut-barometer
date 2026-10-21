@@ -160,7 +160,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       await api(`/api/review/items/${p.id}/process`, { method: "POST" });
       toast("Sent to review");
       onClose();
-      location.hash = "#/photos/review";
+      location.hash = `#/photos/review?photo_id=${encodeURIComponent(p.id)}`;
     } catch (e) { toast("Error: " + e.message); }
     setSending(false);
   };
