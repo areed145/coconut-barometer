@@ -14,9 +14,13 @@ class StatsStore(Database):
             self.db.execute("INSERT OR REPLACE INTO account_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (day, totals.get("total"), totals.get("photos"), totals.get("photostream"),
                              totals.get("sets"), totals.get("collections"), totals.get("galleries"), int(time.time())))
-            self.db.execute("DELETE FROM photo_daily WHERE day=?", (day,))
-            self.db.executemany("INSERT OR REPLACE INTO photo_daily VALUES (:photo_id, :day, :views, :comments, "
-                                ":favorites)", [{**p, "day": day} for p in photos])
+            rows = list({p["photo_id"]: {**p, "day": day} for p in photos}.values())
+            have = [r[0] for r in self.db.execute("SELECT photo_id FROM photo_daily WHERE day=?", (day,))]
+            self.db.executemany("DELETE FROM photo_daily WHERE day=? AND photo_id=?",
+                                [(day, i) for i in have if i not in {r["photo_id"] for r in rows}])
+            self.db.executemany("INSERT INTO photo_daily VALUES (:photo_id, :day, :views, :comments, :favorites) "
+                                "ON CONFLICT(photo_id, day) DO UPDATE SET views=excluded.views, "
+                                "comments=excluded.comments, favorites=excluded.favorites", rows)
             self.db.execute("INSERT OR REPLACE INTO stats_days VALUES (?, 'done', ?, ?)",
                             (day, len(photos), int(time.time())))
 

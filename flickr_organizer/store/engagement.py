@@ -25,19 +25,33 @@ class EngagementStore(Database):
     def social_counts(self, kind: str) -> dict[str, int]:
         return {r[0]: r[1] for r in self.db.execute("SELECT photo_id, count FROM social_fetched WHERE kind=?", (kind,))}
 
+    def _gone(self, table: str, key: str, owner: str, owner_id: str, keep: list[str]) -> list[str]:
+        """The `key` values `owner_id` has in `table` that are not in `keep`."""
+        have = [r[0] for r in self.db.execute(f"SELECT {key} FROM {table} WHERE {owner}=?", (owner_id,))]
+        return [k for k in have if k not in set(keep)]
+
     def save_comments(self, photo_id: str, comments: list[dict], count: int) -> None:
         with self.db:
-            self.db.execute("DELETE FROM comments WHERE photo_id=?", (photo_id,))
-            self.db.executemany("INSERT OR REPLACE INTO comments VALUES (:id, :photo_id, :author, :author_name, "
-                                ":real_name, :date_created, :permalink, :text)", comments)
+            # Upsert and delete only what's gone, never delete-then-reinsert a row in one transaction:
+            # with the photo_id index that fails at commit and invalidates the whole DuckDB database.
+            comments = list({c["id"]: c for c in comments}.values())
+            self.db.executemany("DELETE FROM comments WHERE photo_id=? AND id=?",
+                                [(photo_id, i) for i in self._gone("comments", "id", "photo_id", photo_id, [c["id"] for c in comments])])
+            self.db.executemany("INSERT INTO comments VALUES (:id, :photo_id, :author, :author_name, :real_name, "
+                                ":date_created, :permalink, :text) ON CONFLICT(id) DO UPDATE SET author=excluded.author, "
+                                "author_name=excluded.author_name, real_name=excluded.real_name, "
+                                "date_created=excluded.date_created, permalink=excluded.permalink, text=excluded.text", comments)
             self.db.execute("INSERT OR REPLACE INTO social_fetched VALUES (?, 'comments', ?, ?)",
                             (photo_id, count, int(time.time())))
 
     def save_faves(self, photo_id: str, faves: list[dict], count: int) -> None:
         with self.db:
-            self.db.execute("DELETE FROM faves WHERE photo_id=?", (photo_id,))
-            self.db.executemany("INSERT OR REPLACE INTO faves VALUES (:photo_id, :user_id, :username, "
-                                ":real_name, :date_faved)", faves)
+            faves = list({f["user_id"]: f for f in faves}.values())
+            self.db.executemany("DELETE FROM faves WHERE photo_id=? AND user_id=?",
+                                [(photo_id, i) for i in self._gone("faves", "user_id", "photo_id", photo_id, [f["user_id"] for f in faves])])
+            self.db.executemany("INSERT INTO faves VALUES (:photo_id, :user_id, :username, :real_name, :date_faved) "
+                                "ON CONFLICT(photo_id, user_id) DO UPDATE SET username=excluded.username, "
+                                "real_name=excluded.real_name, date_faved=excluded.date_faved", faves)
             self.db.execute("INSERT OR REPLACE INTO social_fetched VALUES (?, 'faves', ?, ?)",
                             (photo_id, count, int(time.time())))
 

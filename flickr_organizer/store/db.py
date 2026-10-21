@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS flickr_groups (id TEXT PRIMARY KEY, name TEXT, path_a
 CREATE TABLE IF NOT EXISTS group_photos (group_id TEXT, photo_id TEXT, date_added BIGINT, PRIMARY KEY (group_id, photo_id));
 CREATE INDEX IF NOT EXISTS group_photos_photo ON group_photos(photo_id);
 CREATE TABLE IF NOT EXISTS comments (id TEXT PRIMARY KEY, photo_id TEXT, author TEXT, author_name TEXT, real_name TEXT, date_created BIGINT, permalink TEXT, text TEXT);
-CREATE INDEX IF NOT EXISTS comments_photo ON comments(photo_id);
 CREATE TABLE IF NOT EXISTS faves (photo_id TEXT, user_id TEXT, username TEXT, real_name TEXT, date_faved BIGINT, PRIMARY KEY (photo_id, user_id));
 CREATE TABLE IF NOT EXISTS social_fetched (photo_id TEXT, kind TEXT, count INTEGER, fetched_at BIGINT, PRIMARY KEY (photo_id, kind));
 CREATE TABLE IF NOT EXISTS photo_daily (photo_id TEXT, day TEXT, views INTEGER, comments INTEGER, favorites INTEGER, PRIMARY KEY (photo_id, day));
@@ -165,7 +164,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class SchemaTooNew(RuntimeError):
@@ -205,6 +204,8 @@ class Database:
         if version > SCHEMA_VERSION:
             raise SchemaTooNew(f"{self.path} is from a newer version of this tool (schema {version}); "
                                f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
+        if 0 < version < 5:                     # v5: comments_photo went; a DuckDB index that fell out of step with
+            self.db.execute("DROP INDEX IF EXISTS comments_photo")   # its table makes deleting that row fatal
         self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
