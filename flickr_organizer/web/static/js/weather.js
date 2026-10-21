@@ -1,7 +1,7 @@
 // The Weather section: Live (the stations now), History (charts), Stations (what's stored, sync).
 // Everything is stored metric; the unit setting (Settings → Weather) only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade } from "./lib.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -127,6 +127,7 @@ function Rose({ device, hours, unit }) {
   useEffect(() => { api(`/api/wx/rose?device=${device}&hours=${hours}`).then(setR).catch(() => setR(null)); }, [device, hours]);
   if (!r || !r.total) return html`<p class="muted">No wind data for this range.</p>`;
   const max = Math.max(...r.counts.map((c) => c.reduce((a, b) => a + b, 0)));
+  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Colours gradient, calm to strong
   const R = 44, step = 22.5, gap = 1.5;
   const arc = (i, r0, r1) => {
     const a0 = ((i * step - step / 2 + gap) - 90) * Math.PI / 180, a1 = ((i * step + step / 2 - gap) - 90) * Math.PI / 180;
@@ -139,9 +140,9 @@ function Rose({ device, hours, unit }) {
     ${[["N", 0, -52], ["E", 52, 0], ["S", 0, 52], ["W", -52, 0]].map(([l, x, y]) =>
       html`<text x=${x} y=${y} text-anchor="middle" dominant-baseline="central" font-size="6" fill="var(--muted)">${l}</text>`)}
     ${r.counts.map((c, i) => { let cum = 0; return c.map((n, j) => { const r0 = (cum / max) * R; cum += n;
-      return n ? html`<path key=${i + "-" + j} d=${arc(i, r0, (cum / max) * R)} fill="var(--chart-1)" fill-opacity=${0.25 + 0.75 * (j + 1) / r.bands.length} />` : ""; }); })}
+      return n ? html`<path key=${i + "-" + j} d=${arc(i, r0, (cum / max) * R)} fill=${tone(j)} />` : ""; }); })}
   </svg>
-  <div class="rose-key">${r.bands.map((_, j) => html`<span key=${j}><i style=${`background: var(--chart-1); opacity: ${0.25 + 0.75 * (j + 1) / r.bands.length}`}></i>${bandLabel(j)}</span>`)}</div></div>`;
+  <div class="rose-key">${r.bands.map((_, j) => html`<span key=${j}><i style=${`background: ${tone(j)}`}></i>${bandLabel(j)}</span>`)}</div></div>`;
 }
 
 function History() {
@@ -189,7 +190,8 @@ function History() {
       ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0])}
       ${chart("Rain", make("rain", "rain", { digits: u === "imperial" ? 2 : 1 }), `${unitsFor(u).rain[0]} per point`, { bars: true })}
       ${chart("Solar radiation", make("solar", null, { digits: 0 }), "W/m²")}
-      <div class="card"><h2>Wind rose${shown.length > 1 ? ` · ${names[shown[0]]}` : ""}</h2><${Rose} device=${shown[0]} hours=${hours} unit=${u} /></div>`}`;
+      ${shown.map((id) => html`<div class="card" key=${id}><h2>Wind rose${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
+        <${Rose} device=${id} hours=${hours} unit=${u} /></div>`)}`}`;
 }
 
 // ---- Stations ---------------------------------------------------------------------------
