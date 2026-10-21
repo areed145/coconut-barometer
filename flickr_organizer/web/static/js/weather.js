@@ -203,11 +203,22 @@ function Rose({ device, start, end, unit }) {
   <div class="rose-key">${r.bands.map((_, j) => html`<span key=${j}><i style=${`background: ${tone(j)}`}></i>${bandLabel(j)}</span>`)}</div></div>`;
 }
 
-function History() {
+// The view is in the address, so it can be linked: #/weather/history?range=30d&station=123 or ?from=2026-10-01&to=2026-10-07.
+function History({ params = {} }) {
   const [info, setInfo] = useState(null);
-  const [hours, setHours] = useState(24 * 7);
-  const [custom, setCustom] = useState(null);        // {from, to} as YYYY-MM-DD while "Custom" is chosen
-  const [picked, setPicked] = useState(null);       // device ids shown; null = all
+  const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
+  const hours = (RANGES.find(([l]) => l === params.range) || RANGES[1])[1];
+  const custom = isDate(params.from) && isDate(params.to) ? pickRange(params.from, params.to) : null;
+  const pickedId = Number(params.station) || null;
+  const picked = pickedId && info?.stations.some((s) => s.device_id === pickedId) ? [pickedId] : null;   // null = all
+  const open = (next) => {
+    const q = new URLSearchParams(Object.entries({ range: params.range, from: params.from, to: params.to, station: params.station, ...next })
+      .filter(([k, v]) => v && !(k === "range" && v === RANGES[1][0]))).toString();
+    location.hash = "#/weather/history" + (q ? "?" + q : "");
+  };
+  const setRange = (label) => open({ range: label, from: "", to: "" });
+  const setDates = (from, to) => open({ range: "", from, to });
+  const setPicked = (ids) => open({ station: ids ? String(ids[0]) : "" });
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   useEffect(() => { api("/api/wx/stations").then(setInfo).catch((e) => setErr(e.message)); }, []);
@@ -218,11 +229,10 @@ function History() {
     if (!shown.length) return;
     let live = true;
     setData(null);
-    const span = custom ? (custom.range ? `start=${custom.range[0]}&end=${custom.range[1]}` : null) : `hours=${hours}`;
-    if (!span) return;
+    const span = custom ? `start=${custom.range[0]}&end=${custom.range[1]}` : `hours=${hours}`;
     api(`/api/wx/history?${shown.map((d) => "device=" + d).join("&")}&${span}`).then((x) => live && setData(x)).catch((e) => live && setErr(e.message));
     return () => { live = false; };
-  }, [key, hours, custom && custom.range && custom.range.join()]);
+  }, [key, hours, custom && custom.range.join()]);
   const names = useMemo(() => Object.fromEntries((info?.stations || []).map((s) => [s.device_id, s.name])), [info]);
   if (err) return html`<p class="problem">${err}</p>`;
   if (!info) return html`<div class="boot">Loading…</div>`;
@@ -237,12 +247,12 @@ function History() {
     <${TimeChart} t=${data.t} series=${series} unit=${unit} ...${extra} /></div>`;
   return html`
     <div class="toolbar">
-      <span class="range">${RANGES.map(([label, h]) => html`<button key=${label} class=${!custom && hours === h ? "primary" : ""} onClick=${() => { setCustom(null); setHours(h); }}>${label}</button>`)}
-        <button class=${custom ? "primary" : ""} onClick=${() => setCustom(custom || pickRange(day(-7), day(0)))}>Custom</button></span>
+      <span class="range">${RANGES.map(([label, h]) => html`<button key=${label} class=${!custom && hours === h ? "primary" : ""} onClick=${() => setRange(label)}>${label}</button>`)}
+        <button class=${custom ? "primary" : ""} onClick=${() => !custom && setDates(day(-7), day(0))}>Custom</button></span>
       ${custom && html`<span class="daterange">
-        <input type="date" aria-label="From" value=${custom.from} max=${custom.to} onChange=${(e) => e.target.value && setCustom(pickRange(e.target.value, custom.to))} />
+        <input type="date" aria-label="From" value=${custom.from} max=${custom.to} onChange=${(e) => e.target.value && setDates(e.target.value, custom.to)} />
         <span class="muted">to</span>
-        <input type="date" aria-label="To" value=${custom.to} min=${custom.from} max=${day(0)} onChange=${(e) => e.target.value && setCustom(pickRange(custom.from, e.target.value))} />
+        <input type="date" aria-label="To" value=${custom.to} min=${custom.from} max=${day(0)} onChange=${(e) => e.target.value && setDates(custom.from, e.target.value)} />
       </span>`}
       ${info.stations.length > 1 && html`<span class="seg">
         <button class=${!picked ? "primary" : ""} onClick=${() => setPicked(null)}>Both</button>
@@ -292,6 +302,6 @@ function Stations() {
 
 export const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["stations", "Stations"]];
 
-export function Weather({ tab = "live" }) {
-  return tab === "history" ? html`<${History} />` : tab === "stations" ? html`<${Stations} />` : html`<${Live} />`;
+export function Weather({ tab = "live", params = {} }) {
+  return tab === "history" ? html`<${History} params=${params} />` : tab === "stations" ? html`<${Stations} />` : html`<${Live} />`;
 }

@@ -107,7 +107,7 @@ function Shell({ session, onLogout }) {
   else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
-  if (tab === "weather") page = html`<${Weather} tab=${route[1]} />`;
+  if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
