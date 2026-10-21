@@ -1,7 +1,7 @@
 {
   "name": "Coconut Barometer",
   "short_name": "Coconut Barometer",
-  "start_url": "/#/photos",
+  "start_url": "/#/photos/photostream",
   "display": "standalone",
   "background_color": "#f6f5f3",
   "theme_color": "#f6f5f3",

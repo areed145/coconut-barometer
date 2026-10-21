@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .config import CHOICES, COLORS, DEFAULTS, ENV_OVERRIDES, FREE_MAPS, ITEM_KEYS, OPTIONAL, RENAMED, _merge, validate
 
-SECRETS = ("flickr.api_key", "flickr.api_secret", "vision.api_key")
+SECRETS = ("flickr.api_key", "flickr.api_secret", "vision.api_key", "weatherflow.token")
 LOCKED = {"database": "where the database is", "web.host": "what address the server listens on",
           "web.port": "what port the server listens on", "web.allowed_hosts": "which host names are accepted",
           "web.trusted_proxies": "whose X-Forwarded-For headers are believed",

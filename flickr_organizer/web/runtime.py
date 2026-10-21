@@ -12,6 +12,7 @@ import time
 
 from ..review import ReviewApp
 from ..schedule import due
+from ..weather.service import WeatherService
 from ..store import Store
 from .security import LoginThrottle
 
@@ -27,6 +28,7 @@ class Runtime:
         self._local = threading.local()
         self.review = ReviewApp(self.store(), client, cfg=cfg, provider=provider_factory, background=background,
                                 process_kw=process_kw)
+        self.weather = self.review.weather = WeatherService(cfg, self.db_path)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()
@@ -87,6 +89,8 @@ class Runtime:
         self._scheduler = threading.Thread(target=self._schedule_loop, args=(first_delay,), name="scheduler",
                                            daemon=True)
         self._scheduler.start()
+        # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
+        self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
 
     def stop(self) -> None:
         self._stop.set()

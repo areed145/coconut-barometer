@@ -96,7 +96,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
         self.login()
         q = self.c.get("/api/review/worker").json()
-        self.assertEqual(set(q), {"running", "waiting", "flickr", "vision", "recent"})
+        self.assertEqual(set(q), {"running", "waiting", "flickr", "vision", "weather", "recent"})
 
     # ---- security -----------------------------------------------------------
     def test_everything_but_login_needs_a_session(self):

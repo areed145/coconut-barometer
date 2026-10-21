@@ -65,7 +65,7 @@ const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["tak
 const FILTERS = ["album", "tag", "year", "camera", "media", "q", "sort", "is"];
 
 // The Photos page, and every filtered view of it: the filters live in the address
-// (#/photos?album=…&tag=…&year=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
+// (#/photos/photostream?album=…&tag=…&year=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
 export function Photos({ params = {} }) {
   const f = Object.fromEntries(FILTERS.map((k) => [k, params[k] || ""]));
   const set = (patch) => location.replace(photosLink({ ...f, ...patch }));     // no history entry per keystroke
@@ -94,7 +94,7 @@ export function Photos({ params = {} }) {
   const label = Object.fromEntries(presets.map((p) => [p.id, p.label]));
   const groups = [...new Set(presets.map((p) => p.group))];
   return html`
-    ${f.album && html`<a href="#/albums">← Albums</a>
+    ${f.album && html`<a href="#/photos/albums">← Albums</a>
       <h1 class="title">${album ? album.title : "…"}</h1>
       ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}`}
     ${f.tag && !f.album && html`<h1 class="title">#${f.tag}</h1>`}
@@ -201,7 +201,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
         ${e?.groups.length > 0 && html`<dt>Groups</dt><dd>${e.groups.length}</dd>`}
       </dl>`}
       ${d?.lat != null && d?.lon != null && !(d.lat === 0 && d.lon === 0) && html`<${MiniMap} lat=${d.lat} lon=${d.lon} />
-        <p class="maplink"><a href=${`#/map/@${d.lat},${d.lon},14`} onClick=${onClose}>Show on the map</a></p>`}
+        <p class="maplink"><a href=${`#/photos/map/@${d.lat},${d.lon},14`} onClick=${onClose}>Show on the map</a></p>`}
       ${d?.tags.length > 0 && html`<div class="chips">${d.tags.map((t) => html`<a class="chip" href=${photosLink({ tag: t })}
           onClick=${onClose} title=${`All photos tagged ${t}`}>${t}</a>`)}</div>`}
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">

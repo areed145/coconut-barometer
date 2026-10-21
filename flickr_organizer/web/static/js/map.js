@@ -26,7 +26,7 @@ function clusterIcon(L, n, total, lo, hi) {
   return L.divIcon({ html: el, className: "mc-wrap", iconSize: [size, size] });
 }
 
-function parseAt(at) {   // "@lat,lon,zoom" from #/map/@…
+function parseAt(at) {   // "@lat,lon,zoom" from #/photos/map/@…
   const m = /^@(-?[\d.]+),(-?[\d.]+)(?:,(\d+))?$/.exec(at || "");
   return m ? { center: [parseFloat(m[1]), parseFloat(m[2])], zoom: parseInt(m[3] || "14", 10) } : null;
 }

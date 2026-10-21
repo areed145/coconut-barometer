@@ -11,6 +11,7 @@ One connection, methods grouped by area:
   gallery.py     photostream and album listings, photo detail
   analytics.py   daily series, gainers, breakdowns, per-photo timelines
   settings.py    admin-page settings, encrypted API keys, the change history
+  weather.py     WeatherFlow stations and observations
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -34,6 +35,7 @@ Tables
   settings         admin-page settings (path -> JSON), layered over config.yaml
   secrets          API keys, AES-GCM encrypted with a key kept outside the database
   settings_log     who changed which setting when (secrets masked)
+  wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations
@@ -48,12 +50,13 @@ from .library import LibraryStore
 from .queue import QueueStore
 from .settings import SettingsStore
 from .stats import StatsStore
+from .weather import WeatherStore
 
 __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,
-            GalleryStore, AnalyticsStore, SettingsStore):
+            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

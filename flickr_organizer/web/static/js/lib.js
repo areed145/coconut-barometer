@@ -115,7 +115,7 @@ export function useThemeTick() {
   return tick;
 }
 
-// ---- router: #/photos?tag=ramen&year=2019, #/review, ... ------------------------------
+// ---- router: #/photos/photostream?tag=ramen&year=2019, #/review, ... ------------------------------
 // route is the path split on "/", with route.params the query after "?".
 export function useRoute() {
   const read = () => {
@@ -134,10 +134,10 @@ export function useRoute() {
 }
 export const go = (path) => { location.hash = "#/" + path; };
 
-// The Photos page filtered: photosLink({tag: "ramen"}) -> "#/photos?tag=ramen". Empty values drop out.
+// The Photos page filtered: photosLink({tag: "ramen"}) -> "#/photos/photostream?tag=ramen". Empty values drop out.
 export const photosLink = (params = {}) => {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
-  return "#/photos" + (qs ? "?" + qs : "");
+  return "#/photos/photostream" + (qs ? "?" + qs : "");
 };
 
 // ---- formatting --------------------------------------------------------------------

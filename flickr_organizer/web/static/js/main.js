@@ -5,6 +5,7 @@ import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
 import { MapPage } from "./map.js";
 import { QueuePage } from "./queue.js";
+import { Weather, WEATHER_TABS } from "./weather.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
@@ -58,6 +59,8 @@ function SyncBox() {
   </div>`;
 }
 
+const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"]];
+
 function Shell({ session, onLogout }) {
   const route = useRoute();
   const [pending, setPending] = useState(null);
@@ -78,30 +81,38 @@ function Shell({ session, onLogout }) {
       .forEach((el) => el.scrollIntoView({ block: "nearest", inline: "nearest" })));
   }, [location.hash]);
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
+  // Photos is a section: #/photos/<photostream|albums|map|analytics>. An album's photos are the
+  // photostream filtered to it, so they're listed under Albums.
+  const inPhotos = !["weather", "review", "queue", "settings"].includes(tab);
+  const sub = tab === "photos" && route[1] || "photostream";
   let page;
-  useEffect(() => {     // old album links (#/albums/123) are the Photos page filtered to the album
-    if (tab === "albums" && route[1]) location.replace(photosLink({ album: route[1] }));
-  }, [tab, route[1]]);
-  if (tab === "albums" && !route[1]) page = html`<${Albums} />`;
+  if (!inPhotos) page = null;
+  else if (sub === "albums") page = html`<${Albums} />`;
+  else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
+  else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
+  else page = html`<${Photos} params=${route.params} />`;
+  if (tab === "weather") page = html`<${Weather} tab=${route[1]} />`;
   else if (tab === "review") page = html`<${Reviewer} onCount=${setPending} />`;
-  else if (tab === "analytics") page = html`<${Analytics} tab=${route[1]} />`;
-  else if (tab === "map") page = html`<${MapPage} at=${route[1]} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
-  else page = html`<${Photos} params=${route.params} />`;
-  // An album's photos are under Albums; every other photo list under Photos.
-  const section = tab === "photos" && route.params.album ? "albums" : tab;
-  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${section === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(section)) ? "on" : ""}>${label}${extra}</a>`;
+  const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
+  const subSection = sub === "photostream" && route.params.album ? "albums" : sub;
+  const subtabs = inPhotos ? html`
+    <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.map(([t, label]) => html`<a href=${"#/photos/" + t}
+      class=${t === subSection ? "on" : ""}>${label}</a>`)}</nav>`
+    : tab === "weather" ? html`
+    <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.map(([t, label]) => html`<a href=${"#/weather/" + t}
+      class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>` : "";
   return html`
     <header class="top">
       <a class="brand" href="#/photos" aria-label="Coconut Barometer: Photos">
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
-        ${link("photos", "Photos")}${link("albums", "Albums")}${link("map", "Map")}
+        ${link("photos", "Photos")}${link("weather", "Weather")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}
         ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
-        ${link("analytics", "Analytics")}${link("settings", "Settings")}
+        ${link("settings", "Settings")}
       </nav>
       <div class="account">
         <${SyncBox} />
@@ -109,7 +120,7 @@ function Shell({ session, onLogout }) {
         <button class="link" onClick=${logout}>Sign out</button>
       </div>
     </header>
-    <main class="page">${page}</main>`;
+    <main class="page">${subtabs}${page}</main>`;
 }
 
 function App() {

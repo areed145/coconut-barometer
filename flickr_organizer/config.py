@@ -20,6 +20,12 @@ import yaml
 
 DEFAULTS: dict[str, Any] = {
     "flickr": {"api_key": None, "api_secret": None, "calls_per_second": 0.9},
+    "weatherflow": {
+        "token": None,
+        "backfill_days": 7,          # history fetched from REST: forward from the newest stored, back this many days
+        "calls_per_second": 2.0,
+    },
+    "weather": {"units": "metric"},  # how the Weather pages show values; always stored metric
     "database": "flickr_organizer.db",
     "albums": {"create_missing": False},
     "geo": {
@@ -89,12 +95,12 @@ DEFAULTS: dict[str, Any] = {
 FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra"),
              ("standard_tags", "place", "region_overrides"), ("standard_tags", "album_tags", "albums")}
 # Settings whose default is None but that take a value.
-OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str,
+OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("vision", "thumbnail"): ("url_q", "url_n", "url_m", "url_z"),
-           ("schedule", "new_photos"): ("process", "queue")}
+           ("schedule", "new_photos"): ("process", "queue"), ("weather", "units"): ("metric", "imperial")}
 RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"): (1, 32),
           ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
@@ -103,12 +109,13 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
-          ("map", "expand_at"): (2, 200)}
+          ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
+          ("weatherflow", "calls_per_second"): (0.1, 10)}
 COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
 # Secrets can come from the environment instead of config.yaml (on a server, keep them there).
 ENV_OVERRIDES = {"FLICKR_API_KEY": ("flickr", "api_key"), "FLICKR_API_SECRET": ("flickr", "api_secret"),
-                 "ANTHROPIC_API_KEY": ("vision", "api_key"), "VISION_API_KEY": ("vision", "api_key"),
+                 "WEATHERFLOW_TOKEN": ("weatherflow", "token"), "ANTHROPIC_API_KEY": ("vision", "api_key"), "VISION_API_KEY": ("vision", "api_key"),
                  "FLICKR_ORGANIZER_DATABASE": ("database",)}
 PLACEHOLDERS = {
     ("vision", "describe", "instructions"): {"max_words"},

@@ -1,4 +1,4 @@
-// Analytics, in tabs (#/analytics/<tab>): Overview, Photos, Tags, Places, Gear, Audience,
+// Analytics, in tabs (#/photos/analytics/<tab>): Overview, Photos, Tags, Places, Gear, Audience,
 // Albums & groups, and "Did it help?". Each tab loads its own data when opened.
 import { html, useState, useEffect, useMemo, api, num, ago, plain } from "./lib.js";
 import { Chart } from "./chart.js";
@@ -92,7 +92,7 @@ export function Analytics({ tab = "overview" }) {
     groups: html`<${GroupsTab} />`, impact: html`<${ImpactTab} />`,
   }[current];
   return html`<div class="analytics">
-    <nav class="subtabs" aria-label="Analytics">${TABS.map(([t, label]) => html`<a href=${"#/analytics/" + t}
+    <nav class="subtabs" aria-label="Analytics">${TABS.map(([t, label]) => html`<a href=${"#/photos/analytics/" + t}
         class=${t === current ? "on" : ""}>${label}</a>`)}</nav>
     ${page}
   </div>`;

@@ -19,6 +19,9 @@ STATUSES = ("pending", "new", "applying", "failed", "applied", "rejected", "none
 TO_REVIEW = ("pending", "new")
 
 
+PHOTO_JOBS = ("apply", "process")      # the other jobs are not about a photo: "sync" and "wx" (WeatherFlow)
+
+
 class ReviewApp:
     """The review tool's logic. decide() and process() only queue a job; a single
     background worker makes the Flickr (and vision) calls in order, so the rate limit
@@ -41,6 +44,7 @@ class ReviewApp:
         self.process_kw = process_kw or {}
         self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
         self.syncing = False
+        self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
         self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
@@ -69,6 +73,15 @@ class ReviewApp:
         if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("sync", mode or ""))
+        return {"status": "queued"}
+
+    def wx_sync(self) -> dict:
+        """Queue a WeatherFlow sync (stations, then every Tempest's missing history). Returns at once."""
+        if self.weather is None or self.weather.client is None:
+            return {"status": "no_token"}
+        if (self.running or {}).get("kind") == "wx" or any(kind == "wx" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        self.jobs.put(("wx", ""))
         return {"status": "queued"}
 
     def summary(self) -> dict:
@@ -177,20 +190,21 @@ class ReviewApp:
         order, so `position` is the place in that one line. Flickr: approvals (writes) and
         syncs. Vision: processing (EXIF from Flickr, then the vision model)."""
         waiting = list(self.jobs.queue)                       # a snapshot; the worker may move on
-        ids = [pid for kind, pid in waiting[:300] if kind != "sync"]
-        if self.running and self.running["kind"] != "sync":
+        ids = [pid for kind, pid in waiting[:300] if kind in PHOTO_JOBS]
+        if self.running and self.running["kind"] in PHOTO_JOBS:
             ids.append(self.running["photo_id"])
         cards = self.store.cards(ids)
 
         def job(kind, pid, **extra):
-            c = cards.get(pid) if kind != "sync" else None
-            return {"kind": kind, "photo_id": pid if kind != "sync" else None, "mode": (pid or "due") if kind == "sync" else None,
-                    "title": "Sync" if kind == "sync" else ((c or {}).get("title") or pid),
+            c = cards.get(pid) if kind in PHOTO_JOBS else None
+            return {"kind": kind, "photo_id": pid if kind in PHOTO_JOBS else None, "mode": (pid or "due") if kind == "sync" else None,
+                    "title": {"sync": "Sync", "wx": "WeatherFlow"}.get(kind) or ((c or {}).get("title") or pid),
                     "thumb": ((c or {}).get("sizes") or {}).get("q", ""), **extra}
 
-        lanes = {"flickr": [], "vision": []}
+        lanes = {"flickr": [], "vision": [], "weather": []}
         for i, (kind, pid) in enumerate(waiting[:300], 1):
-            lanes["vision" if kind == "process" else "flickr"].append(job(kind, pid, position=i))
+            lanes["vision" if kind == "process" else "weather" if kind == "wx" else "flickr"].append(job(kind, pid, position=i))
+        wx = self.weather.client if self.weather else None
         vcfg = (self.cfg or {}).get("vision", {})
         return {
             "running": job(self.running["kind"], self.running["photo_id"], started=self.running["started"])
@@ -198,6 +212,9 @@ class ReviewApp:
             "waiting": len(waiting),
             "flickr": {"jobs": lanes["flickr"], "calls": getattr(self.client, "call_count", 0),
                        "calls_per_second": (self.cfg or {}).get("flickr", {}).get("calls_per_second")},
+            "weather": {"jobs": lanes["weather"], "configured": wx is not None, "calls": wx.call_count if wx else 0,
+                        "requests": list(reversed(wx.log)) if wx else [],
+                        "stream": self.weather.hub.snapshot()["stream"] if self.weather else None},
             "vision": {"jobs": lanes["vision"], "model": vcfg.get("model"), "provider": vcfg.get("provider"),
                        **self.vision_usage},
             "recent": list(reversed(self.recent)),
@@ -216,6 +233,8 @@ class ReviewApp:
             try:
                 if kind == "sync":
                     out = self._sync(store, pid or None)
+                elif kind == "wx":
+                    out = self.weather.sync(store, log=self.log)
                 else:
                     out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
@@ -227,10 +246,11 @@ class ReviewApp:
                 self.syncing = False
                 out = {"status": "failed", "error": str(e)}
             try:   # recorded before task_done(), so wait() returns with the job listed
-                photo = store.photo(pid) if kind != "sync" else None
+                photo = store.photo(pid) if kind in PHOTO_JOBS else None
                 self._seq += 1
                 self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
-                                    "title": "sync" if kind == "sync" else (photo["title"] if photo else "") or pid,
+                                    "title": {"sync": "sync", "wx": "WeatherFlow"}.get(kind) or (photo["title"] if photo else "") or pid,
+                                    "rows": out.get("rows"), "calls": out.get("calls"),
                                     "applied": out.get("stats", {}).get("applied", 0),
                                     "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
                                     "started": started, "seconds": round(time.time() - started, 1),

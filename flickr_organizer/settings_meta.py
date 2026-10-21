@@ -19,6 +19,8 @@ SECTIONS = [
     ("map", "Map", "The Map page: photos clustered by where they were taken."),
     ("theme", "Colours", "One gradient for everything that shows an amount: map clusters and the bars in "
                          "Analytics. Small amounts get the first colour, the largest the second, on a log scale."),
+    ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
+                           "from their WebSocket. Both stations on the token's account are found by themselves."),
     ("vision", "Vision model", "The model that looks at each photo and writes the proposals."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
@@ -38,6 +40,7 @@ META = {
     "flickr.api_key": _m("keys", "Flickr API key", "From flickr.com/services/apps/create."),
     "flickr.api_secret": _m("keys", "Flickr API secret"),
     "vision.api_key": _m("keys", "Vision API key", "Anthropic (or OpenAI) key. Not needed for Ollama."),
+    "weatherflow.token": _m("keys", "WeatherFlow token", "A personal access token, from tempestwx.com → Settings → Data Authorizations."),
 
     # ---- Sync
     "schedule.new_photos": _m("sync", "New photos", "Either way they're under Review → To review; nothing changes "
@@ -55,6 +58,14 @@ META = {
                                          group="Stats"),
     "flickr.calls_per_second": _m("sync", "Flickr calls per second",
                                   "Shared by everything using the key. 1 = Flickr's 3600/hour limit.", group="Limits"),
+
+    # ---- Weather
+    "weather.units": _m("weather", "Units", "How values are shown. They're always stored metric.",
+                        options={"metric": "Metric (°C, m/s, hPa, mm)", "imperial": "Imperial (°F, mph, inHg, in)"}),
+    "weatherflow.backfill_days": _m("weather", "History to fetch (days)", "How far back the REST sync reaches, one request "
+                                    "per day per station. Raise it later to fill in older days; it only fetches what's missing.",
+                                    group="History"),
+    "weatherflow.calls_per_second": _m("weather", "REST calls per second", group="History"),
 
     # ---- Titles
     "vision.title.max_words": _m("titles", "Length (words)"),
