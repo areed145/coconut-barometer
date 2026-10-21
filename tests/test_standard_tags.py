@@ -24,7 +24,7 @@ class StandardTagsTest(unittest.TestCase):
             "place": {"enabled": True, "extra": {"Texas": ["southwest"]}},
             "camera": {"enabled": True, "rules": [{"match": "iphone", "tags": ["mobile"]}],
                        "albums": [{"match": "^nikon", "album": "Landscapes"}]}}})
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         self.fl.photos[0]["datetaken"] = "2019-07-17 19:03:25"
         self.fl.photos[2]["tags"] = "2011 summer"                  # already dated, older style

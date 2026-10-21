@@ -18,7 +18,7 @@ PASSWORD = "correct horse battery"
 
 class WebTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         self.fl = FakeFlickr()
         store = Store(path)
         sync(self.fl, store, log=lambda *a: None)

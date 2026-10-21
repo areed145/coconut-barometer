@@ -17,7 +17,7 @@ class PipelineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.cfg = from_dict(CFG)
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         sync(self.fl, self.store, log=lambda *a: None)
         self.vision = FakeVision("m1")

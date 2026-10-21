@@ -82,10 +82,10 @@ class ValidateTest(unittest.TestCase):
 class CheckTest(unittest.TestCase):
     def test_check_reports_albums_that_dont_exist(self):
         tmp = tempfile.mkdtemp()
-        sync(FakeFlickr(), Store(os.path.join(tmp, "db.sqlite")), log=lambda *a: None)
+        sync(FakeFlickr(), Store(os.path.join(tmp, "db.duckdb")), log=lambda *a: None)
         path = os.path.join(tmp, "config.yaml")
         with open(path, "w") as f:
-            f.write("database: db.sqlite\nvision:\n  categories:\n    food:\n      album: Fod\n"
+            f.write("database: db.duckdb\nvision:\n  categories:\n    food:\n      album: Fod\n"
                     "      description: food\n    scenery:\n      album: Landscapes\n      description: views\n")
         out = io.StringIO()
         with redirect_stdout(out):

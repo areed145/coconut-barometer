@@ -12,6 +12,7 @@ from .db import Database
 class QueueStore(Database):
     SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "views": "p.views DESC",
              "faves": "p.faves DESC", "comments": "p.comments DESC"}
+    SORTS = {k: v + ", p.id" for k, v in SORTS.items()}
 
     def queue_ids(self, statuses: Iterable[str] | None = None, sort: str = "newest") -> list[str]:
         if statuses is None:
@@ -35,7 +36,7 @@ class QueueStore(Database):
         processed when opened). Returns their ids, newest first."""
         ids = [r[0] for r in self.db.execute(
             "SELECT id FROM photos WHERE date_upload > ? AND id NOT IN (SELECT photo_id FROM queue) "
-            "ORDER BY date_upload DESC", (uploaded_after,))]
+            "ORDER BY date_upload DESC, id", (uploaded_after,))]
         for pid in ids:
             self.queue_put(pid, "new", [])
         return ids
@@ -75,12 +76,12 @@ class QueueStore(Database):
     def applied(self, action: str) -> dict[str, tuple[str, int]]:
         """photo_id -> (target, applied_at) of the latest applied change of this kind."""
         out: dict[str, tuple[str, int]] = {}
-        for r in self.db.execute("SELECT photo_id, target, at FROM decisions WHERE action=? AND status='applied' "
-                                 "ORDER BY at", (action,)):
+        for r in self.db.execute('SELECT photo_id, target, "at" FROM decisions WHERE action=? AND status=\'applied\' '
+                                 'ORDER BY "at"', (action,)):
             out[r[0]] = (r[1], r[2])
         return out
 
     def applied_since(self, since: int) -> list[tuple[str, str, str]]:
         """(photo_id, action, target) applied at or after `since`, oldest first."""
         return [tuple(r) for r in self.db.execute(
-            "SELECT photo_id, action, target FROM decisions WHERE status='applied' AND at >= ? ORDER BY at", (since,))]
+            'SELECT photo_id, action, target FROM decisions WHERE status=\'applied\' AND "at" >= ? ORDER BY "at"', (since,))]

@@ -40,9 +40,9 @@ class StatsStore(Database):
             raise ValueError(by)
         until = until or "9999-12-31"
         return [dict(r) for r in self.db.execute(
-            f"SELECT d.photo_id, p.title, SUM(d.views) views, SUM(d.comments) comments, SUM(d.favorites) favorites "
+            f"SELECT d.photo_id, p.title, SUM(d.views) AS views, SUM(d.comments) AS comments, SUM(d.favorites) AS favorites "
             f"FROM photo_daily d LEFT JOIN photos p ON p.id = d.photo_id WHERE d.day BETWEEN ? AND ? "
-            f"GROUP BY d.photo_id ORDER BY SUM(d.{by}) DESC LIMIT ?", (since, until, limit))]
+            f"GROUP BY d.photo_id, p.title ORDER BY SUM(d.{by}) DESC, d.photo_id LIMIT ?", (since, until, limit))]
 
     def photo_history(self, photo_id: str) -> list[dict]:
         return [dict(r) for r in self.db.execute(

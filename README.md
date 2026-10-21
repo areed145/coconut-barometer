@@ -117,7 +117,7 @@ python -m flickr_organizer plan --list     # every change, e.g. after editing a 
 
 ## What's remembered
 
-Everything lives in a local SQLite file (`flickr_organizer.db`):
+Everything lives in a local DuckDB file (`flickr_organizer.duckdb`). DuckDB lets one process use a database at a time, so stop `serve` before running a command-line command such as `sync` or `backup` against the same file (or use the app's own pages):
 
 - Vision results are cached, so a photo is classified once. It's classified again only if you change the model, the categories, the prompt, or the description/title briefs.
 - Applied, rejected and edited changes are never proposed again (dropping a tag rejects just that tag). Failed ones are proposed again. The full rules are at the top of `flickr_organizer/changes.py`.

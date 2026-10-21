@@ -26,7 +26,7 @@ DEFAULTS: dict[str, Any] = {
         "calls_per_second": 2.0,
     },
     "weather": {"units": "metric"},  # how the Weather pages show values; always stored metric
-    "database": "flickr_organizer.db",
+    "database": "flickr_organizer.duckdb",
     "albums": {"create_missing": False},
     "geo": {
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
@@ -357,7 +357,17 @@ def database_path(cfg_path: str | os.PathLike, raw: dict, environ=os.environ) ->
     if not db and data_dir(environ):
         return str(data_dir(environ) / DEFAULTS["database"])
     db = db or DEFAULTS["database"]
-    return db if os.path.isabs(db) else str(Path(cfg_path).resolve().parent / db)
+    path = Path(db) if os.path.isabs(db) else Path(cfg_path).resolve().parent / db
+    # A pre-DuckDB config may still point at the SQLite file. Keep that file as the
+    # migration source and direct this DuckDB-only build to a sibling database file.
+    if path.is_file():
+        try:
+            with path.open("rb") as f:
+                if f.read(16) == b"SQLite format 3\x00":
+                    return str(path.with_suffix(".duckdb"))
+        except OSError:
+            pass
+    return str(path)
 
 
 def read_raw(path: str | os.PathLike) -> dict:

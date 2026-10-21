@@ -38,7 +38,7 @@ class PlatformTest(unittest.TestCase):
         data = tempfile.mkdtemp()
         with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_DATA": data}):
             self.assertEqual(read_raw(os.path.join(data, "no-such-config.yaml")), {})
-            self.assertEqual(database_path("/elsewhere/config.yaml", {}), os.path.join(data, "flickr_organizer.db"))
+            self.assertEqual(database_path("/elsewhere/config.yaml", {}), os.path.join(data, "flickr_organizer.duckdb"))
         with self.assertRaises(SystemExit):
             read_raw(os.path.join(data, "no-such-config.yaml"))           # locally it's still required
 
@@ -54,7 +54,7 @@ class PlatformTest(unittest.TestCase):
 class BackupTest(unittest.TestCase):
     def setUp(self):
         d = tempfile.mkdtemp()
-        self.cfg = from_dict({"database": os.path.join(d, "db.sqlite"), "backup": {"keep": 2}})
+        self.cfg = from_dict({"database": os.path.join(d, "db.duckdb"), "backup": {"keep": 2}})
         self.store = Store(self.cfg["database"])
         sync(FakeFlickr(), self.store, log=lambda *a: None)
 
@@ -69,10 +69,27 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(oct(path.stat().st_mode)[-3:], "600")
         plain = path.with_suffix("")
         plain.write_bytes(gzip.decompress(path.read_bytes()))
-        self.assertEqual(sqlite3.connect(plain).execute("SELECT COUNT(*) FROM photos").fetchone()[0], 5)
+        import duckdb
+        con = duckdb.connect(str(plain), read_only=True)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM photos").fetchone()[0], 5)
+        con.close()
+
+    def test_restore_keeps_the_old_database_whole_and_drops_its_write_ahead_log(self):
+        backup = B.make_backup(self.cfg)
+        self.store.set_meta("changed_after_backup", "yes")
+        self.store.close()
+        wal = self.cfg["database"] + ".wal"
+        with open(wal, "wb") as f:
+            f.write(b"left behind by the database being replaced")
+        kept = B.restore(self.cfg, str(backup))
+        self.assertFalse(os.path.exists(wal))
+        restored = Store(self.cfg["database"])
+        self.assertIsNone(restored.get_meta("changed_after_backup"))
+        restored.close()
+        self.assertGreater(kept.stat().st_size, 0)
 
     def test_names_outside_the_backup_folder_are_refused(self):
-        for name in ("../db.sqlite", "/etc/passwd", "flickr_organizer-x.db.gz/../../db.sqlite", "other.db.gz"):
+        for name in ("../db.duckdb", "/etc/passwd", "flickr_organizer-x.db.gz/../../db.duckdb", "other.db.gz"):
             with self.assertRaises(FileNotFoundError):
                 B.backup_path(self.cfg, name)
 
@@ -132,7 +149,7 @@ class FakeFlickrAuth:
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         store = Store(path)
         sync(FakeFlickr(), store, log=lambda *a: None)
         store.set_password_hash("owner", hash_password(PASSWORD))
@@ -177,7 +194,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(wrong.status_code, 403)
         r = self.c.post(f"/api/admin/backups/{name}/download", json={"password": PASSWORD}, headers=self.h)
         self.assertEqual((r.status_code, r.content[:2]), (200, b"\x1f\x8b"))                # gzip
-        self.assertEqual(self.c.post("/api/admin/backups/..%2Fdb.sqlite/download", json={"password": PASSWORD},
+        self.assertEqual(self.c.post("/api/admin/backups/..%2Fdb.duckdb/download", json={"password": PASSWORD},
                                      headers=self.h).status_code, 404)
 
     def test_restore_upload_is_checked_then_staged(self):
@@ -212,17 +229,17 @@ class SetupTest(unittest.TestCase):
         self.addCleanup(env.stop)
         for var in ("FLICKR_ORGANIZER_KEY_FILE", "FLICKR_ORGANIZER_SECRET_KEY"):
             os.environ.pop(var, None)
-        self.cfg = from_dict({**CFG, "database": os.path.join(self.data, "flickr_organizer.db"),
+        self.cfg = from_dict({**CFG, "database": os.path.join(self.data, "flickr_organizer.duckdb"),
                               "web": {"allowed_hosts": ["testserver"]}})
         Store(self.cfg["database"]).close()
-        self.app = create_app(self.cfg, None, scheduler=False)
+        self.app = create_app(self.cfg, None, scheduler=False, background=False)   # no worker holding the file open
         self.rt = self.app.state.runtime
         self.restarts = []
         self.rt.restart_soon = lambda: self.restarts.append(1)
         self.c = TestClient(self.app, base_url="https://testserver")
 
     def test_first_login_needs_the_code_and_only_works_once(self):
-        self.assertEqual(self.c.get("/api/setup").json(), {"needed": True})
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": True, "sqlite_found": False})
         user = {"username": "owner", "password": PASSWORD}
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": "0000-0000-0000"}).status_code, 403)
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code,
@@ -230,7 +247,7 @@ class SetupTest(unittest.TestCase):
         r = self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code.lower()})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.c.get("/api/auth/session").json()["username"], "owner")      # signed in
-        self.assertEqual(self.c.get("/api/setup").json(), {"needed": False})
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": False, "sqlite_found": False})
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "username": "intruder", "code": "x"}).status_code, 409)
 
     def test_wrong_codes_are_throttled(self):
@@ -245,7 +262,7 @@ class SetupTest(unittest.TestCase):
         laptop = tempfile.mkdtemp()                       # the laptop: a database with an API key in it
         laptop_key = S.new_key()
         with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_SECRET_KEY": laptop_key}):
-            lcfg = from_dict({"database": os.path.join(laptop, "db.sqlite")})
+            lcfg = from_dict({"database": os.path.join(laptop, "db.duckdb")})
             ldb = Store(lcfg["database"])
             sync(FakeFlickr(), ldb, log=lambda *a: None)
             ldb.set_password_hash("me", hash_password(PASSWORD))
@@ -257,6 +274,8 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(up(S.new_key()).status_code, 422)                                  # not its key
         r = up(laptop_key)
         self.assertEqual((r.status_code, r.json()["keys"], r.json()["readable"], self.restarts), (200, 1, True, [1]))
+        self.rt.store().close()                            # a restart closes every connection to the file
+        self.rt.review.store.close()
         server = Store(self.cfg["database"])
         server = _restore_on_start(self.cfg, server)       # what the restart does
         self.assertEqual(server.usernames(), ["me"])
@@ -265,7 +284,7 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(S.decrypt("flickr.api_key", row["nonce"], row["ciphertext"]), "laptop-flickr-key")
         self.assertFalse(any(n.startswith("restore.") for n in os.listdir(self.data)))
         self.assertEqual(TestClient(create_app(self.cfg, None, scheduler=False), base_url="https://testserver")
-                         .get("/api/setup").json(), {"needed": False})
+                         .get("/api/setup").json(), {"needed": False, "sqlite_found": False})
 
 
 class FreshServerTest(unittest.TestCase):
@@ -281,8 +300,8 @@ class FreshServerTest(unittest.TestCase):
             os.environ.pop(var, None)
         self.cfg_path = os.path.join(self.tmp, "config.yaml")
         with open(self.cfg_path, "w") as f:
-            f.write("database: db.sqlite\nweb:\n  allowed_hosts: [testserver]\n")
-        Store(os.path.join(self.tmp, "db.sqlite")).set_password_hash("owner", hash_password(PASSWORD))
+            f.write("database: db.duckdb\nweb:\n  allowed_hosts: [testserver]\n")
+        Store(os.path.join(self.tmp, "db.duckdb")).set_password_hash("owner", hash_password(PASSWORD))
         from flickr_organizer.cli import _new_client
         from flickr_organizer.config import load_config
         cfg = load_config(self.cfg_path)

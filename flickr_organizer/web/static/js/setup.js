@@ -1,5 +1,5 @@
 // First run (no login yet): create one, or restore a backup. Also the restore form in Settings.
-import { html, useState, api, upload, waitForRestart, DropZone } from "./lib.js";
+import { html, useState, useEffect, api, upload, waitForRestart, DropZone, num } from "./lib.js";
 
 const isKeyFile = (f) => /\.key$/i.test(f.name) || (f.size < 200 && !/\.(gz|db)$/i.test(f.name));
 
@@ -48,6 +48,34 @@ export function RestoreBackup({ send, disabled }) {
   </div>`;
 }
 
+// Import the former SQLite library: start it with the setup code, follow /api/migration/status, then sign in as before.
+function ImportSqlite({ code }) {
+  const [m, setM] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const load = () => api("/api/migration/status").then(setM).catch(() => {});
+    load();
+    const t = setInterval(load, m && m.state === "running" ? 1000 : 5000);
+    return () => clearInterval(t);
+  }, [m && m.state]);
+  const start = async () => {
+    setError("");
+    try { setM(await api("/api/setup/migrate", { method: "POST", body: { code } })); }
+    catch (e) { setError(e.message); }
+  };
+  if (!m || !m.source_found) return "";
+  const pct = m.rows_total ? Math.round((100 * m.rows_done) / m.rows_total) : 0;
+  return html`<div class="card"><h2>Import the SQLite library</h2>
+    ${m.state === "complete" ? html`<p>Imported ${num(Object.values(m.counts || {}).reduce((a, b) => a + b, 0))} rows. <a href="/" onClick=${(e) => { e.preventDefault(); location.reload(); }}>Sign in</a> with the login you had.</p>`
+    : m.state === "running" ? html`<p><span class="spin">⟳</span> ${m.rows_total ? `Importing${m.table ? ` ${m.table}` : ""}… ${pct}% (${num(m.rows_done)} of ${num(m.rows_total)} rows)` : "Starting…"}</p>`
+    : html`<p class="why">Found the previous SQLite database on this server's disk. This copies your photos, review history, settings and
+        logins into the new database; the SQLite file is left as it is.</p>
+      ${m.state === "failed" && html`<p class="problem">The last import failed: ${m.error}</p>`}
+      <button class="primary" disabled=${!code} onClick=${start}>Import</button>`}
+    ${error && html`<p class="error" role="alert">${error}</p>`}
+  </div>`;
+}
+
 export function Setup({ onLogin }) {
   const [code, setCode] = useState("");
   const [u, setU] = useState({ username: "", password: "", again: "" });
@@ -82,6 +110,7 @@ export function Setup({ onLogin }) {
         <button class="primary" disabled=${busy || !code}>${busy ? "Creating…" : "Create and sign in"}</button>
         ${error && html`<p class="error" role="alert">${error}</p>`}
       </form>
+      <${ImportSqlite} code=${code} />
       <div class="card">
         <h2>Restore a backup</h2>
         <p class="why">Brings your photos' history, review decisions, settings and logins. Sign in with your usual login afterwards.</p>

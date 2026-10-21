@@ -1,191 +1,177 @@
-"""The SQLite connection, the schema, and numbered schema upgrades.
+"""The DuckDB connection and schema.
 
-To change the schema: update SCHEMA (what a fresh database gets) *and* append a
-function to MIGRATIONS that brings an existing database to the same shape. Each
-upgrade runs once; the version reached is stored in meta.schema_version.
-"""
+The store classes were written for SQLite, so Connection keeps its calling style (execute with
+? or :name parameters, rows readable by name or index, `with db:` for a transaction). The one-time
+import from the former SQLite file is in migration.py."""
 from __future__ import annotations
 
-import sqlite3
-from typing import Callable
+import re
+from pathlib import Path
+
+import duckdb
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS photos (
-    id TEXT PRIMARY KEY,
-    title TEXT, description TEXT, tags TEXT,
-    lat REAL, lon REAL, accuracy INTEGER,
-    media TEXT, thumb_url TEXT, secret TEXT, server TEXT,
-    date_taken TEXT, date_upload INTEGER, last_update INTEGER,
-    ispublic INTEGER, date_taken_unknown INTEGER,
-    views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER,
-    url_l TEXT, url_h TEXT, url_k TEXT
-);
-CREATE TABLE IF NOT EXISTS albums (
-    id TEXT PRIMARY KEY, title TEXT, count INTEGER,
-    date_update INTEGER, cover_url TEXT, description TEXT
-);
-CREATE TABLE IF NOT EXISTS memberships (
-    album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id)
-);
+CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, title TEXT, description TEXT, tags TEXT, lat DOUBLE, lon DOUBLE, accuracy INTEGER, media TEXT, thumb_url TEXT, secret TEXT, server TEXT, date_taken TEXT, date_upload BIGINT, last_update BIGINT, ispublic INTEGER, date_taken_unknown INTEGER, views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER, url_l TEXT, url_h TEXT, url_k TEXT);
+CREATE TABLE IF NOT EXISTS albums (id TEXT PRIMARY KEY, title TEXT, count INTEGER, date_update BIGINT, cover_url TEXT, description TEXT);
+CREATE TABLE IF NOT EXISTS memberships (album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id));
 CREATE INDEX IF NOT EXISTS memberships_photo ON memberships(photo_id);
-CREATE TABLE IF NOT EXISTS classifications (
-    photo_id TEXT, fingerprint TEXT, result TEXT, created_at INTEGER,
-    PRIMARY KEY (photo_id, fingerprint)
-);
-CREATE TABLE IF NOT EXISTS cameras (
-    photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at INTEGER,
-    lens TEXT, exif TEXT
-);
-CREATE TABLE IF NOT EXISTS decisions (
-    photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, at INTEGER,
-    PRIMARY KEY (photo_id, action, target)
-);
-CREATE TABLE IF NOT EXISTS queue (
-    photo_id TEXT PRIMARY KEY, status TEXT, changes TEXT, built_at INTEGER,
-    reviewed_at INTEGER, result TEXT
-);
+CREATE TABLE IF NOT EXISTS classifications (photo_id TEXT, fingerprint TEXT, result TEXT, created_at BIGINT, PRIMARY KEY (photo_id, fingerprint));
+CREATE TABLE IF NOT EXISTS cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at BIGINT, lens TEXT, exif TEXT);
+CREATE TABLE IF NOT EXISTS decisions (photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, "at" BIGINT, PRIMARY KEY (photo_id, action, target));
+CREATE TABLE IF NOT EXISTS queue (photo_id TEXT PRIMARY KEY, status TEXT, changes TEXT, built_at BIGINT, reviewed_at BIGINT, result TEXT);
 CREATE INDEX IF NOT EXISTS queue_status ON queue(status);
-CREATE TABLE IF NOT EXISTS photo_stats (
-    photo_id TEXT, day TEXT, views INTEGER, faves INTEGER, comments INTEGER,
-    PRIMARY KEY (photo_id, day)
-);
+CREATE TABLE IF NOT EXISTS photo_stats (photo_id TEXT, day TEXT, views INTEGER, faves INTEGER, comments INTEGER, PRIMARY KEY (photo_id, day));
 CREATE TABLE IF NOT EXISTS account_stats (day TEXT PRIMARY KEY, stats TEXT);
-CREATE TABLE IF NOT EXISTS flickr_groups (
-    id TEXT PRIMARY KEY, name TEXT, path_alias TEXT, members INTEGER, pool_count INTEGER,
-    privacy TEXT, info TEXT, fetched_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS group_photos (
-    group_id TEXT, photo_id TEXT, date_added INTEGER, PRIMARY KEY (group_id, photo_id)
-);
+CREATE TABLE IF NOT EXISTS flickr_groups (id TEXT PRIMARY KEY, name TEXT, path_alias TEXT, members INTEGER, pool_count INTEGER, privacy TEXT, info TEXT, fetched_at BIGINT);
+CREATE TABLE IF NOT EXISTS group_photos (group_id TEXT, photo_id TEXT, date_added BIGINT, PRIMARY KEY (group_id, photo_id));
 CREATE INDEX IF NOT EXISTS group_photos_photo ON group_photos(photo_id);
-CREATE TABLE IF NOT EXISTS comments (
-    id TEXT PRIMARY KEY, photo_id TEXT, author TEXT, author_name TEXT, real_name TEXT,
-    date_created INTEGER, permalink TEXT, text TEXT
-);
+CREATE TABLE IF NOT EXISTS comments (id TEXT PRIMARY KEY, photo_id TEXT, author TEXT, author_name TEXT, real_name TEXT, date_created BIGINT, permalink TEXT, text TEXT);
 CREATE INDEX IF NOT EXISTS comments_photo ON comments(photo_id);
-CREATE TABLE IF NOT EXISTS faves (
-    photo_id TEXT, user_id TEXT, username TEXT, real_name TEXT, date_faved INTEGER,
-    PRIMARY KEY (photo_id, user_id)
-);
-CREATE TABLE IF NOT EXISTS social_fetched (
-    photo_id TEXT, kind TEXT, count INTEGER, fetched_at INTEGER, PRIMARY KEY (photo_id, kind)
-);
-""" + """
-CREATE TABLE IF NOT EXISTS photo_daily (
-    photo_id TEXT, day TEXT, views INTEGER, comments INTEGER, favorites INTEGER,
-    PRIMARY KEY (photo_id, day)
-);
+CREATE TABLE IF NOT EXISTS faves (photo_id TEXT, user_id TEXT, username TEXT, real_name TEXT, date_faved BIGINT, PRIMARY KEY (photo_id, user_id));
+CREATE TABLE IF NOT EXISTS social_fetched (photo_id TEXT, kind TEXT, count INTEGER, fetched_at BIGINT, PRIMARY KEY (photo_id, kind));
+CREATE TABLE IF NOT EXISTS photo_daily (photo_id TEXT, day TEXT, views INTEGER, comments INTEGER, favorites INTEGER, PRIMARY KEY (photo_id, day));
 CREATE INDEX IF NOT EXISTS photo_daily_day ON photo_daily(day);
-CREATE TABLE IF NOT EXISTS account_daily (
-    day TEXT PRIMARY KEY, total INTEGER, photos INTEGER, photostream INTEGER, sets INTEGER,
-    collections INTEGER, galleries INTEGER, fetched_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS stats_days (
-    day TEXT PRIMARY KEY, status TEXT, photos_viewed INTEGER, fetched_at INTEGER
-);
+CREATE TABLE IF NOT EXISTS account_daily (day TEXT PRIMARY KEY, total INTEGER, photos INTEGER, photostream INTEGER, sets INTEGER, collections INTEGER, galleries INTEGER, fetched_at BIGINT);
+CREATE TABLE IF NOT EXISTS stats_days (day TEXT PRIMARY KEY, status TEXT, photos_viewed INTEGER, fetched_at BIGINT);
 CREATE TABLE IF NOT EXISTS wx_stations (station_id BIGINT PRIMARY KEY, name TEXT, lat DOUBLE, lon DOUBLE, elevation DOUBLE, timezone TEXT, fetched_at BIGINT);
 CREATE TABLE IF NOT EXISTS wx_devices (device_id BIGINT PRIMARY KEY, station_id BIGINT, serial TEXT, device_type TEXT, name TEXT);
 CREATE TABLE IF NOT EXISTS wx_obs (device_id BIGINT, ts BIGINT, wind_lull DOUBLE, wind_avg DOUBLE, wind_gust DOUBLE, wind_dir DOUBLE, wind_interval DOUBLE, pressure DOUBLE, temp DOUBLE, humidity DOUBLE, illuminance DOUBLE, uv DOUBLE, solar DOUBLE, rain DOUBLE, precip_type INTEGER, strike_dist DOUBLE, strike_count INTEGER, battery DOUBLE, report_interval INTEGER, PRIMARY KEY (device_id, ts));
 CREATE TABLE IF NOT EXISTS wx_events (device_id BIGINT, ts BIGINT, kind TEXT, value DOUBLE, energy DOUBLE, PRIMARY KEY (device_id, ts, kind));
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY, password_hash TEXT, created_at INTEGER, updated_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY, username TEXT, csrf TEXT, created_at INTEGER, expires_at INTEGER,
-    last_seen INTEGER, ip TEXT, user_agent TEXT
-);
+CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT, created_at BIGINT, updated_at BIGINT);
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, username TEXT, csrf TEXT, created_at BIGINT, expires_at BIGINT, last_seen BIGINT, ip TEXT, user_agent TEXT);
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
-CREATE TABLE IF NOT EXISTS settings (
-    path TEXT PRIMARY KEY, value TEXT, updated_at INTEGER, updated_by TEXT
-);
-CREATE TABLE IF NOT EXISTS secrets (
-    name TEXT PRIMARY KEY, nonce BLOB, ciphertext BLOB, hint TEXT, updated_at INTEGER, updated_by TEXT
-);
-CREATE TABLE IF NOT EXISTS settings_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, username TEXT, path TEXT, old TEXT, new TEXT
-);
+CREATE TABLE IF NOT EXISTS settings (path TEXT PRIMARY KEY, value TEXT, updated_at BIGINT, updated_by TEXT);
+CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, nonce BLOB, ciphertext BLOB, hint TEXT, updated_at BIGINT, updated_by TEXT);
+CREATE SEQUENCE IF NOT EXISTS settings_log_id_seq START 1;
+CREATE TABLE IF NOT EXISTS settings_log (id BIGINT PRIMARY KEY DEFAULT nextval('settings_log_id_seq'), "at" BIGINT, username TEXT, path TEXT, old TEXT, new TEXT);
 """
 
 
-def _add_columns(db: sqlite3.Connection, table: str, columns: list[tuple[str, str]]) -> None:
-    have = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
-    for name, kind in columns:
-        if name not in have:
-            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+class Row(dict):
+    """A result row readable by column name or by position, like sqlite3.Row."""
+    def __init__(self, names, values):
+        super().__init__(zip(names, values))
+        self._values = tuple(values)
+
+    def __getitem__(self, key):
+        return self._values[key] if isinstance(key, int) else super().__getitem__(key)
+
+    def __iter__(self):
+        return iter(self._values)
 
 
-def _baseline(db: sqlite3.Connection) -> None:
-    """1: every table as of the first versioned release. Databases created before
-    versioning existed may lack columns added along the way, so add any missing."""
-    db.executescript(SCHEMA)
-    _add_columns(db, "photos", [("date_taken_unknown", "INTEGER"), ("views", "INTEGER"), ("faves", "INTEGER"),
-                                ("comments", "INTEGER"), ("license", "TEXT"), ("width", "INTEGER"),
-                                ("height", "INTEGER")])
-    _add_columns(db, "cameras", [("lens", "TEXT"), ("exif", "TEXT")])
+class Result:
+    def __init__(self, cursor):
+        self.cursor = cursor
+        self.names = [c[0] for c in cursor.description] if cursor.description else []
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        return Row(self.names, row) if row is not None else None
+
+    def fetchall(self):
+        return [Row(self.names, row) for row in self.cursor.fetchall()]
+
+    def __iter__(self):
+        return iter(self.fetchall())
 
 
-def _daily_stats(db: sqlite3.Connection) -> None:
-    """2: zoom-size image URLs, album dates and covers (incremental sync, gallery), and
-    per-day stats from Flickr: photo_daily (views/comments/faves per photo per day),
-    account_daily (daily totals), stats_days (which days are fully fetched)."""
-    _add_columns(db, "photos", [("url_l", "TEXT"), ("url_h", "TEXT"), ("url_k", "TEXT")])
-    _add_columns(db, "albums", [("date_update", "INTEGER"), ("cover_url", "TEXT"), ("description", "TEXT")])
-    db.executescript(SCHEMA)   # creates the new tables; CREATE ... IF NOT EXISTS leaves the rest
+def _positional(sql: str, params: dict) -> tuple[str, list]:
+    """:name placeholders -> ?, with the values in order."""
+    names = []
+    sql = re.sub(r":([A-Za-z_][A-Za-z0-9_]*)", lambda m: (names.append(m.group(1)) or "?"), sql)
+    return sql, [params[n] for n in names]
 
 
-def _web_auth(db: sqlite3.Connection) -> None:
-    """3: the web app's owner login (users) and its sessions. Only a hash of each session
-    token is stored, so a copy of the database can't be used to log in."""
-    db.executescript(SCHEMA)
+class Connection:
+    """One DuckDB connection. `with db:` is a transaction; nested ones join the outer one, and
+    outside any transaction each statement commits by itself."""
+    def __init__(self, path: str, read_only: bool = False):
+        self.raw = duckdb.connect(path, read_only=read_only)
+        self._depth = 0
+
+    def execute(self, sql, params=()):
+        if isinstance(params, dict):
+            sql, params = _positional(sql, params)
+        return Result(self.raw.execute(sql, params))
+
+    def executemany(self, sql, seq):
+        seq = list(seq)
+        if not seq:
+            return Result(self.raw.execute("SELECT 1 WHERE FALSE"))
+        if isinstance(seq[0], dict):
+            marked, _ = _positional(sql, seq[0])
+            seq = [_positional(sql, row)[1] for row in seq]
+            sql = marked
+        return Result(self.raw.executemany(sql, seq))
+
+    def executescript(self, sql):
+        for statement in sql.split(";"):
+            if statement.strip():
+                self.raw.execute(statement)
+
+    def __enter__(self):
+        if self._depth == 0:
+            self.raw.begin()
+        self._depth += 1
+        return self
+
+    def __exit__(self, typ, value, tb):
+        self._depth -= 1
+        if self._depth == 0:
+            self.raw.rollback() if typ else self.raw.commit()
+
+    def commit(self):
+        """Kept for callers written against sqlite3: statements outside `with db:` already committed."""
+
+    def close(self):
+        self.raw.close()
 
 
-def _admin_settings(db: sqlite3.Connection) -> None:
-    """4: settings made on the admin page (settings: JSON per setting path, layered over
-    config.yaml), API keys encrypted with a key kept outside the database (secrets), and
-    the change history (settings_log)."""
-    db.executescript(SCHEMA)
-
-
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [_baseline, _daily_stats, _web_auth, _admin_settings]
-SCHEMA_VERSION = len(MIGRATIONS)
+SCHEMA_VERSION = 4
 
 
 class SchemaTooNew(RuntimeError):
-    """The database was upgraded by a newer version of the tool than this one."""
+    """The database was written by a newer version of the tool than this one."""
 
 
 class Database:
     """The connection plus meta key/values. The other store classes build on this."""
 
     def __init__(self, path: str, migrate: bool = True, any_thread: bool = False):
-        """any_thread: allow this connection to be used from a thread other than the one
-        that opened it. Only for a connection used by one caller at a time (the web app's
-        one-per-request connection: FastAPI runs a request's dependencies and handler on
-        different pool threads, one after another). migrate=False skips the upgrade check
-        (the web app runs it once at startup)."""
+        """any_thread is accepted for the callers that used to need it (a SQLite connection
+        belonged to one thread); a DuckDB connection can be handed between threads one at a time.
+        migrate=False skips the schema check (the web app runs it once at startup)."""
+        from .migration import is_sqlite_file
+
         self.path = path
-        # The review tool's background worker opens its own connection to the same file;
-        # WAL lets the page keep reading while it writes, and the timeout waits out locks.
-        self.db = sqlite3.connect(path, timeout=30, check_same_thread=not any_thread)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
+        if is_sqlite_file(path):
+            raise ValueError(f"{path} is a SQLite database, but this version uses DuckDB. "
+                             "Import it with `flickr-organizer migrate-sqlite` or from the app's setup page.")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.db = Connection(path)
+        except duckdb.IOException as e:
+            if "lock" not in str(e).lower():
+                raise
+            raise SystemExit(f"{path} is open in another process (the web app?). DuckDB lets one process use a "
+                             "database at a time: stop that one first, or do this from the app's own pages.")
         if migrate:
             self.migrate()
 
-    def close(self) -> None:
+    def close(self):
         self.db.close()
 
-    def migrate(self) -> None:
+    def migrate(self):
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
         version = int(self.get_meta("schema_version", 0))
         if version > SCHEMA_VERSION:
             raise SchemaTooNew(f"{self.path} is from a newer version of this tool (schema {version}); "
-                             f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
-        for number, step in enumerate(MIGRATIONS[version:], start=version + 1):
-            with self.db:
-                step(self.db)
-                self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(number),))
+                               f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
+        with self.db:
+            self.db.executescript(SCHEMA)       # every statement is IF NOT EXISTS
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
     def get_meta(self, key: str, default=None):
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

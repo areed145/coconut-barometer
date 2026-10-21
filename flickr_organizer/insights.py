@@ -58,7 +58,7 @@ def _daily_sums(db, since: str, until: str | None = None) -> dict[str, int]:
     if until:
         sql += " AND day <= ?"
         args.append(until)
-    return dict(db.db.execute(sql + " GROUP BY photo_id", args).fetchall())
+    return dict(db.db.execute(sql + " GROUP BY photo_id ORDER BY photo_id", args).fetchall())
 
 
 # ---- photos worth a look ---------------------------------------------------------------
@@ -77,7 +77,7 @@ def photo_lists(db, kind: str, days: int, limit: int = 24, min_views: int = 100)
             col = {"views": "views", "faves": "favorites", "comments": "comments"}[kind]
             rows = [{"photo_id": r[0], "value": r[1]} for r in db.db.execute(
                 f"SELECT photo_id, SUM({col}) n FROM photo_daily WHERE day >= ? GROUP BY photo_id "
-                f"HAVING n > 0 ORDER BY n DESC LIMIT ?", (since, limit))]
+                f"HAVING n > 0 ORDER BY n DESC, photo_id LIMIT ?", (since, limit))]
     elif kind == "engagement":
         ranked = sorted((p for p in photos.values() if (p["views"] or 0) >= min_views),
                         key=lambda p: (p["faves"] or 0) / p["views"], reverse=True)[:limit]
@@ -196,7 +196,7 @@ def tag_detail(db, tag: str, limit: int = 40) -> dict:
     if ids:
         marks = ",".join("?" * len(ids))
         series = [dict(r) for r in db.db.execute(
-            f"SELECT day, SUM(views) views, SUM(favorites) faves FROM photo_daily WHERE photo_id IN ({marks}) "
+            f"SELECT day, SUM(views) AS views, SUM(favorites) AS faves FROM photo_daily WHERE photo_id IN ({marks}) "
             f"GROUP BY day ORDER BY day", ids)]
     top = sorted(photos, key=lambda p: p["views"] or 0, reverse=True)[:limit]
     return {"tag": tag, "photos": len(photos), "views": sum(p["views"] or 0 for p in photos),
@@ -341,11 +341,11 @@ def gear(db) -> dict:
 # ---- audience ------------------------------------------------------------------------------
 def audience(db, limit: int = 25) -> dict:
     favers = [dict(r) for r in db.db.execute(
-        "SELECT user_id, MAX(COALESCE(NULLIF(real_name, ''), username)) name, COUNT(*) faves, MIN(date_faved) first, "
-        "MAX(date_faved) last FROM faves GROUP BY user_id ORDER BY faves DESC LIMIT ?", (limit,))]
+        "SELECT user_id, MAX(COALESCE(NULLIF(real_name, ''), username)) AS name, COUNT(*) AS faves, MIN(date_faved) AS first, "
+        "MAX(date_faved) AS last FROM faves GROUP BY user_id ORDER BY faves DESC, user_id LIMIT ?", (limit,))]
     commenters = [dict(r) for r in db.db.execute(
-        "SELECT author, MAX(COALESCE(NULLIF(real_name, ''), author_name)) name, COUNT(*) comments, "
-        "MAX(date_created) last FROM comments GROUP BY author ORDER BY comments DESC LIMIT ?", (limit,))]
+        "SELECT author, MAX(COALESCE(NULLIF(real_name, ''), author_name)) AS name, COUNT(*) AS comments, "
+        "MAX(date_created) AS last FROM comments GROUP BY author ORDER BY comments DESC, author LIMIT ?", (limit,))]
     first = dict(db.db.execute("SELECT user_id, MIN(date_faved) FROM faves GROUP BY user_id").fetchall())
     months: dict[str, dict] = defaultdict(lambda: {"new": set(), "returning": set()})
     for uid, ts in db.db.execute("SELECT user_id, date_faved FROM faves WHERE date_faved > 0"):
@@ -425,7 +425,7 @@ def impact(db, window: int = 14) -> dict:
     all_ids = [r[0] for r in db.db.execute("SELECT id FROM photos")]
     changed: dict[str, dict[str, dt.date]] = defaultdict(dict)        # action -> photo -> first change day
     for action, pid, at in db.db.execute(
-            "SELECT action, photo_id, MIN(at) FROM decisions WHERE status IN ('applied', 'edited') GROUP BY action, photo_id"):
+            "SELECT action, photo_id, MIN(\"at\") FROM decisions WHERE status IN ('applied', 'edited') GROUP BY action, photo_id"):
         if action in IMPACT and at:
             changed[action][pid] = dt.datetime.fromtimestamp(at, dt.timezone.utc).date()
 

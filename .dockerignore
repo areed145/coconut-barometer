@@ -3,6 +3,8 @@ config.yaml
 *.db
 *.db-*
 *.db.gz
+*.duckdb
+*.duckdb.*
 backups/
 *.key
 .env*

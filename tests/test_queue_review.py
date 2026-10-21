@@ -15,7 +15,7 @@ class QueueReviewTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "describe": {"enabled": True}}})
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         sync(self.fl, self.store, log=lambda *a: None)
         self.vision = FakeVision("m1")
@@ -229,7 +229,7 @@ class NewPhotosTest(unittest.TestCase):
 
     def setUp(self):
         self.cfg = from_dict(CFG)
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         self.fl = FakeFlickr()
         self.app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: FakeVision("m1"),
                              process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})

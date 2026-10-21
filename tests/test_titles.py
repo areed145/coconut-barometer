@@ -16,7 +16,7 @@ class TitleTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.cfg = from_dict(CFG)
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         self.fl.photos[1]["title"] = "IMG_1234"
         self.fl.photos[4]["title"] = "Rufus at the park"                # yours

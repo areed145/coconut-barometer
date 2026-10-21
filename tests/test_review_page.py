@@ -22,7 +22,7 @@ STATIC = os.path.join(os.path.dirname(__file__), "..", "flickr_organizer", "revi
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         ready = queue.Queue()
 
         def run():   # a sqlite connection belongs to its thread, so build everything in the server's

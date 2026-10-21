@@ -3,7 +3,6 @@ plus local edits made when changes are applied."""
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from typing import Iterable
 
@@ -80,13 +79,13 @@ class LibraryStore(Database):
             f"ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in ALBUM_COLS if c != 'id')}",
             [{c: a.get(c) for c in ALBUM_COLS} for a in albums])
 
-    def photos(self) -> list[sqlite3.Row]:
-        return self.db.execute("SELECT * FROM photos ORDER BY date_upload DESC").fetchall()
+    def photos(self) -> list:
+        return self.db.execute("SELECT * FROM photos ORDER BY date_upload DESC, id").fetchall()
 
     def photo(self, photo_id: str):
         return self.db.execute("SELECT * FROM photos WHERE id=?", (photo_id,)).fetchone()
 
-    def albums(self) -> list[sqlite3.Row]:
+    def albums(self) -> list:
         return self.db.execute("SELECT * FROM albums ORDER BY title COLLATE NOCASE").fetchall()
 
     def add_album(self, album_id: str, title: str) -> None:

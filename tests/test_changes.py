@@ -29,7 +29,7 @@ class ChangeTest(unittest.TestCase):
 
 class SettledTest(unittest.TestCase):
     def setUp(self):
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
 
     def test_applied_rejected_and_edited_settle_but_failed_does_not(self):
         for target, status in [("A", "applied"), ("B", "rejected"), ("C", "failed")]:

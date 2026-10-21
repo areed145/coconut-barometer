@@ -21,7 +21,7 @@ STATIC = os.path.join(os.path.dirname(__file__), "..", "flickr_organizer", "web"
 
 class MapTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         self.store = Store(path)
         self.fl = FakeFlickr()
         self.fl.photos[4]["datetaken"] = "2019-06-01 10:00:00"

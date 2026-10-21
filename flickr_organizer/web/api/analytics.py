@@ -31,10 +31,10 @@ def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
     previous = [r for r in series if r["day"] < since]
     total = lambda rows, k: sum(r[k] or 0 for r in rows)
     recent_faves = [dict(r) for r in db.db.execute(
-        "SELECT f.photo_id, p.title, COALESCE(NULLIF(f.real_name, ''), f.username) who, f.date_faved at FROM faves f "
+        "SELECT f.photo_id, p.title, COALESCE(NULLIF(f.real_name, ''), f.username) AS who, f.date_faved AS \"at\" FROM faves f "
         "JOIN photos p ON p.id = f.photo_id ORDER BY f.date_faved DESC LIMIT 8")]
     recent_comments = [dict(r) for r in db.db.execute(
-        "SELECT c.photo_id, p.title, COALESCE(NULLIF(c.real_name, ''), c.author_name) who, c.date_created at, c.text "
+        "SELECT c.photo_id, p.title, COALESCE(NULLIF(c.real_name, ''), c.author_name) AS who, c.date_created AS \"at\", c.text "
         "FROM comments c JOIN photos p ON p.id = c.photo_id ORDER BY c.date_created DESC LIMIT 5")]
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
     return {"since": since, "totals": db.totals(), "series": current,

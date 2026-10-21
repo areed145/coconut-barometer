@@ -120,6 +120,35 @@ class Confirm(BaseModel):
     password: str = Field(max_length=1000)
 
 
+class StartDatabaseMigration(BaseModel):
+    password: str = Field(max_length=1000)
+
+
+@router.get("/database/migration")
+def database_migration_status(rt=Depends(runtime)):
+    """Progress of the SQLite to DuckDB import (also public at /api/migration/status)."""
+    return rt.migration.view()
+
+
+@router.post("/database/migration")
+def start_database_migration(body: StartDatabaseMigration, request: Request, sess=Depends(session),
+                             rt=Depends(runtime), db=Depends(store)):
+    """Import the SQLite library into this database, in the background; poll the status. Only into a
+    database with no photos yet (it replaces the logins and settings made since)."""
+    _confirm_password(rt, db, request, sess["username"], body.password)
+    return start_migration(rt)
+
+
+def start_migration(rt) -> dict:
+    from ...store import Store
+    from ...store.migration import MigrationError
+
+    try:
+        return rt.migration.start(lambda: Store(rt.db_path))
+    except MigrationError as e:
+        raise HTTPException(409, str(e))
+
+
 @router.get("/backups")
 def backups(rt=Depends(runtime), db=Depends(store)):
     return {"backups": B.list_backups(rt.cfg), "every_hours": rt.cfg["backup"]["every_hours"],

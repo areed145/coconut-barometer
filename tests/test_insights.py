@@ -22,7 +22,7 @@ DAY = 86400
 
 class InsightsTest(unittest.TestCase):
     def setUp(self):
-        self.path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        self.path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         self.db = Store(self.path)
         sync(FakeFlickr(), self.db, log=lambda *a: None)
         now = int(time.time())

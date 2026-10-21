@@ -22,7 +22,7 @@ from flickr_organizer.web.security import hash_password
 
 class ConcurrencyTest(unittest.TestCase):
     def setUp(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         store = Store(path)
         sync(FakeFlickr(), store, log=lambda *a: None)
         store.set_password_hash("owner", hash_password("correct horse battery"))
@@ -57,7 +57,7 @@ class NewerDatabaseTest(unittest.TestCase):
     503, and the server keeps running instead of shutting down."""
 
     def test_server_survives_and_says_so(self):
-        path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         store = Store(path)
         sync(FakeFlickr(), store, log=lambda *a: None)
         store.set_password_hash("owner", hash_password("correct horse battery"))

@@ -7,6 +7,7 @@ from .db import Database
 
 SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "taken": "p.date_taken DESC",
          "views": "p.views DESC", "faves": "p.faves DESC", "comments": "p.comments DESC", "title": "p.title COLLATE NOCASE"}
+SORTS = {k: v + ", p.id" for k, v in SORTS.items()}      # ties (a batch uploaded together) must page the same way every time
 
 
 # Presets for the Photos page (?is=a,b: all must hold). Fixed SQL only, chosen by id.
@@ -30,7 +31,7 @@ PRESETS = {
     "not_processed": ("Not processed", "Status", "NOT EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id)"),
     "changed_here": ("Changed by this app", "Status",
                      "EXISTS (SELECT 1 FROM decisions dd WHERE dd.photo_id = p.id AND dd.status = 'applied')"),
-    "recent": ("Uploaded in the last 30 days", "Status", "p.date_upload > CAST(strftime('%s', 'now') AS INTEGER) - 30 * 86400"),
+    "recent": ("Uploaded in the last 30 days", "Status", "p.date_upload > epoch(current_timestamp)::BIGINT - 30 * 86400"),
     "private": ("Private", "Status", "p.ispublic = 0"),
 }
 
@@ -68,7 +69,7 @@ class GalleryStore(Database):
             joins += " JOIN cameras c ON c.photo_id = p.id AND c.camera = ?"
             args.append(camera)
         if tag:
-            where.append("(' ' || p.tags || ' ') LIKE ?")
+            where.append("(' ' || p.tags || ' ') ILIKE ?")
             args.append(f"% {norm_tag(tag)} %")
         if year:
             where.append("substr(p.date_taken, 1, 4) = ?")
@@ -76,7 +77,7 @@ class GalleryStore(Database):
         for name in presets or []:
             where.append(PRESETS[name][2])          # KeyError for an unknown one: the API checks first
         if q:
-            where.append("(p.title LIKE ? OR p.description LIKE ? OR (' ' || p.tags || ' ') LIKE ?)")
+            where.append("(p.title ILIKE ? OR p.description ILIKE ? OR (' ' || p.tags || ' ') ILIKE ?)")
             args += [f"%{q}%", f"%{q}%", f"% {q.lower().replace(' ', '')} %"]
         if media in ("photo", "video"):
             where.append("p.media = ?")
@@ -105,7 +106,7 @@ class GalleryStore(Database):
             where.append(f"{year} <= ?")
             args.append(year_to)
         rows = self.db.execute(f"SELECT p.id, p.lat, p.lon, p.server, p.secret FROM photos p {joins} "
-                               f"WHERE {' AND '.join(where)} ORDER BY p.date_upload DESC", args)
+                               f"WHERE {' AND '.join(where)} ORDER BY p.date_upload DESC, p.id", args)
         return [[r[0], round(r[1], 5), round(r[2], 5), r[3], r[4]] for r in rows]
 
     def map_years(self) -> list[int]:

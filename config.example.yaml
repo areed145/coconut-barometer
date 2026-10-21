@@ -6,7 +6,7 @@ flickr:
   # Flickr allows 3600 calls/hour per key; 1/sec is exactly that. Lower it (e.g. 0.9) for headroom.
   calls_per_second: 1
 
-database: flickr_organizer.db   # local state: photo cache, classifications, decisions
+database: flickr_organizer.duckdb   # local state: photo cache, classifications, decisions
 
 albums:
   # Your albums mostly exist already, so by default the tool only adds photos to

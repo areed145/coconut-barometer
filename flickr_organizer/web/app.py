@@ -101,6 +101,12 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         rt.store().db.execute("SELECT 1").fetchone()
         return {"ok": True}
 
+    @app.get("/api/migration/status", include_in_schema=False)
+    def migration_status():
+        """Progress of the one-time SQLite import: no login needed (it shows counts, nothing else), so the
+        setup page can follow it."""
+        return rt.migration.view()
+
     @app.get("/api/flickr/callback", name="flickr_callback", include_in_schema=False)
     def flickr_callback(oauth_token: str = "", oauth_verifier: str = ""):
         """Flickr sends the browser back here after you approve access. No session cookie

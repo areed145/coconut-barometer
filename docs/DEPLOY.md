@@ -2,6 +2,37 @@
 
 The repository includes a Blueprint (`render.yaml`) and a `Dockerfile`. Render builds the image from GitHub on every push to `main`, serves it over HTTPS, and keeps everything that must survive a redeploy on a persistent disk at `/var/data`: the database, the Flickr login, the rate-limit file and the backups.
 
+## Moving an existing SQLite deployment to DuckDB (one time)
+
+This version keeps its data in DuckDB (`/var/data/flickr_organizer.duckdb`). A deployment from before keeps its library in SQLite (`/var/data/flickr_organizer.db`, with its logins, settings, encrypted API keys and review history). On the first start the app finds that file beside the new database and offers to import it. Nothing is deleted or changed: the SQLite file is only read, and the import happens inside one transaction, so it either completes or leaves the new database as it was. No environment variables are needed; the Blueprint is unchanged.
+
+1. **Before deploying**, with the current version: Settings → Backups → make and download a backup, and keep a copy of `secret.key` (on the disk at `/var/data/secret.key`). This is your way back.
+2. **Deploy.** The new instance starts with an empty DuckDB database and, in the Logs, prints `finish setup with this code: XXXX-XXXX-XXXX` and `A SQLite library was found; the setup page can import it.`
+3. **Import.** Open the app. The setup page has an **Import the SQLite library** card: enter the code from the Logs and press Import. It shows the table and row count as it goes (about 400,000 rows takes under half a minute). When it says complete, sign in with the login you already had; settings and API keys came across too.
+
+   The same thing from a terminal, with the code from the Logs (progress is public and shows counts only):
+
+   ```bash
+   curl -X POST https://<service>.onrender.com/api/setup/migrate -H 'Content-Type: application/json' -d '{"code": "XXXX-XXXX-XXXX"}'
+   curl https://<service>.onrender.com/api/migration/status
+   ```
+
+   If you created a login on the setup page first, import from Settings instead: `POST /api/admin/database/migration` with `{"password": "..."}` and the CSRF token. It replaces that login with the imported ones. Either way the import only runs into a database that has no photos yet.
+4. **If it fails**, the status says `failed` with the reason, and the new database is still empty: fix the cause (or restore your backup) and import again. The app doesn't need a restart.
+
+To rehearse it first, convert a copy on your own machine: `flickr-organizer migrate-sqlite flickr_organizer.db /tmp/try.duckdb` (it refuses to overwrite an existing file and checks every table's row count against the source).
+
+### Winding SQLite down
+
+Once you've used the app on DuckDB for a while and a fresh backup (Settings → Backups) looks right:
+
+1. Delete the old files from the disk (Render: the service's Shell): `rm /var/data/flickr_organizer.db*` (the database and its `-wal`/`-shm` files). The import status file `flickr_organizer.duckdb.migration.json` can go too.
+2. Take the import code out of the app (the import page, `flickr_organizer/store/migration.py`, `POST /api/setup/migrate`, `/api/admin/database/migration`, `/api/migration/status`, the `migrate-sqlite` command, and SQLite backup conversion in `backup.py`), which leaves nothing in the deployment that uses SQLite.
+
+Rolling back before step 1: deploy the previous version; it still finds its SQLite file untouched.
+
+DuckDB lets one process use a database at a time, so run command-line commands (`sync`, `backup`, ...) only while the web app is stopped; the app makes its own backups on the schedule in Settings.
+
 ## What it needs
 
 - **A paid Render instance with a disk.** Free instances have no disk and sleep after 15 minutes without visitors, which would lose the database and stop the hourly sync. The Blueprint asks for `1c-2g` (1 CPU, 2 GB): planning the whole library peaks around 400 MB, so the 512 MB size is too tight. Check render.com/pricing for current prices; the disk starts at 5 GB (the database is ~140 MB, plus compressed backups).

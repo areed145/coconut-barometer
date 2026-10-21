@@ -13,7 +13,7 @@ from flickr_organizer.sync import sync
 
 class RulesTest(unittest.TestCase):
     def setUp(self):
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         sync(FakeFlickr(), self.store, log=lambda *a: None)
 
     def test_no_geotags_never_geocode(self):

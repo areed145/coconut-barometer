@@ -1,8 +1,8 @@
 """Backups of the database, safe while the app is running.
 
-SQLite's backup API copies a consistent snapshot even mid-write (a plain file copy of a
-live WAL database can come back corrupted, which is also why Render's disk snapshots
-aren't enough on their own). Each backup is gzip-compressed; the newest `backup.keep`
+DuckDB's COPY FROM DATABASE writes a consistent snapshot while the app is running (a plain
+file copy of a live database can come back corrupted, which is also why Render's disk
+snapshots aren't enough on their own). Each backup is gzip-compressed; the newest `backup.keep`
 are kept. API keys stay encrypted inside, so a backup doesn't reveal them, and it can't be
 read back without the encryption key (keep that separately).
 """
@@ -36,11 +36,15 @@ def make_backup(cfg: dict) -> Path:
     target = d / f"{PREFIX}{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}{SUFFIX}"
     with tempfile.TemporaryDirectory(dir=d) as tmp:
         plain = Path(tmp) / "snapshot.db"
-        src, dst = sqlite3.connect(cfg["database"]), sqlite3.connect(plain)
+        import duckdb
+        src = duckdb.connect(cfg["database"])
         try:
-            src.backup(dst)
+            escaped = str(plain).replace("'", "''")
+            database = src.execute("SELECT current_database()").fetchone()[0].replace('"', '""')
+            src.execute(f"ATTACH '{escaped}' AS snapshot")
+            src.execute(f'COPY FROM DATABASE "{database}" TO snapshot')
+            src.execute("DETACH snapshot")
         finally:
-            dst.close()
             src.close()
         partial = Path(tmp) / "snapshot.db.gz"
         with open(plain, "rb") as fin, gzip.open(partial, "wb", compresslevel=6) as fout:
@@ -67,6 +71,11 @@ def _gzipped(path: Path) -> bool:
         return f.read(2) == b"\x1f\x8b"
 
 
+def _is_sqlite(path: Path) -> bool:
+    with open(path, "rb") as f:
+        return f.read(16) == b"SQLite format 3\x00"
+
+
 def check_backup_file(path: str, key: bytes | None = None) -> dict:
     """Raise ValueError unless it's a usable backup (.db.gz or .db): readable, intact, ours.
     Returns {"keys": n API keys inside, "readable": whether `key` (or this machine's) opens them}."""
@@ -78,17 +87,28 @@ def check_backup_file(path: str, key: bytes | None = None) -> dict:
         try:
             with (gzip.open if _gzipped(p) else open)(p, "rb") as fin, open(plain, "wb") as fout:
                 shutil.copyfileobj(fin, fout, 1 << 20)
-            con = sqlite3.connect(plain)
-            try:
-                ok = con.execute("PRAGMA integrity_check").fetchone()[0]
-                tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                rows = (con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall()
-                        if ok == "ok" and "secrets" in tables else [])
-            finally:
-                con.close()
-        except (OSError, sqlite3.DatabaseError, EOFError) as e:
+            sqlite_file = _is_sqlite(plain)
+            if sqlite_file:
+                con = sqlite3.connect(plain)
+                try:
+                    ok = con.execute("PRAGMA integrity_check").fetchone()[0]
+                    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    rows = (con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall()
+                            if ok == "ok" and "secrets" in tables else [])
+                finally:
+                    con.close()
+            else:
+                import duckdb
+                con = duckdb.connect(str(plain), read_only=True)
+                try:
+                    ok = con.execute("SELECT 1").fetchone()[0] == 1
+                    tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
+                    rows = con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall() if "secrets" in tables else []
+                finally:
+                    con.close()
+        except Exception as e:
             raise ValueError(f"not a database backup ({e})")
-    if ok != "ok":
+    if (sqlite_file and ok != "ok") or (not sqlite_file and ok is not True):
         raise ValueError(f"the database is damaged ({ok})")
     if "photos" not in tables:
         raise ValueError("not a Coconut Barometer library database (no photos table)")
@@ -125,7 +145,8 @@ def stage_restore(cfg: dict, upload: str, key_text: str | None = None) -> dict:
 
 
 def restore(cfg: dict, source: str) -> Path:
-    """Replace the database with a backup (.db.gz or .db). Stop the app first. The current
+    """Replace the database with a backup (.db.gz or .db; DuckDB, or SQLite from before the move,
+    which is converted). Stop the app first, and close every connection to the database. The current
     database is kept beside it as <name>.before-restore-<time>."""
     src = Path(source)
     with tempfile.TemporaryDirectory(dir=Path(cfg["database"]).parent) as tmp:
@@ -133,25 +154,45 @@ def restore(cfg: dict, source: str) -> Path:
         opener = gzip.open if src.suffix == ".gz" else open
         with opener(src, "rb") as fin, open(plain, "wb") as fout:
             shutil.copyfileobj(fin, fout, 1 << 20)
-        check = sqlite3.connect(plain)
-        try:
-            ok = check.execute("PRAGMA integrity_check").fetchone()[0]
-            tables = {r[0] for r in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        finally:
-            check.close()
-        if ok != "ok" or "photos" not in tables:
-            raise SystemExit(f"{source} isn't a usable backup ({ok if ok != 'ok' else 'no photos table'})")
-        db = Path(cfg["database"])
-        if db.exists():                    # fold the WAL in, so the kept copy is complete
-            con = sqlite3.connect(db)
+        sqlite_file = _is_sqlite(plain)
+        if sqlite_file:
+            check = sqlite3.connect(plain)
             try:
-                con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                ok = check.execute("PRAGMA integrity_check").fetchone()[0]
+                tables = {r[0] for r in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             finally:
-                con.close()
+                check.close()
+            healthy = ok == "ok"
+        else:
+            import duckdb
+            check = duckdb.connect(str(plain), read_only=True)
+            try:
+                check.execute("SELECT 1").fetchone()
+                tables = {r[0] for r in check.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
+                healthy = True
+            finally:
+                check.close()
+        if not healthy or "photos" not in tables:
+            raise SystemExit(f"{source} isn't a usable backup ({'ok' if healthy else 'database check failed' if not sqlite_file else ok})")
+        db = Path(cfg["database"])
         kept = db.with_name(f"{db.name}.before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
         if db.exists():
+            try:           # fold the write-ahead log in (a stopped process leaves one), so the kept copy is complete
+                import duckdb
+
+                con = duckdb.connect(str(db))
+                con.execute("CHECKPOINT")
+                con.close()
+            except Exception:
+                pass
             shutil.copy2(db, kept)
-        for extra in (db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
-            extra.unlink(missing_ok=True)
+        wal = db.with_name(db.name + ".wal")
+        wal.unlink(missing_ok=True)      # it belongs to the database being replaced; replaying it onto the backup would corrupt it
+        if sqlite_file:              # a backup from before DuckDB: convert it on the way in
+            from .store.migration import import_sqlite
+
+            converted = Path(tmp) / "converted.duckdb"
+            import_sqlite(plain, converted)
+            plain = converted
         os.replace(plain, db)
     return kept

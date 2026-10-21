@@ -27,7 +27,7 @@ class SettingsStore(Database):
                                 "value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
                                 (path, json.dumps(value), now, username))
             self.db.executemany("DELETE FROM settings WHERE path=?", [(p,) for p in removed])
-            self.db.executemany("INSERT INTO settings_log (at, username, path, old, new) VALUES (?, ?, ?, ?, ?)",
+            self.db.executemany('INSERT INTO settings_log ("at", username, path, old, new) VALUES (?, ?, ?, ?, ?)',
                                 [(now, username, p, o, n) for p, o, n in log])
 
     def secret_rows(self) -> dict[str, dict]:
@@ -41,7 +41,7 @@ class SettingsStore(Database):
             else:
                 self.db.execute("INSERT OR REPLACE INTO secrets VALUES (?, ?, ?, ?, ?, ?)",
                                 (name, nonce, ciphertext, hint, now, username))
-            self.db.execute("INSERT INTO settings_log (at, username, path, old, new) VALUES (?, ?, ?, ?, ?)",
+            self.db.execute('INSERT INTO settings_log ("at", username, path, old, new) VALUES (?, ?, ?, ?, ?)',
                             (now, username, name, "(secret)", "(cleared)" if ciphertext is None else f"(set, …{hint})"))
 
     def settings_log(self, limit: int = 100) -> list[dict]:

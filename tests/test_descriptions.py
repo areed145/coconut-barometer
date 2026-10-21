@@ -16,7 +16,7 @@ class DescribeTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.cfg = from_dict(CFG)
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         self.fl.photos[1]["description"] = {"_content": "Written by me"}
         self.fl.photos[2]["description"] = {"_content": "Something else."}   # already says it

@@ -1,6 +1,5 @@
 """The store: schema upgrades, and keeping changes applied during a sync."""
 import os
-import sqlite3
 import tempfile
 import unittest
 
@@ -11,33 +10,13 @@ from flickr_organizer.sync import sync
 
 class SchemaTest(unittest.TestCase):
     def setUp(self):
-        self.path = os.path.join(tempfile.mkdtemp(), "db.sqlite")
+        self.path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
 
     def test_fresh_database_is_at_the_latest_version(self):
         store = Store(self.path)
         self.assertEqual(int(store.get_meta("schema_version")), SCHEMA_VERSION)
-        tables = {r[0] for r in store.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {r[0] for r in store.db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'")}
         self.assertTrue({"photos", "queue", "decisions", "cameras", "faves", "flickr_groups"} <= tables)
-
-    def test_database_from_before_versioning_is_upgraded_in_place(self):
-        old = sqlite3.connect(self.path)       # the shape of the very first release
-        old.executescript("""
-            CREATE TABLE photos (id TEXT PRIMARY KEY, title TEXT, description TEXT, tags TEXT,
-                lat REAL, lon REAL, accuracy INTEGER, media TEXT, thumb_url TEXT, secret TEXT, server TEXT,
-                date_taken TEXT, date_upload INTEGER, last_update INTEGER, ispublic INTEGER);
-            CREATE TABLE cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at INTEGER);
-            CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-            INSERT INTO photos (id, title) VALUES ('1', 'Kept');
-        """)
-        old.commit()
-        old.close()
-        store = Store(self.path)
-        self.assertEqual(int(store.get_meta("schema_version")), SCHEMA_VERSION)
-        cols = {r[1] for r in store.db.execute("PRAGMA table_info(photos)")}
-        self.assertTrue({"views", "faves", "date_taken_unknown", "width"} <= cols)
-        self.assertIn("exif", {r[1] for r in store.db.execute("PRAGMA table_info(cameras)")})
-        self.assertEqual(store.photo("1")["title"], "Kept")
-        Store(self.path)                       # opening again changes nothing
 
     def test_refuses_a_database_from_a_newer_version(self):
         Store(self.path).set_meta("schema_version", SCHEMA_VERSION + 1)
@@ -45,9 +24,23 @@ class SchemaTest(unittest.TestCase):
             Store(self.path)
 
 
+class OneProcessTest(unittest.TestCase):
+    def test_a_second_process_gets_a_clear_message_not_a_stack_trace(self):
+        import subprocess
+        import sys
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
+        store = Store(path)                                   # this process holds the file
+        out = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); from flickr_organizer.store import Store; Store(%r)"
+                              % (os.path.join(os.path.dirname(__file__), ".."), path)], capture_output=True, text=True)
+        store.close()
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("open in another process", out.stderr)
+        self.assertNotIn("Traceback", out.stderr)
+
+
 class SyncKeepsChangesTest(unittest.TestCase):
     def test_album_and_tag_added_mid_sync_survive(self):
-        store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         fl = FakeFlickr()
         sync(fl, store, log=lambda *a: None)
         real_call = fl.call

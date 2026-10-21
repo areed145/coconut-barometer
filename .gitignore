@@ -5,6 +5,8 @@ plans/
 __pycache__/
 *.db-shm
 *.db-wal
+*.duckdb
+*.duckdb.*
 *.egg-info/
 .DS_Store
 backups/

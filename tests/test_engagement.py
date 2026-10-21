@@ -13,7 +13,7 @@ from flickr_organizer.sync import sync
 class SocialTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.store = Store(os.path.join(self.tmp, "db.sqlite"))
+        self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         for ph, (views, faves, comments) in zip(self.fl.photos, [(100, 60, 1), (5, 0, 0), (7, 0, 2)]):
             ph.update(views=str(views), count_faves=str(faves), count_comments=str(comments))

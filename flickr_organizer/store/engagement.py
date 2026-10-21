@@ -51,7 +51,7 @@ class EngagementStore(Database):
             "first_snapshot": dict(first) if first else None,
             "groups": [dict(r) for r in q("SELECT g.id, g.name, g.path_alias, g.members FROM group_photos gp "
                                           "JOIN flickr_groups g ON g.id = gp.group_id WHERE gp.photo_id=? "
-                                          "ORDER BY g.members DESC")],
+                                          "ORDER BY g.members DESC, g.id")],
             "recent_comments": [dict(r) for r in q("SELECT author_name, real_name, date_created, text, permalink "
                                             "FROM comments WHERE photo_id=? ORDER BY date_created DESC LIMIT 5")],
             "recent_faves": [dict(r) for r in q("SELECT username, real_name, date_faved FROM faves "

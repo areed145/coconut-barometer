@@ -16,7 +16,7 @@ from flickr_organizer.sync import sync
 
 class IncrementalTest(unittest.TestCase):
     def setUp(self):
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         self.fl = FakeFlickr()
         sync(self.fl, self.store, log=lambda *a: None)
         self.fl.clock = int(time.time())          # Flickr's clock is "now" from here on
@@ -64,7 +64,7 @@ class IncrementalTest(unittest.TestCase):
 class ScheduleTest(unittest.TestCase):
     def setUp(self):
         self.cfg = from_dict({**CFG, "schedule": {"stats": False}})
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         self.fl = FakeFlickr()
 
     def test_full_then_incremental_then_daily_photo_list(self):
@@ -81,7 +81,7 @@ class ScheduleTest(unittest.TestCase):
 
 class StatsHistoryTest(unittest.TestCase):
     def setUp(self):
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.sqlite"))
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         sync(FakeFlickr(), self.store, log=lambda *a: None)
         self.fl = FakeFlickr()
         today = dt.datetime.now(dt.timezone.utc).date()
