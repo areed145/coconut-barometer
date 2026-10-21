@@ -1,5 +1,5 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink } from "./lib.js";
+import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -153,6 +153,17 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   const [timeline, setTimeline] = useState(null);
   const [zoom, setZoom] = useState(false);
   const [info, setInfo] = useState(true);
+  const [sending, setSending] = useState(false);
+  const sendToReview = async () => {
+    if (sending) return; setSending(true);
+    try {
+      await api(`/api/review/items/${p.id}/process`, { method: "POST" });
+      toast("Sent to review");
+      onClose();
+      location.hash = "#/photos/review";
+    } catch (e) { toast("Error: " + e.message); }
+    setSending(false);
+  };
   useEffect(() => {
     setDetail(null); setTimeline(null); setZoom(false);
     api(`/api/photos/${p.id}`).then(setDetail).catch(() => {});
@@ -207,6 +218,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}
       ${d && html`<p><a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}
+      <p><button onClick=${sendToReview} disabled=${sending}>${sending ? "Sending…" : "Send to Review"}</button></p>
       <p class="hint"><kbd>←</kbd> <kbd>→</kbd> browse · <kbd>Z</kbd> zoom · <kbd>I</kbd> info · <kbd>Esc</kbd> close</p>
     </aside>`}
   </div>`;
