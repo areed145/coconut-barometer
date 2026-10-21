@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS classifications (photo_id TEXT, fingerprint TEXT, res
 CREATE TABLE IF NOT EXISTS cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at BIGINT, lens TEXT, exif TEXT);
 CREATE TABLE IF NOT EXISTS decisions (photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, "at" BIGINT, PRIMARY KEY (photo_id, action, target));
 CREATE TABLE IF NOT EXISTS queue (photo_id TEXT PRIMARY KEY, status TEXT, changes TEXT, built_at BIGINT, reviewed_at BIGINT, result TEXT);
-CREATE INDEX IF NOT EXISTS queue_status ON queue(status);
 CREATE TABLE IF NOT EXISTS photo_stats (photo_id TEXT, day TEXT, views INTEGER, faves INTEGER, comments INTEGER, PRIMARY KEY (photo_id, day));
 CREATE TABLE IF NOT EXISTS account_stats (day TEXT PRIMARY KEY, stats TEXT);
 CREATE TABLE IF NOT EXISTS flickr_groups (id TEXT PRIMARY KEY, name TEXT, path_alias TEXT, members INTEGER, pool_count INTEGER, privacy TEXT, info TEXT, fetched_at BIGINT);
@@ -164,7 +163,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class SchemaTooNew(RuntimeError):
@@ -206,6 +205,8 @@ class Database:
                                f"this one knows up to {SCHEMA_VERSION}. Update the tool.")
         if 0 < version < 5:                     # v5: comments_photo went; a DuckDB index that fell out of step with
             self.db.execute("DROP INDEX IF EXISTS comments_photo")   # its table makes deleting that row fatal
+        if 0 < version < 6:                     # v6: queue_status went, the same way (re-queueing a photo replaces
+            self.db.execute("DROP INDEX IF EXISTS queue_status")     # its row, and status changes on every job)
         self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
