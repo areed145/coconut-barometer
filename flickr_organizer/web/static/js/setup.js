@@ -65,7 +65,7 @@ export function Setup({ onLogin }) {
   const set = (k) => (e) => setU({ ...u, [k]: e.target.value });
   return html`<div class="setup">
     <img class="logo hero" src="/static/img/logo-320.png" width="160" height="156" alt="" />
-    <h1>Flickr Organizer: first-run setup</h1>
+    <h1>Coconut Barometer: first-run setup</h1>
     <p>There's no login yet. Start fresh with a new one, or bring everything from a backup.</p>
     <label for="code">Setup code</label>
     <input id="code" autocomplete="off" spellcheck="false" value=${code} onInput=${(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" />

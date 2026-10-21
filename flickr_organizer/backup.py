@@ -91,7 +91,7 @@ def check_backup_file(path: str, key: bytes | None = None) -> dict:
     if ok != "ok":
         raise ValueError(f"the database is damaged ({ok})")
     if "photos" not in tables:
-        raise ValueError("not a Flickr Organizer database (no photos table)")
+        raise ValueError("not a Coconut Barometer library database (no photos table)")
     readable = all(S.decrypt(name, nonce, ct, key) is not None for name, nonce, ct in rows)
     return {"keys": len(rows), "readable": readable}
 

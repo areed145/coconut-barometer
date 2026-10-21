@@ -28,7 +28,7 @@ function Login({ onLogin }) {
   };
   return html`<form class="login" onSubmit=${submit}>
     <img class="logo hero" src="/static/img/logo-320.png" width="200" height="195" alt="" />
-    <h1 class="sr-only">Flickr Organizer</h1>
+    <h1 class="site-name">Coconut Barometer</h1>
     <label for="u">Username</label>
     <input id="u" autocomplete="username" value=${username} onInput=${(e) => setUsername(e.target.value)} required />
     <label for="p">Password</label>
@@ -105,8 +105,9 @@ function Shell({ session, onLogout }) {
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${section === id || (id === "photos" && !["albums", "map", "review", "queue", "analytics", "settings"].includes(section)) ? "on" : ""}>${label}${extra}</a>`;
   return html`
     <header class="top">
-      <a class="brand" href="#/photos" aria-label="Flickr Organizer: Photos">
-        <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="Flickr Organizer" /></a>
+      <a class="brand" href="#/photos" aria-label="Coconut Barometer: Photos">
+        <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
+        <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos")}${link("albums", "Albums")}${link("map", "Map")}
         ${link("review", "Review", pending ? html`<span class="badge">${pending}</span>` : "")}

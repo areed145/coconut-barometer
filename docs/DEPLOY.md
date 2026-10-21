@@ -32,7 +32,7 @@ With no login yet, the app opens on a setup page instead of the sign-in page.
 
 1. In Render, open the service's **Logs** and find `finish setup with this code: XXXX-XXXX-XXXX`. The page asks for it, so a stranger who finds the new address first can't claim the server. A new code is made at every start until setup is done.
 2. Open `https://<service>.onrender.com`, enter the code, and either:
-   - **Restore a backup:** drag `flickr_organizer-….db.gz` and `secret.key` onto the drop zone (or paste the key), then **Restore**. The backup is checked (an intact Flickr Organizer database, and the key must open its API keys), then the app restarts into it, keeping the empty database beside it. The page reloads by itself; sign in with your usual login.
+   - **Restore a backup:** drag `flickr_organizer-….db.gz` and `secret.key` onto the drop zone (or paste the key), then **Restore**. The backup is checked as a valid Coconut Barometer library database, and the key is checked against its encrypted API keys. The app restarts into it, keeping the empty database beside it. The page reloads by itself; sign in with your usual login.
    - **Create a login:** a username and a password of 12+ characters. You're signed in straight away.
 3. **Settings → API keys**: set the keys if you started fresh, then **Connect Flickr**. That opens flickr.com to approve access and brings you back; the login is saved on the disk. (If Flickr refuses the return address, set your Flickr app's callback URL to `https://<your host>/api/flickr/callback` at flickr.com/services/apps.)
 4. Fresh start only: **Settings** for categories, briefs and the rest (or bring them later: `settings import-file` locally, back up, and restore it in **Settings → Backups**).

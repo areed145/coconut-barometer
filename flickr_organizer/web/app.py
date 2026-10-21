@@ -65,7 +65,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         yield
         rt.stop()
 
-    app = FastAPI(title="Flickr Organizer", lifespan=lifespan, docs_url=None, redoc_url=None,
+    app = FastAPI(title="Coconut Barometer", lifespan=lifespan, docs_url=None, redoc_url=None,
                   openapi_url="/api/openapi.json" if web["api_docs"] else None)
     app.state.runtime = rt
     headers = security_headers(web["secure_cookies"])
@@ -117,7 +117,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     if web["api_docs"]:
         @app.get("/api/docs", include_in_schema=False, dependencies=[Depends(session)])
         def docs():
-            return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Flickr Organizer API")
+            return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Coconut Barometer API")
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
     def no_such_api(rest: str):   # any method: an unknown API address is a 404, not a 405

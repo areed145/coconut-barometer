@@ -1,4 +1,6 @@
-# flickr-organizer
+# Coconut Barometer
+
+Coconut Barometer is a personal website for browsing and organizing your Flickr library. It includes a private photo gallery, map, analytics, and a review workflow for proposed titles, descriptions, tags and albums. The existing Python package and command-line entry point remain named `flickr_organizer` / `flickr-organizer`.
 
 Adds your Flickr photos to the right albums and tags, using:
 
