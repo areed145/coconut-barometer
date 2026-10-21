@@ -307,7 +307,7 @@ standard_tags:
     region_overrides: {}      # e.g. MX: [americas, centralamerica]
 
   # 3. Camera, from EXIF. Run `python -m flickr_organizer camera` first (one call per
-  #    photo, cached; `run` keeps it up to date). Tags are the words of Flickr's camera
+  #    photo, cached; `process` keeps it up to date). Tags are the words of Flickr's camera
   #    name: "Nikon D90" -> nikon d90, "Apple iPhone X" -> apple iphone x.
   camera:
     enabled: true
@@ -355,3 +355,19 @@ web:
   sync_every_minutes: 60        # 0 turns the scheduler off
   api_docs: false               # /api/docs, behind the login
   trusted_proxies: [127.0.0.1]  # where X-Forwarded-For / -Proto are believed from (Caddy)
+
+# The Map page uses CARTO tiles. Create a key at carto.com/basemaps/apikey and restrict
+# it to your site; the key is visible in map tile requests. The cluster colors are below.
+map:
+  carto_key: ""
+  expand_at: 40                 # clusters this size or smaller open into photo cards
+
+theme:
+  color_low: "#f7d125"          # low counts on the map and analytics charts
+  color_high: "#1dab45"         # high counts
+
+# The web app makes compressed backups on its scheduler. 0 disables automatic backups.
+backup:
+  every_hours: 24
+  keep: 7
+  # dir: /path/to/backups       # default: backups/ beside the database

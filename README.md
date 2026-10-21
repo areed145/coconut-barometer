@@ -4,7 +4,7 @@ Adds your Flickr photos to the right albums and tags, using:
 
 - **Geotags**: country albums, US state albums, and a few city albums (matched by distance from the city center)
 - **A vision LLM**: subject albums like Food, Landscapes, Animals, descriptive tags, a title and a description. Claude is the default; OpenAI or a local Ollama model also work.
-- **Your conventions**: standard tags (dates, places, camera, your name…) and camera albums.
+- **Your conventions**: standard tags for dates, places, camera names and optional album tags, plus camera albums.
 
 Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. Apart from titles and descriptions it only ever **adds**: it never takes a photo out of an album, and removes tags only when you re-process a photo with **Tags: overwrite existing** in the reviewer (that photo's tags are then proposed as one replacement, showing what it removes). Nothing changes on Flickr until you approve it.
 
@@ -44,12 +44,13 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
 - **Albums**: covers and counts; open one for its photos.
+- **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Map (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
 - **Review**: the reviewer, as in `review`, with the count of photos waiting in the tab.
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
 - The top bar shows when the last sync ran and the next is due, with **Sync now**.
 
-**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables. The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
+**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, map tiles and colours, backups, and the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables. The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
 
 API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database, in `FLICKR_ORGANIZER_SECRET_KEY` or a key file (`~/.config/flickr-organizer/secret.key`, readable only by you; on a server, `secret.key` in the data directory; `FLICKR_ORGANIZER_KEY_FILE` moves it). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. `flickr-organizer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides; `settings new-key` makes a key for `FLICKR_ORGANIZER_SECRET_KEY` on a server. Keep that key safe and separate from database backups: without it, stored keys can't be read (set them again).
 
@@ -71,9 +72,9 @@ Every API route except login needs a session. It's built to be reachable from th
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | login (returns the CSRF token) |
 | `GET /api/photos?q=&sort=&media=&album=&limit=&offset=`, `/api/photos/{id}`, `/api/albums`, `/api/albums/{id}` | gallery: image sizes up to 2048 px, EXIF, albums, engagement |
 | `GET /api/analytics/overview`, `/photos?kind=`, `/tags`, `/tags/{tag}`, `/places`, `/gear`, `/audience`, `/groups`, `/impact` | the Analytics tabs (all from the local database) |
-| `GET /api/map/points?album=&year_from=&year_to=`, `POST /api/map/cards` | the Map page: every geotagged photo (compact, gzipped), then the cards for a cluster you open |
+| `GET /api/map/config`, `GET /api/map/points?album=&year_from=&year_to=`, `POST /api/map/cards` | Map tile settings, geotagged photos (gzipped when supported), then cards for an opened cluster |
 | `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/decide`, `POST /items/{id}/process`, `/jobs`, `/find` | the review queue |
-| `/api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves, comments over time |
+| `GET /api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
 
 ## Workflow: review photo by photo
@@ -86,6 +87,21 @@ python -m flickr_organizer review               # opens http://127.0.0.1:8765
 `process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through photos in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into the queue. It can be stopped and resumed; queued photos are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans everything (`--media video` or `--media photo` to limit it; photos the review tool is applying are never touched); applied and rejected changes still never come back.
 
 `review` shows one photo at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then **Approve** (Enter), **Reject all** (R), or **Skip** (→). Approving doesn't wait for Flickr: the photo goes to a background worker that makes the calls in order (at the usual rate limit) while you carry on, and the header shows how many are still applying. Failures pop up and land under "Failed" to retry. Photos and videos that `process` hasn't reached yet are under "Not processed": press **Process now** (P) to fetch EXIF, classify and plan that one in the background, then review it right there. Videos are classified from their preview frame. **Re-process** re-plans a queued photo with your current settings, and the **Go to** box jumps to any photo by ID or Flickr URL. Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if you stop the tool mid-way, unfinished photos are applied the next time you run `review`. Before writing a title or description it re-reads the photo from Flickr, so a change you made there since the queue was built isn't overwritten. Failed changes stay under "Failed" to retry. The server only listens on 127.0.0.1 and needs a per-run token, so other web pages can't use it.
+
+## Useful commands
+
+`flickr-organizer --help` lists every command and `flickr-organizer <command> --help` shows its options. Common maintenance commands:
+
+```bash
+flickr-organizer status
+flickr-organizer check
+flickr-organizer settings show
+flickr-organizer settings import-file config.yaml
+flickr-organizer backup --list
+flickr-organizer user list
+```
+
+`settings import-file` copies settings and encrypted API keys from a YAML file into the database; settings already changed in the admin page take precedence unless `--overwrite` is supplied. `settings import-secrets --blank` stores just the API keys encrypted and clears them from the config file. `restore <file>` replaces the database and should be run with the web app stopped. On a server, stage a backup as `restore.db.gz` (or `restore.db`) in the data directory and restart the app to restore it during startup.
 
 ## Preview without queueing
 
@@ -120,11 +136,11 @@ Everything lives in a local SQLite file (`flickr_organizer.db`):
 
 ### Standard tags
 
-Tags you add by convention, each group with its own flag under `standard_tags`: date (`y2019 m07 d17`), place (`unitedstates americas california ca bakersfield`), camera (`nikon d90`), album tags (every photo in Style gets `style`), coordinates (`lat300 lon950`), your name/handles, and filler words.
+Tags you add by convention, each group with its own flag under `standard_tags`: date (`y2019 m07 d17`), place (`unitedstates americas california ca bakersfield`), camera (`nikon d90`), and optional album tags (every photo in Style gets `style`).
 
 - They only add tags a photo doesn't already have, and they share the photo's single `add_tags` row, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the groups lower in the config list drop off first.
 - Date tags skip photos that already have a year tag (`y2019` or `2019`) and photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
-- Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `camera.albums` also adds photos to your camera albums.
+- Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `standard_tags.camera.albums` also adds photos to your camera albums.
 
 ### Keeping in sync, and stats history
 
