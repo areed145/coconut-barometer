@@ -300,7 +300,7 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
     def colors():
         for path in sorted(COLORS):
             if not re.fullmatch(r"#[0-9a-fA-F]{6}", get(path)):
-                errors.append(f"{name(path)}: should be a colour like #1dab45, not {get(path)!r}")
+                errors.append(f"{name(path)}: should be a color like #1dab45, not {get(path)!r}")
         key = get(("map", "carto_key"))
         if key and not re.fullmatch(r"[A-Za-z0-9._~-]{8,200}", key):
             errors.append("map.carto_key: should be the key from CARTO's dashboard (letters, digits, - _ . ~)")

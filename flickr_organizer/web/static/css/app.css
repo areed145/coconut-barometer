@@ -13,7 +13,7 @@
   src: url("/static/fonts/dm-sans-latin.woff2") format("woff2");
 }
 :root {
-  /* colour roles */
+  /* color roles */
   --bg: #f6f5f3; --surface: #ffffff; --surface-2: #efede9; --fg: #1c1917; --muted: #6f6a65; --line: #e4e1dc;
   --accent: #0063dc; --accent-fg: #ffffff; --accent-soft: #e6effc;
   --ok: #15803d; --no: #c62828; --warn: #b45309;
@@ -507,3 +507,6 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .rose svg { width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }
+.heatkey { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); margin: var(--s2) 0 0; }
+.heatkey i { display: inline-block; width: 90px; height: 10px; border-radius: 3px; }
+.daterange { display: inline-flex; align-items: center; gap: var(--s2); }

@@ -1,4 +1,4 @@
-// The Map page: every geotagged photo, clustered. A cluster's size and colour follow its
+// The Map page: every geotagged photo, clustered. A cluster's size and color follow its
 // photo count on a log scale (map.color_low → map.color_high). Clicking one zooms in a
 // level; once it holds map.expand_at photos or fewer it opens into thumbnails. A spot
 // with more photos than that (all at one point) opens them in the lightbox.

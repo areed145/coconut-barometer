@@ -1,7 +1,7 @@
 // The Weather section: Live (the stations now), History (charts), Stations (what's stored, sync).
 // Everything is stored metric; the unit setting (Settings → Weather) only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare } from "./lib.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -96,6 +96,11 @@ function Empty() {
 }
 
 // ---- History ----------------------------------------------------------------------------
+// Local dates (YYYY-MM-DD) -> the whole days from midnight of `from` to the end of `to` (or now, if that is today).
+const day = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString("sv"); };
+const pickRange = (from, to) => ({ from, to, range: [
+  Math.floor(new Date(from + "T00:00:00").getTime() / 1000),
+  Math.min(Math.floor(Date.now() / 1000), Math.floor(new Date(to + "T23:59:59").getTime() / 1000))] });
 const RANGES = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365]];
 
 function TimeChart({ t, series, height = 200, unit = "", bars = false }) {
@@ -122,12 +127,65 @@ function TimeChart({ t, series, height = 200, unit = "", bars = false }) {
   return html`<div class="chart" ref=${box}></div>`;
 }
 
-function Rose({ device, hours, unit }) {
+// Strikes by time (30-minute bins, the same span as the other charts) and distance, colored along the
+// Settings → Colors gradient. Distance bands: 5 km, or 3 mi when the stations are shown in miles.
+function Lightning({ device, start, end, unit }) {
+  const [d, setD] = useState(null);
+  const box = useRef(null);
+  const theme = useThemeTick();
+  useEffect(() => {
+    let live = true;
+    setD(null);
+    api(`/api/wx/lightning?device=${device}&start=${start}&end=${end}`).then((x) => live && setD(x)).catch(() => live && setD({ cells: [], total: 0 }));
+    return () => { live = false; };
+  }, [device, start, end]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !d || !d.total) return;
+    const [label, conv] = unitsFor(unit).dist, size = unit === "imperial" ? 3 : 5, count = unit === "imperial" ? 9 : 8;
+    const cells = new Map();
+    for (const [t, km, n] of d.cells) {
+      const b = Math.min(count - 1, Math.floor(conv(km) / size)), k = t + ":" + b;
+      cells.set(k, (cells.get(k) || 0) + n);
+    }
+    const top = Math.max(...cells.values());
+    const edges = Array.from({ length: count + 1 }, (_, i) => i * size);
+    const axis = { stroke: css("--muted"), grid: { stroke: css("--line"), width: 1 }, ticks: { stroke: css("--line") } };
+    const paint = (u) => {
+      const { ctx, bbox } = u;
+      ctx.save(); ctx.beginPath(); ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height); ctx.clip();
+      for (const [k, n] of cells) {
+        const [t, b] = k.split(":").map(Number);
+        const x0 = u.valToPos(t, "x", true), x1 = u.valToPos(t + d.step, "x", true);
+        const y0 = u.valToPos(edges[b + 1], "y", true), y1 = u.valToPos(edges[b], "y", true);
+        ctx.fillStyle = shade(logShare(n, top));
+        ctx.fillRect(x0, y0, Math.max(1, x1 - x0), y1 - y0);
+      }
+      ctx.restore();
+    };
+    const plot = new uPlot({
+      width: el.clientWidth, height: 200, cursor: { show: false }, legend: { show: false },
+      scales: { x: { time: true }, y: { range: [0, count * size] } },
+      axes: [axis, { ...axis, size: 52, label: label, labelSize: 14, labelFont: "11px sans-serif", splits: () => edges }],
+      series: [{}, { points: { show: false } }],
+      hooks: { draw: [paint] },
+    }, [[d.start, d.end], [null, null]], el);
+    const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: 200 }));
+    ro.observe(el);
+    return () => { ro.disconnect(); plot.destroy(); };
+  }, [d, unit, theme]);
+  if (!d) return html`<div class="boot">Loading…</div>`;
+  if (!d.total) return html`<p class="muted">No lightning in this range.</p>`;
+  return html`<div class="chart" ref=${box}></div>
+    <p class="muted heatkey"><span>${num(d.total)} strikes · fewer</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i><span>more per 30 min</span></p>`;
+}
+
+function Rose({ device, start, end, unit }) {
   const [r, setR] = useState(null);
-  useEffect(() => { api(`/api/wx/rose?device=${device}&hours=${hours}`).then(setR).catch(() => setR(null)); }, [device, hours]);
+  useEffect(() => { api(`/api/wx/rose?device=${device}&start=${start}&end=${end}`).then(setR).catch(() => setR(null)); }, [device, start, end]);
   if (!r || !r.total) return html`<p class="muted">No wind data for this range.</p>`;
   const max = Math.max(...r.counts.map((c) => c.reduce((a, b) => a + b, 0)));
-  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Colours gradient, calm to strong
+  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Colors gradient, calm to strong
   const R = 44, step = 22.5, gap = 1.5;
   const arc = (i, r0, r1) => {
     const a0 = ((i * step - step / 2 + gap) - 90) * Math.PI / 180, a1 = ((i * step + step / 2 - gap) - 90) * Math.PI / 180;
@@ -148,6 +206,7 @@ function Rose({ device, hours, unit }) {
 function History() {
   const [info, setInfo] = useState(null);
   const [hours, setHours] = useState(24 * 7);
+  const [custom, setCustom] = useState(null);        // {from, to} as YYYY-MM-DD while "Custom" is chosen
   const [picked, setPicked] = useState(null);       // device ids shown; null = all
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
@@ -159,9 +218,11 @@ function History() {
     if (!shown.length) return;
     let live = true;
     setData(null);
-    api(`/api/wx/history?${shown.map((d) => "device=" + d).join("&")}&hours=${hours}`).then((x) => live && setData(x)).catch((e) => live && setErr(e.message));
+    const span = custom ? (custom.range ? `start=${custom.range[0]}&end=${custom.range[1]}` : null) : `hours=${hours}`;
+    if (!span) return;
+    api(`/api/wx/history?${shown.map((d) => "device=" + d).join("&")}&${span}`).then((x) => live && setData(x)).catch((e) => live && setErr(e.message));
     return () => { live = false; };
-  }, [key, hours]);
+  }, [key, hours, custom && custom.range && custom.range.join()]);
   const names = useMemo(() => Object.fromEntries((info?.stations || []).map((s) => [s.device_id, s.name])), [info]);
   if (err) return html`<p class="problem">${err}</p>`;
   if (!info) return html`<div class="boot">Loading…</div>`;
@@ -176,7 +237,13 @@ function History() {
     <${TimeChart} t=${data.t} series=${series} unit=${unit} ...${extra} /></div>`;
   return html`
     <div class="toolbar">
-      <span class="range">${RANGES.map(([label, h]) => html`<button key=${label} class=${hours === h ? "primary" : ""} onClick=${() => setHours(h)}>${label}</button>`)}</span>
+      <span class="range">${RANGES.map(([label, h]) => html`<button key=${label} class=${!custom && hours === h ? "primary" : ""} onClick=${() => { setCustom(null); setHours(h); }}>${label}</button>`)}
+        <button class=${custom ? "primary" : ""} onClick=${() => setCustom(custom || pickRange(day(-7), day(0)))}>Custom</button></span>
+      ${custom && html`<span class="daterange">
+        <input type="date" aria-label="From" value=${custom.from} max=${custom.to} onChange=${(e) => e.target.value && setCustom(pickRange(e.target.value, custom.to))} />
+        <span class="muted">to</span>
+        <input type="date" aria-label="To" value=${custom.to} min=${custom.from} max=${day(0)} onChange=${(e) => e.target.value && setCustom(pickRange(custom.from, e.target.value))} />
+      </span>`}
       ${info.stations.length > 1 && html`<span class="seg">
         <button class=${!picked ? "primary" : ""} onClick=${() => setPicked(null)}>Both</button>
         ${info.stations.map((s) => html`<button key=${s.device_id} class=${picked && picked.length === 1 && picked[0] === s.device_id ? "primary" : ""}
@@ -189,9 +256,11 @@ function History() {
       ${chart("Pressure (sea level)", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0])}
       ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0])}
       ${chart("Rain", make("rain", "rain", { digits: u === "imperial" ? 2 : 1 }), `${unitsFor(u).rain[0]} per point`, { bars: true })}
+      ${shown.map((id) => html`<div class="card" key=${id}><h2>Lightning${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
+        <${Lightning} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}
       ${chart("Solar radiation", make("solar", null, { digits: 0 }), "W/m²")}
       ${shown.map((id) => html`<div class="card" key=${id}><h2>Wind rose${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
-        <${Rose} device=${id} hours=${hours} unit=${u} /></div>`)}`}`;
+        <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}`}`;
 }
 
 // ---- Stations ---------------------------------------------------------------------------

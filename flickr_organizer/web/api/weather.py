@@ -55,6 +55,16 @@ def history(device: list[int] = Query(...), start: int | None = None, end: int |
     return {"units": _units(rt), "start": start, "end": end, **db.wx_history(device, start, end)}
 
 
+@router.get("/lightning")
+def lightning(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24, gt=0, le=24 * 3650),
+              db=Depends(store)):
+    """Lightning strike counts in 30-minute bins by distance (km), for the heatmap."""
+    start, end = _window(start, end, hours)
+    if device not in {d["device_id"] for d in db.wx_devices()}:
+        raise HTTPException(404, "unknown device")
+    return {"start": start, "end": end, **db.wx_lightning(device, start, end)}
+
+
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
          db=Depends(store)):

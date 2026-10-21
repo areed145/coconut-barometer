@@ -129,6 +129,16 @@ class WeatherStore(Database):
             devices[dev] = cols
         return {"bucket": bucket, "t": ts, "devices": devices}
 
+    def wx_lightning(self, device_id: int, start: int, end: int, step: int = 1800) -> dict:
+        """Strikes per `step`-second bin and kilometre of distance, for a heatmap. The station reports one
+        average distance and a count per observation, so that's what is binned: cells = [[bin start, km, strikes], ...]."""
+        rows = self.db.execute(
+            f"SELECT (ts // {int(step)}) * {int(step)} AS t, CAST(round(strike_dist) AS INTEGER) AS km, SUM(strike_count) AS n "
+            "FROM wx_obs WHERE device_id=? AND ts>=? AND ts<=? AND strike_count > 0 AND strike_dist IS NOT NULL "
+            "GROUP BY 1, 2 ORDER BY 1, 2", (device_id, start, end)).fetchall()
+        return {"step": step, "cells": [[r[0], max(0, r[1]), int(r[2])] for r in rows],
+                "total": sum(int(r[2]) for r in rows)}
+
     def wx_wind_rose(self, device_id: int, start: int, end: int) -> dict:
         """Share of observations by 16 compass directions and wind-speed band (m/s)."""
         bands = (0, 2, 5, 8, 12, 999)

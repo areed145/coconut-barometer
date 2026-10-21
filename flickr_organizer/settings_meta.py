@@ -17,8 +17,8 @@ SECTIONS = [
     ("tags", "Tags", PROPOSALS + "Tags come from the model, the location and your own conventions."),
     ("albums", "Albums", PROPOSALS + "Albums come from what's in the photo, where it was taken, and the camera."),
     ("map", "Map", "The Map page: photos clustered by where they were taken."),
-    ("theme", "Colours", "One gradient for everything that shows an amount: map clusters and the bars in "
-                         "Analytics. Small amounts get the first colour, the largest the second, on a log scale."),
+    ("theme", "Colors", "One gradient for everything that shows an amount: map clusters and the bars in "
+                         "Analytics. Small amounts get the first color, the largest the second, on a log scale."),
     ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
                            "from their WebSocket. Both stations on the token's account are found by themselves."),
     ("vision", "Vision model", "The model that looks at each photo and writes the proposals."),
@@ -147,7 +147,7 @@ META = {
     "map.expand_at": _m("map", "Show thumbnails from (photos)", "Clicking a cluster zooms in one level; once it "
                         "holds this many photos or fewer, it opens into thumbnails instead.", group="Clusters"),
 
-    # ---- Colours
+    # ---- Colors
     "theme.color_low": _m("theme", "Low", "e.g. a cluster of a few photos, or a short bar."),
     "theme.color_high": _m("theme", "High", "e.g. the biggest cluster, or the longest bar."),
 

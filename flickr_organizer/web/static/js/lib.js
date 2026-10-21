@@ -70,11 +70,11 @@ export function DropZone({ onFiles, accept, disabled, children }) {
   </label>`;
 }
 
-// ---- the colour gradient (Settings → Colours), for anything showing an amount -----------
+// ---- the color gradient (Settings → Colors), for anything showing an amount -----------
 let gradient = [[0xf7, 0xd1, 0x25], [0x1d, 0xab, 0x45]];
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 export const loadTheme = () => api("/api/theme").then((t) => { gradient = t.colors.map(rgbOf); }).catch(() => {});
-// t in 0..1 -> "rgb(…)" between the low and high colours.
+// t in 0..1 -> "rgb(…)" between the low and high colors.
 export const shade = (t) => {
   const [a, b] = gradient, k = Math.max(0, Math.min(1, t || 0));
   return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * k)).join(",")})`;
@@ -107,7 +107,7 @@ export function setThemeChoice(choice) {
   themeChanged();
 }
 deviceDark.addEventListener?.("change", () => { if (themeChoice() === "auto") themeChanged(); });
-// Re-render when the theme changes (for things drawn from the colours at render time).
+// Re-render when the theme changes (for things drawn from the colors at render time).
 export function useThemeTick() {
   const [tick, setTick] = useState(0);
   useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener("fo:theme", on);

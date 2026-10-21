@@ -1,5 +1,5 @@
 // Small charts for the Analytics tabs, drawn as plain HTML/SVG (no library): bar lists
-// (coloured along the Settings → Colours gradient), photo tiles, a week heatmap and a scatter plot. Nothing uses inline
+// (colored along the Settings → Colors gradient), photo tiles, a week heatmap and a scatter plot. Nothing uses inline
 // HTML or style attributes in markup, so the Content-Security-Policy holds.
 import { html, useState, useMemo, num, pick, shade, logShare } from "./lib.js";
 import { Lightbox } from "./gallery.js";
@@ -26,7 +26,7 @@ export function TopGrid({ rows, caption, onOpen, empty = "Nothing here yet." }) 
 }
 
 // rows: [{label, ...}], value: the key bars are sized by; right: text shown at the end.
-// Length is linear; colour runs along the gradient from the smallest bar to the largest, on a
+// Length is linear; color runs along the gradient from the smallest bar to the largest, on a
 // log scale like the map's clusters, so the differences show even when all the values are big.
 // after(r): an optional extra column at the very end (e.g. a trend mark).
 export function Bars({ rows, value = "views", right, after, title, onPick, empty = "No data yet.", sorted = false }) {
