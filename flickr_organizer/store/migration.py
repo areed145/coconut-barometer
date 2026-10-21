@@ -192,15 +192,22 @@ class Migration:
             out["counts"] = self.status["counts"]
         return out
 
+    def busy(self) -> bool:
+        """An import is running: background jobs wait, so nothing else writes while the tables are being replaced."""
+        return bool(self._thread and self._thread.is_alive())
+
     def _set(self, **kw) -> None:
         self.status = {**self.status, **kw}
         write_status(self.db_path, self.status)
 
-    def start(self, open_store: Callable[[], object]) -> dict:
-        """Begin the import. open_store() makes a Store on the app's database for the new thread."""
+    def start(self, open_store: Callable[[], object], idle: Callable[[], bool] = lambda: True) -> dict:
+        """Begin the import. open_store() makes a Store on the app's database for the new thread;
+        idle() says no background job (a sync, say) is writing to it right now."""
         with self._lock:
-            if self._thread and self._thread.is_alive():
+            if self.busy():
                 raise MigrationError("an import is already running")
+            if not idle():
+                raise MigrationError("a background job is running; try again in a moment")
             if self.status.get("state") == "complete":
                 raise MigrationError("the SQLite library has already been imported")
             if not self.source or not is_sqlite_file(self.source):

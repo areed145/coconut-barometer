@@ -45,6 +45,7 @@ class ReviewApp:
         self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
         self.syncing = False
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
+        self.paused = lambda: False                     # true while the SQLite import runs: nothing else may write
         self.processing: set[str] = set()
         self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
@@ -70,6 +71,8 @@ class ReviewApp:
             raise RuntimeError("syncing isn't available in this session")
         if self.client is None:
             return {"status": "no_flickr"}          # no API keys yet
+        if self.paused():
+            return {"status": "importing"}
         if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("sync", mode or ""))
@@ -79,6 +82,8 @@ class ReviewApp:
         """Queue a WeatherFlow sync (stations, then every Tempest's missing history). Returns at once."""
         if self.weather is None or self.weather.client is None:
             return {"status": "no_token"}
+        if self.paused():
+            return {"status": "importing"}
         if (self.running or {}).get("kind") == "wx" or any(kind == "wx" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("wx", ""))
@@ -228,6 +233,8 @@ class ReviewApp:
         store = self.store   # this thread's own connection
         while True:
             kind, pid = self.jobs.get()
+            while self.paused():            # the SQLite import is copying into the same tables
+                time.sleep(0.5)
             started = time.time()
             self.running = {"kind": kind, "photo_id": pid, "started": started}
             try:

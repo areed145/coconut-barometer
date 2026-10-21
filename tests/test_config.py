@@ -1,6 +1,7 @@
 """Config validation (load_config refuses errors) and the `check` command."""
 import io
 import os
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -20,7 +21,9 @@ def problems(raw):
 
 class ValidateTest(unittest.TestCase):
     def test_example_config_is_valid(self):
-        cfg = load_config(os.path.join(ROOT, "config.example.yaml"))
+        tmp = tempfile.mkdtemp()           # a copy, so reading it settles on a database here, not the one in the project
+        shutil.copy(os.path.join(ROOT, "config.example.yaml"), tmp)
+        cfg = load_config(os.path.join(tmp, "config.example.yaml"))
         self.assertTrue(cfg["vision"]["categories"])
 
     def test_typos_get_a_suggestion(self):

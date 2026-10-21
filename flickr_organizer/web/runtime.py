@@ -33,6 +33,7 @@ class Runtime:
         # The former SQLite file, if one is beside the database: the setup page / the API can import it.
         self.migration = Migration(self.db_path, find_sqlite_source(self.db_path, os.environ.get("FLICKR_ORGANIZER_SQLITE_SOURCE")),
                                    on_done=self.reload)
+        self.review.paused = self.migration.busy
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()

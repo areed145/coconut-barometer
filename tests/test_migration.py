@@ -5,13 +5,15 @@ import hashlib
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
+from unittest import mock
 
 import duckdb
 from fastapi.testclient import TestClient
 
-from fakes import CFG
+from fakes import CFG, FakeFlickr
 from flickr_organizer import backup as B
 from flickr_organizer.cli import main as cli_main
 from flickr_organizer.config import from_dict
@@ -226,6 +228,40 @@ class AppMigrationTest(unittest.TestCase):
         s.close()
         r = self.c.post("/api/setup/migrate", json={"code": self.rt.setup_code})
         self.assertEqual((r.status_code, "already has photos" in r.json()["detail"]), (409, True))
+
+    def test_background_jobs_wait_while_it_runs_instead_of_writing_into_the_tables_being_replaced(self):
+        """A scheduled sync wrote meta.nsid mid-import and the copy then failed on commit with a duplicate key."""
+        from flickr_organizer.store import migration as M
+        app = create_app(self.cfg, FakeFlickr(), scheduler=False, background=True)
+        rt = app.state.runtime
+        c = TestClient(app, base_url="https://testserver")
+        started, release, real = threading.Event(), threading.Event(), M.copy_tables
+
+        def slow(source, con, progress=lambda u: None):
+            started.set()
+            release.wait(20)
+            return real(source, con, progress)
+
+        with mock.patch.object(M, "copy_tables", slow):
+            self.assertEqual(c.post("/api/setup/migrate", json={"code": rt.setup_code}).status_code, 200)
+            self.assertTrue(started.wait(10))
+            self.assertEqual(rt.review.sync(), {"status": "importing"})              # the scheduler's call is turned away
+            self.assertEqual(rt.review.wx_sync()["status"], "no_token")
+            rt.review.jobs.put(("sync", ""))                                         # one that was already queued
+            time.sleep(1)
+            self.assertIsNone(rt.review.running)                                     # ...does not start
+            release.set()
+            rt.migration.wait(30)
+        self.assertEqual(c.get("/api/migration/status").json()["state"], "complete")
+        rt.review.wait()
+
+    def test_it_will_not_start_while_a_background_job_is_running(self):
+        self.rt.review.running = {"kind": "sync", "photo_id": "", "started": time.time()}
+        r = self.c.post("/api/setup/migrate", json={"code": self.rt.setup_code})
+        self.assertEqual((r.status_code, "background job" in r.json()["detail"]), (409, True))
+        self.rt.review.running = None
+        self.assertEqual(self.c.post("/api/setup/migrate", json={"code": self.rt.setup_code}).status_code, 200)
+        self.finish()
 
     def test_without_a_sqlite_file_there_is_nothing_to_offer(self):
         os.remove(self.src)

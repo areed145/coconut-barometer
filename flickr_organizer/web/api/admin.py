@@ -144,7 +144,8 @@ def start_migration(rt) -> dict:
     from ...store.migration import MigrationError
 
     try:
-        return rt.migration.start(lambda: Store(rt.db_path))
+        return rt.migration.start(lambda: Store(rt.db_path),
+                                  idle=lambda: rt.review.running is None and rt.review.jobs.empty())
     except MigrationError as e:
         raise HTTPException(409, str(e))
 
