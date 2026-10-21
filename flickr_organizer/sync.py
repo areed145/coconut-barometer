@@ -94,6 +94,9 @@ def parse_info(info: dict) -> dict:
     loc = info.get("location")
     if loc and loc.get("latitude") not in (None, "", 0, "0"):
         out.update(lat=float(loc["latitude"]), lon=float(loc["longitude"]), accuracy=int(loc.get("accuracy") or 16))
+    if info.get("id") and info.get("server") and info.get("secret"):  # fresh thumbnail (videos start as a placeholder)
+        out.update(server=info["server"], secret=info["secret"], media=info.get("media") or "photo",
+                   thumb_url=f"https://live.staticflickr.com/{info['server']}/{info['id']}_{info['secret']}_m.jpg")
     return out
 
 
