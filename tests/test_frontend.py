@@ -36,6 +36,14 @@ class FrontendTest(unittest.TestCase):
             for risky in ("innerHTML", "outerHTML", "dangerouslySetInnerHTML", "insertAdjacentHTML", "document.write", "eval("):
                 self.assertNotIn(risky, src, f"{os.path.basename(path)} uses {risky}")
 
+    def test_wind_roses_wrap_and_scale(self):
+        weather = open(os.path.join(STATIC, "js", "weather.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn('<div class="rose-grid">${shown.map', weather)
+        self.assertIn(".rose-grid { display: flex; flex-wrap: wrap;", css)
+        self.assertIn(".rose-grid > .card { flex: 1 1 300px;", css)
+        self.assertIn(".rose svg { flex: 1 1 180px; min-width: 0;", css)
+
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
         for path in OURS:

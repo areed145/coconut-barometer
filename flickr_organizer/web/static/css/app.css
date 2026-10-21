@@ -504,7 +504,9 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .wxtemp b { display: block; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .dial { width: 108px; height: 108px; flex: none; }
 .rose { display: flex; gap: var(--s5); align-items: center; flex-wrap: wrap; }
-.rose svg { width: min(100%, 300px); }
+.rose-grid { display: flex; flex-wrap: wrap; gap: var(--s4); margin-bottom: var(--s4); }
+.rose-grid > .card { flex: 1 1 300px; margin-bottom: 0; }
+.rose svg { flex: 1 1 180px; min-width: 0; width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }
 .heatkey { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); margin: var(--s2) 0 0; }

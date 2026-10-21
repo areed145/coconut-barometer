@@ -269,8 +269,8 @@ function History({ params = {} }) {
       ${shown.map((id) => html`<div class="card" key=${id}><h2>Lightning${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
         <${Lightning} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}
       ${chart("Solar radiation", make("solar", null, { digits: 0 }), "W/m²")}
-      ${shown.map((id) => html`<div class="card" key=${id}><h2>Wind rose${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
-        <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}`}`;
+      <div class="rose-grid">${shown.map((id) => html`<div class="card" key=${id}><h2>Wind rose${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
+        <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}</div>`}`;
 }
 
 // ---- Stations ---------------------------------------------------------------------------
