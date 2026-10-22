@@ -61,8 +61,12 @@ function Tile({ label, value, note, children }) {
   return html`<div class="wxtile"><span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}</div>`;
 }
 
-function StationCard({ s, rapid, unit, now, events }) {
+function StationCard({ s, rapid, unit, now, events, stream }) {
   const o = s.obs;
+  const connected = stream?.state === "connected";
+  const connection = connected ? "WeatherFlow live stream connected" : `WeatherFlow stream ${stream?.state || "unknown"}`;
+  const dot = html`<span class=${"wxstatus-dot " + (connected ? "s-applied" : "s-failed")}
+    role="img" aria-label=${connection} title=${stream?.error || connection}></span>`;
   // The last three hours at one-minute steps, for the sparklines and the wind trail; refreshed each minute.
   const [recent, setRecent] = useState(null);
   useEffect(() => {
@@ -71,7 +75,7 @@ function StationCard({ s, rapid, unit, now, events }) {
     const stop = every(load, 60000);
     return () => { live = false; stop(); };
   }, [s.device_id]);
-  if (!o) return html`<div class="card"><h2>${s.name}</h2><p class="muted">No observations stored yet. Syncing, or waiting for the first report.</p></div>`;
+  if (!o) return html`<div class="card wxcard"><h2>${dot} ${s.name}</h2><p class="muted">No observations stored yet. Syncing, or waiting for the first report.</p></div>`;
   const r = recent || {};
   const live = rapid && now - rapid.ts < 30 ? rapid : null;      // the 3-second wind, while it's flowing
   const dir = live ? live.dir : o.wind_dir, speed = live ? live.speed : o.wind_avg;
@@ -84,7 +88,7 @@ function StationCard({ s, rapid, unit, now, events }) {
   const range = o.temp_high - o.temp_low;
   const mine = events.filter((e) => e.device_id === s.device_id).slice(-3).reverse();
   return html`<div class=${"card wxcard" + (stale ? " stale" : "")}>
-    <h2>${s.name} <span class="muted">${stale ? `last report ${ago(o.ts)}` : live ? "live" : ago(o.ts)}</span>
+    <h2>${dot} ${s.name} <span class="muted">${stale ? `last report ${ago(o.ts)}` : live ? "live" : ago(o.ts)}</span>
       ${o.battery != null && html`<span class="muted wxbatt" title="Battery">${fmt(o.battery, 2)} V</span>`}</h2>
     <div class="wxhero">
       <div class="wxtemp">
@@ -124,12 +128,6 @@ function StationCard({ s, rapid, unit, now, events }) {
   </div>`;
 }
 
-function StreamBadge({ stream }) {
-  if (!stream) return "";
-  const ok = stream.state === "connected";
-  return html`<span class=${"status " + (ok ? "s-applied" : "s-failed")} title=${stream.error || ""}>${ok ? "live stream connected" : "stream " + stream.state}</span>`;
-}
-
 function Live() {
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
@@ -142,10 +140,8 @@ function Live() {
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.stations.length) return html`<${Empty} />`;
   return html`
-    <p class="muted"><${StreamBadge} stream=${d.stream} />
-      ${d.stream.last_message ? ` last message ${ago(d.stream.last_message)}` : ""}</p>
     <div class="cols wxcols">${d.stations.map((s) => html`<${StationCard} key=${s.device_id} s=${s}
-      rapid=${d.rapid[String(s.device_id)]} unit=${d.units} now=${d.now} events=${d.events} />`)}</div>`;
+      rapid=${d.rapid[String(s.device_id)]} unit=${d.units} now=${d.now} events=${d.events} stream=${d.stream} />`)}</div>`;
 }
 
 function Empty() {
@@ -595,8 +591,7 @@ function Stations() {
     <div class="card"><h2>Stations</h2>
       ${!info.configured ? html`<${Empty} />` : html`
         <p class="muted">History comes from WeatherFlow's REST API, ${info.backfill_days} day${info.backfill_days === 1 ? "" : "s"} back
-          (<a href="#/settings">Settings → Weather</a>); the live feed from its WebSocket. Both appear under <a href="#/queue">Queue</a>.
-          <${StreamBadge} stream=${info.stream} /></p>
+          (<a href="#/settings">Settings → Weather</a>); the live feed from its WebSocket. Both appear under <a href="#/queue">Queue</a>.</p>
         ${info.stations.length ? html`<table class="qdone"><thead><tr><th>Station</th><th>Device</th><th>Place</th><th>History</th><th>Observations</th></tr></thead><tbody>
           ${info.stations.map((s) => html`<tr key=${s.device_id}><td>${s.name}</td><td class="muted">${s.serial || s.device_id}</td>
             <td class="muted">${fmt(s.lat, 3)}, ${fmt(s.lon, 3)} · ${fmt(s.elevation, 0)} m</td>
