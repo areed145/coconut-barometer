@@ -39,9 +39,9 @@ class FrontendTest(unittest.TestCase):
     def test_wind_roses_wrap_and_scale(self):
         weather = open(os.path.join(STATIC, "js", "weather.js")).read()
         css = open(os.path.join(STATIC, "css", "app.css")).read()
-        self.assertIn('<div class="rose-grid">${shown.map', weather)
-        self.assertIn(".rose-grid { display: flex; flex-wrap: wrap;", css)
-        self.assertIn(".rose-grid > .card { flex: 1 1 300px;", css)
+        self.assertIn('<div class="wxgrid">${body}</div>', weather)
+        self.assertIn("<h2>Wind rose${suffix(id)}</h2>", weather)
+        self.assertIn(".wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%,", css)
         self.assertIn(".rose svg { flex: 1 1 180px; min-width: 0;", css)
 
     def test_everything_the_page_loads_exists(self):

@@ -228,33 +228,39 @@ function Calendar({ days, unit }) {
         <span>${fmt(hi, digits)}${label ? " " + label : ""}${metric === "rain" ? " · grey: dry" : ""}</span></p>`}`;
 }
 
-// Temperature by local day at the station: a low-to-high bar per day (mean marked), a heatmap of the hourly
-// means (days across, hours down), the average day, and a calendar. Colored along the Settings → Colors gradient.
-function Days({ device, name, start, end, unit }) {
-  const [d, setD] = useState(null);
-  const band = useRef(null), heat = useRef(null), avg = useRef(null), readout = useRef(null);
+const axisStyle = () => ({ stroke: css("--muted"), grid: { stroke: css("--line"), width: 1 }, ticks: { stroke: css("--line") } });
+const yAxisStyle = () => ({ ...axisStyle(), size: 52, labelSize: 14, labelFont: "11px sans-serif" });
+const clip = (u) => { const { ctx, bbox } = u; ctx.save(); ctx.beginPath(); ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height); ctx.clip(); };
+
+// A uPlot that follows its box's width and is rebuilt on theme change. `build(width)` returns [opts, data], or null for none.
+function Plot({ height = 200, build, deps }) {
+  const box = useRef(null);
   const theme = useThemeTick();
   useEffect(() => {
-    let live = true;
-    setD(null);
-    api(`/api/wx/days?device=${device}&start=${start}&end=${end}`).then((x) => live && setD(x)).catch(() => live && setD({ days: [] }));
-    return () => { live = false; };
-  }, [device, start, end]);
-  const [label, conv] = unitsFor(unit).temp;
-  useEffect(() => {
-    if (!d || !band.current || !heat.current || !avg.current) return;
-    const days = d.days.filter((x) => x.low != null).map((x) => ({ ...x, low: conv(x.low), high: conv(x.high), mean: conv(x.mean),
-                                      hours: x.hours.map((v) => (v == null ? null : conv(v))) }));
-    const axis = { stroke: css("--muted"), grid: { stroke: css("--line"), width: 1 }, ticks: { stroke: css("--line") } };
-    const yAxis = { ...axis, size: 52, labelSize: 14, labelFont: "11px sans-serif" };
-    const span = [days[0].t, days[days.length - 1].t + 86400];
-    const clip = (u, ctx) => { ctx.save(); ctx.beginPath(); ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height); ctx.clip(); };
+    const el = box.current, made = el && build(el.clientWidth);
+    if (!made) return;
+    const plot = new uPlot({ width: el.clientWidth, height, ...made[0] }, made[1], el);
+    const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }));
+    ro.observe(el);
+    return () => { ro.disconnect(); plot.destroy(); };
+  }, [...deps, height, theme]);
+  return html`<div class="chart" ref=${box}></div>`;
+}
 
+// The days that have temperatures, in display units.
+const tempDays = (d, unit) => { const conv = unitsFor(unit).temp[1];
+  return d.days.filter((x) => x.low != null).map((x) => ({ ...x, low: conv(x.low), high: conv(x.high), mean: conv(x.mean),
+    hours: x.hours.map((v) => (v == null ? null : conv(v))) })); };
+
+// A low-to-high bar per local day, shaded cold to warm along the Settings → Colors gradient, the mean marked.
+function DailyBand({ d, unit }) {
+  return html`<${Plot} deps=${[d, unit]} build=${() => {
+    const days = tempDays(d, unit), span = [days[0].t, days[days.length - 1].t + 86400];
     const lo = Math.min(...days.map((x) => x.low)), hi = Math.max(...days.map((x) => x.high));
     const tone = (v) => shade(hi > lo ? (v - lo) / (hi - lo) : 1);
-    const paintBars = (u) => {
+    const paint = (u) => {
       const { ctx } = u;
-      clip(u, ctx);
+      clip(u);
       const w = Math.max(1, (u.valToPos(86400, "x", true) - u.valToPos(0, "x", true)) * 0.7);
       for (const x of days) {
         const cx = u.valToPos(x.t + 43200, "x", true), top = u.valToPos(x.high, "y", true), bot = u.valToPos(x.low, "y", true);
@@ -267,26 +273,31 @@ function Days({ device, name, start, end, unit }) {
       }
       ctx.restore();
     };
-    const hidden = { paths: () => null, points: { show: false } };
-    const bandPlot = new uPlot({
-      width: band.current.clientWidth, height: 200, cursor: { points: { show: false } }, legend: { live: true },
-      scales: { x: { time: true, range: () => span } },
-      axes: [axis, { ...yAxis, label }],
-      series: [{}, ...["High", "Mean", "Low"].map((l) => ({ ...hidden, label: l, value: (u, v) => (v == null ? "–" : v.toFixed(1)) }))],
-      hooks: { draw: [paintBars] },
-    }, [days.map((x) => x.t + 43200), days.map((x) => x.high), days.map((x) => x.mean), days.map((x) => x.low)], band.current);
+    const hidden = { paths: () => null, points: { show: false }, value: (u, v) => (v == null ? "–" : v.toFixed(1)) };
+    return [{ cursor: { points: { show: false } }, legend: { live: true }, scales: { x: { time: true, range: () => span } },
+      axes: [axisStyle(), { ...yAxisStyle(), label: unitsFor(unit).temp[0] }],
+      series: [{}, ...["High", "Mean", "Low"].map((label) => ({ ...hidden, label }))], hooks: { draw: [paint] } },
+      [days.map((x) => x.t + 43200), days.map((x) => x.high), days.map((x) => x.mean), days.map((x) => x.low)]];
+  }} />`;
+}
 
+// The hourly means as a heatmap: local days across, hours down. Hovering reads one cell out below.
+function HourHeat({ d, unit }) {
+  const readout = useRef(null);
+  const label = unitsFor(unit).temp[0];
+  return html`<${Plot} height=${240} deps=${[d, unit]} build=${() => {
+    const days = tempDays(d, unit), span = [days[0].t, days[days.length - 1].t + 86400];
     const cells = days.flatMap((x) => x.hours.filter((v) => v != null));
-    const clo = Math.min(...cells), chi = Math.max(...cells);
-    const paintCells = (u) => {
+    const lo = Math.min(...cells), hi = Math.max(...cells);
+    const paint = (u) => {
       const { ctx } = u;
-      clip(u, ctx);
+      clip(u);
       for (const x of days) {
         const x0 = u.valToPos(x.t, "x", true), x1 = u.valToPos(x.t + 86400, "x", true);
         x.hours.forEach((v, h) => {
           if (v == null) return;
           const y0 = u.valToPos(h, "y", true), y1 = u.valToPos(h + 1, "y", true);
-          ctx.fillStyle = shade(chi > clo ? (v - clo) / (chi - clo) : 1);
+          ctx.fillStyle = shade(hi > lo ? (v - lo) / (hi - lo) : 1);
           ctx.fillRect(x0, Math.min(y0, y1), Math.max(1, x1 - x0), Math.abs(y1 - y0));
         });
       }
@@ -301,53 +312,37 @@ function Days({ device, name, start, end, unit }) {
       const v = x && h >= 0 && h < 24 ? x.hours[h] : null;
       out.textContent = v == null ? "" : `${x.date} ${String(h).padStart(2, "0")}:00 · ${v.toFixed(1)} ${label}`;
     };
-    const heatPlot = new uPlot({
-      width: heat.current.clientWidth, height: 240, legend: { show: false },
-      cursor: { points: { show: false }, drag: { x: false, y: false } },
+    return [{ legend: { show: false }, cursor: { points: { show: false }, drag: { x: false, y: false } },
       scales: { x: { time: true, range: () => span }, y: { range: [0, 24], dir: -1 } },
-      axes: [axis, { ...yAxis, label: "hour", splits: () => [0, 6, 12, 18, 24], values: (u, ticks) => ticks.map((h) => `${h}:00`) }],
-      series: [{}, { points: { show: false } }],
-      hooks: { draw: [paintCells], setCursor: [hover] },
-    }, [span, [null, null]], heat.current);
-
-    // The average day: each hour's mean over the range, with the 10th–90th percentile band around it.
-    const pct = (vals, q) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(q * vals.length))] : null;
-    const byHour = Array.from({ length: 24 }, (_, h) => days.map((x) => x.hours[h]).filter((v) => v != null).sort((a, b) => a - b));
-    const mean = byHour.map((v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null));
-    const c1 = css("--chart-1");
-    const avgPlot = new uPlot({
-      width: avg.current.clientWidth, height: 200, cursor: { points: { size: 6 } }, legend: { live: true },
-      scales: { x: { time: false, range: [0, 23] } },
-      axes: [{ ...axis, splits: () => [0, 3, 6, 9, 12, 15, 18, 21], values: (u, ticks) => ticks.map((h) => `${h}:00`) }, { ...yAxis, label }],
-      series: [{ label: "Hour", value: (u, h) => (h == null ? "–" : `${h}:00`) },
-        { label: "90th percentile", stroke: c1 + "66", width: 1, points: { show: false }, value: (u, v) => (v == null ? "–" : v.toFixed(1)) },
-        { label: "Mean", stroke: c1, width: 2, points: { show: false }, value: (u, v) => (v == null ? "–" : v.toFixed(1)) },
-        { label: "10th percentile", stroke: c1 + "66", width: 1, points: { show: false }, value: (u, v) => (v == null ? "–" : v.toFixed(1)) }],
-      bands: [{ series: [1, 3], fill: c1 + "22" }],
-    }, [byHour.map((_, h) => h), byHour.map((v) => pct(v, 0.9)), mean, byHour.map((v) => pct(v, 0.1))], avg.current);
-
-    const ro = new ResizeObserver(() => {
-      bandPlot.setSize({ width: band.current.clientWidth, height: 200 });
-      heatPlot.setSize({ width: heat.current.clientWidth, height: 240 });
-      avgPlot.setSize({ width: avg.current.clientWidth, height: 200 });
-    });
-    ro.observe(band.current); ro.observe(heat.current); ro.observe(avg.current);
-    return () => { ro.disconnect(); bandPlot.destroy(); heatPlot.destroy(); avgPlot.destroy(); };
-  }, [d, unit, theme]);
-  const suffix = name ? ` · ${name}` : "";
-  const temps = d ? d.days.some((x) => x.low != null) : false;
-  const body = (ref) => !d ? html`<div class="boot">Loading…</div>`
-    : !temps ? html`<p class="muted">No temperatures in this range.</p>` : html`<div class="chart" ref=${ref}></div>`;
-  return html`
-    <div class="card"><h2>Daily high & low${suffix}</h2>${body(band)}</div>
-    <div class="card"><h2>Temperature by hour${suffix}</h2>${body(heat)}
-      ${temps && html`<p class="muted heatkey"><span>colder</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i>
-        <span>warmer · hours in ${d.timezone}</span> <span ref=${readout}></span></p>`}</div>
-    <div class="card"><h2>Average day${suffix}</h2>${body(avg)}
-      ${temps && html`<p class="muted">Each hour's mean over the range, with the band holding 80% of the days. Hours in ${d.timezone}.</p>`}</div>
-    <div class="card"><h2>Calendar${suffix}</h2>${!d ? html`<div class="boot">Loading…</div>`
-      : !d.days.length ? html`<p class="muted">Nothing stored in this range.</p>` : html`<${Calendar} days=${d.days} unit=${unit} />`}</div>`;
+      axes: [axisStyle(), { ...yAxisStyle(), label: "hour", splits: () => [0, 6, 12, 18, 24], values: (u, ticks) => ticks.map((h) => `${h}:00`) }],
+      series: [{}, { points: { show: false } }], hooks: { draw: [paint], setCursor: [hover] } }, [span, [null, null]]];
+  }} />
+  <p class="muted heatkey"><span>colder</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i>
+    <span>warmer · hours in ${d.timezone}</span> <span ref=${readout}></span></p>`;
 }
+
+// The average day: each local hour's mean over the range, inside the band holding the middle 80% of days.
+function AverageDay({ d, unit }) {
+  return html`<${Plot} deps=${[d, unit]} build=${() => {
+    const days = tempDays(d, unit), c1 = css("--chart-1");
+    const pct = (vals, q) => (vals.length ? vals[Math.min(vals.length - 1, Math.floor(q * vals.length))] : null);
+    const byHour = Array.from({ length: 24 }, (_, h) => days.map((x) => x.hours[h]).filter((v) => v != null).sort((a, b) => a - b));
+    const value = (u, v) => (v == null ? "–" : v.toFixed(1));
+    const edge = { stroke: c1 + "66", width: 1, points: { show: false }, value };
+    return [{ cursor: { points: { size: 6 } }, legend: { live: true }, scales: { x: { time: false, range: [0, 23] } },
+      axes: [{ ...axisStyle(), splits: () => [0, 3, 6, 9, 12, 15, 18, 21], values: (u, ticks) => ticks.map((h) => `${h}:00`) },
+        { ...yAxisStyle(), label: unitsFor(unit).temp[0] }],
+      series: [{ label: "Hour", value: (u, h) => (h == null ? "–" : `${h}:00`) }, { ...edge, label: "90th pct" },
+        { label: "Mean", stroke: c1, width: 2, points: { show: false }, value }, { ...edge, label: "10th pct" }],
+      bands: [{ series: [1, 3], fill: c1 + "22" }] },
+      [byHour.map((_, h) => h), byHour.map((v) => pct(v, 0.9)),
+       byHour.map((v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)), byHour.map((v) => pct(v, 0.1))]];
+  }} />
+  <p class="muted">Hours in ${d.timezone}; the band holds 80% of the days.</p>`;
+}
+
+const SECTIONS = [["temperature", "Temperature"], ["pressure", "Pressure"], ["wind", "Wind"], ["rain", "Rain"], ["sky", "Sky"],
+                  ["calendar", "Calendar"], ["stations", "Stations"]];
 
 // Parts of the station's local day, for the rose: the breeze often turns between day and night.
 const PARTS = [["", "All day"], ["night", "Night 0–6"], ["morning", "Morning 6–12"], ["afternoon", "Afternoon 12–18"], ["evening", "Evening 18–24"]];
@@ -408,6 +403,15 @@ function History({ params = {} }) {
     api(`/api/wx/history?${shown.map((d) => "device=" + d).join("&")}&${span}`).then((x) => live && setData(x)).catch((e) => live && setErr(e.message));
     return () => { live = false; };
   }, [key, hours, custom && custom.range.join()]);
+  const [daily, setDaily] = useState({});
+  useEffect(() => {
+    if (!data) return;
+    let live = true;
+    setDaily({});
+    for (const id of shown) api(`/api/wx/days?device=${id}&start=${data.start}&end=${data.end}`)
+      .then((x) => live && setDaily((m) => ({ ...m, [id]: x }))).catch(() => live && setDaily((m) => ({ ...m, [id]: { days: [], timezone: "" } })));
+    return () => { live = false; };
+  }, [data]);
   const names = useMemo(() => Object.fromEntries((info?.stations || []).map((s) => [s.device_id, s.name])), [info]);
   if (err) return html`<p class="problem">${err}</p>`;
   if (!info) return html`<div class="boot">Loading…</div>`;
@@ -418,7 +422,7 @@ function History({ params = {} }) {
     color: `--chart-${i + 1}`, dash: opts.dash, thin: opts.thin, digits: opts.digits,
     values: (opts.calc ? opts.calc(data.devices[id]) : data.devices[id][opts.from || field]).map((v) => (v == null ? null : kind ? unitsFor(u)[kind][1](v) : v)),
   }] : []);
-  const chart = (title, series, unit, { note, ...extra } = {}) => html`<div class="card"><h2>${title}</h2>
+  const chart = (title, series, unit, { note, wide, ...extra } = {}) => html`<div class=${"card" + (wide ? " wide" : "")}><h2>${title}</h2>
     <${TimeChart} t=${data.t} series=${series} unit=${unit} ...${extra} />${note && html`<p class="muted">${note}</p>`}</div>`;
   // A running total: missing points add nothing.
   const running = (series) => series.map((s) => { let sum = 0; return { ...s, values: s.values.map((v) => (sum += v || 0)) }; });
@@ -429,6 +433,16 @@ function History({ params = {} }) {
   const tendency = (dev) => dev.pressure.map((p, i) => { const j = index.get(data.t[i] - 10800), q = j == null ? null : dev.pressure[j];
     return p == null || q == null ? null : p - q; });
   const anyOf = (field) => data.t.map((_, i) => shown.some((id) => data.devices[id]?.[field][i] > 0));
+  const span = data ? data.end - data.start : 0;
+  const longEnough = (days) => span >= days * 86400 - 3600;      // charts by day only pay off over several days
+  const suffix = (id) => (shown.length > 1 ? ` · ${names[id]}` : "");
+  const section = (id, title, body) => html`<section id=${"wx-" + id} class="wxsection"><h2 class="section">${title}</h2><div class="wxgrid">${body}</div></section>`;
+  const jump = (e, id) => { e.preventDefault(); document.getElementById("wx-" + id)?.scrollIntoView({ behavior: "smooth" }); };
+  // One card per shown station, from its per-day data (`any`: days without temperatures count too).
+  const perStation = (title, render, { wide, any } = {}) => shown.map((id) => { const d = daily[id];
+    const has = d && d.days.some((x) => any || x.low != null);
+    return html`<div class=${"card" + (wide ? " wide" : "")} key=${title + id}><h2>${title}${suffix(id)}</h2>
+      ${!d ? html`<div class="boot">Loading…</div>` : !has ? html`<p class="muted">Nothing stored in this range.</p>` : render(d)}</div>`; });
   const swatch = (color) => html`<i class="swatch" style=${`background: var(${color})`}></i>`;
   // Cloud cover from sunlight: how far short of a cloudless sky the station's solar reading falls. Skipped when the
   // sun is low (under 100 W/m² clear-sky), where the ratio is mostly noise.
@@ -455,37 +469,55 @@ function History({ params = {} }) {
           onClick=${() => setPicked([s.device_id])}>${s.name}</button>`)}</span>`}
     </div>
     ${!data ? html`<div class="boot">Loading…</div>` : !data.t.length ? html`<p class="muted">Nothing stored for this range yet.</p>` : html`
-      <p class="muted">${num(data.t.length)} points, one per ${data.bucket >= 3600 ? `${data.bucket / 3600} h` : `${data.bucket / 60} min`}.</p>
-      ${chart("Temperature", [...make("temp", "temp"), ...make("dew_point", "temp", { suffix: " dew point", dash: [4, 4], thin: true })], unitsFor(u).temp[0])}
-      ${chart("Feels like", [...make("feels_like", "temp"), ...make("temp", "temp", { suffix: " air", dash: [4, 4], thin: true })], unitsFor(u).temp[0], {
-        note: "Heat index above 27 °C (80 °F) with humidity over 40%; wind chill at 10 °C (50 °F) or below with some wind; otherwise the air temperature." })}
-      ${shown.map((id) => html`<${Days} key=${id} device=${id} name=${shown.length > 1 ? names[id] : ""} start=${data.start} end=${data.end} unit=${u} />`)}
-      ${chart("Humidity", make("humidity", null, { digits: 0 }), "%")}
-      ${chart("Cloud base (estimated)", make("cloud_base", "height", { digits: 0 }), unitsFor(u).height[0], {
-        note: "The lowest per point, above the station, from the temperature–dew point spread. That's where cumulus would form; a station can't see layered overcast, so the real ceiling can be lower. Near zero means fog or saturated air." })}
-      ${chart("Pressure (sea level)", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0])}
-      ${data.bucket <= 3600 && chart("Pressure tendency (change over 3 h)", make("pressure", "pressure", { calc: tendency, digits: u === "imperial" ? 3 : 1 }),
-        unitsFor(u).pressure[0], { marks: [{ values: anyOf("rain"), color: "--chart-3" }, { values: anyOf("strikes"), color: "--chart-2" }], step: data.bucket,
-          note: html`${swatch("--chart-3")} rain ${swatch("--chart-2")} lightning. A fall of more than ${u === "imperial" ? "0.06 inHg" : "2 hPa"} in 3 hours often comes ahead of a storm.` })}
-      ${paired && chart(`Temperature difference · ${names[a]} − ${names[b]}`, diff("temp", "temp", 1), unitsFor(u).temp[0])}
-      ${paired && chart(`Pressure difference · ${names[a]} − ${names[b]}`, diff("pressure", "pressure", u === "imperial" ? 3 : 2), unitsFor(u).pressure[0], {
-        note: "Sea-level pressure should match closely between nearby stations, so a steady offset here is one barometer reading off." })}
-      ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0])}
-      ${chart("Gustiness", make("gust_factor", null, { digits: 2 }), "gust ÷ avg", {
-        note: "Each reading's gust over its average wind, leaving out near-calm readings. Around 1.3 is steady; 2 and up is turbulent." })}
-      ${chart("Rain", make("rain", "rain", { digits: rainDigits }), `${unitsFor(u).rain[0]} per point`, { bars: true })}
-      ${chart("Rain, running total", running(make("rain", "rain", { digits: rainDigits })), unitsFor(u).rain[0], {
-        note: shown.filter((id) => data.devices[id]).map((id) => { const d = rainDays(id);
-          return `${shown.length > 1 ? names[id] + ": " : ""}${d} day${d === 1 ? "" : "s"} with rain`; }).join(" · ") })}
-      ${shown.map((id) => html`<div class="card" key=${id}><h2>Lightning${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
-        <${Lightning} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}
-      ${chart("Solar radiation", [...make("solar", null, { digits: 0 }), ...make("clear_sky", null, { suffix: " clear sky", dash: [4, 4], thin: true, digits: 0 })], "W/m²")}
-      ${chart("Cloud cover (estimated)", make("solar", null, { calc: cover, digits: 0 }), "%", {
-        note: "How far the sunlight falls short of a cloudless sky at the station. Daylight only; haze and a dirty sensor read as cloud too." })}
-      ${chart("Battery", make("battery", null, { digits: 2 }), "V", {
-        note: "The Tempest charges from its solar panel, so the voltage should climb on sunny days. Under about 2.4 V it starts reporting less often to save power." })}
-      <div class="rose-grid">${shown.map((id) => html`<div class="card" key=${id}><h2>Wind rose${shown.length > 1 ? ` · ${names[id]}` : ""}</h2>
-        <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}</div>`}`;
+      <nav class="jump muted">${num(data.t.length)} points, one per ${data.bucket >= 3600 ? `${data.bucket / 3600} h` : `${data.bucket / 60} min`} ·
+        ${SECTIONS.filter(([k]) => k !== "calendar" || longEnough(14)).map(([k, l]) => html`<a key=${k} href="#" onClick=${(e) => jump(e, k)}>${l}</a>`)}</nav>
+
+      ${section("temperature", "Temperature & humidity", html`
+        ${chart("Temperature", [...make("temp", "temp"), ...make("dew_point", "temp", { suffix: " dew point", dash: [4, 4], thin: true })], unitsFor(u).temp[0], { wide: true })}
+        ${chart("Feels like", [...make("feels_like", "temp"), ...make("temp", "temp", { suffix: " air", dash: [4, 4], thin: true })], unitsFor(u).temp[0], {
+          note: "Heat index above 27 °C (80 °F) and 40% humidity; wind chill at 10 °C (50 °F) or below with some wind." })}
+        ${chart("Humidity", make("humidity", null, { digits: 0 }), "%")}
+        ${longEnough(3) && html`
+          ${perStation("Daily high & low", (d) => html`<${DailyBand} d=${d} unit=${u} />`)}
+          ${perStation("Average day", (d) => html`<${AverageDay} d=${d} unit=${u} />`)}
+          ${perStation("Temperature by hour", (d) => html`<${HourHeat} d=${d} unit=${u} />`, { wide: true })}`}`)}
+
+      ${section("pressure", "Pressure", html`
+        ${chart("Sea-level pressure", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0], { wide: data.bucket > 3600 })}
+        ${data.bucket <= 3600 && chart("Change over 3 hours", make("pressure", "pressure", { calc: tendency, digits: u === "imperial" ? 3 : 1 }),
+          unitsFor(u).pressure[0], { marks: [{ values: anyOf("rain"), color: "--chart-3" }, { values: anyOf("strikes"), color: "--chart-2" }], step: data.bucket,
+            note: html`${swatch("--chart-3")} rain ${swatch("--chart-2")} lightning. A fall of more than ${u === "imperial" ? "0.06 inHg" : "2 hPa"} in 3 hours often comes ahead of a storm.` })}`)}
+
+      ${section("wind", "Wind", html`
+        ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0], { wide: true })}
+        ${shown.map((id) => html`<div class="card" key=${"rose" + id}><h2>Wind rose${suffix(id)}</h2>
+          <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}
+        ${chart("Gustiness", make("gust_factor", null, { digits: 2 }), "gust ÷ avg", { wide: shown.length % 2 === 0,
+          note: "Gust over average wind, near-calm readings left out. Around 1.3 is steady; 2 and up is turbulent." })}`)}
+
+      ${section("rain", "Rain & lightning", html`
+        ${chart("Rain", make("rain", "rain", { digits: rainDigits }), `${unitsFor(u).rain[0]} per point`, { bars: true })}
+        ${chart("Rain, running total", running(make("rain", "rain", { digits: rainDigits })), unitsFor(u).rain[0], {
+          note: shown.filter((id) => data.devices[id]).map((id) => { const d = rainDays(id);
+            return `${shown.length > 1 ? names[id] + ": " : ""}${d} day${d === 1 ? "" : "s"} with rain`; }).join(" · ") })}
+        ${shown.map((id) => html`<div class=${"card" + (shown.length === 1 ? " wide" : "")} key=${"strike" + id}><h2>Lightning${suffix(id)}</h2>
+          <${Lightning} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}`)}
+
+      ${section("sky", "Sun & sky", html`
+        ${chart("Solar radiation", [...make("solar", null, { digits: 0 }), ...make("clear_sky", null, { suffix: " clear sky", dash: [4, 4], thin: true, digits: 0 })], "W/m²", { wide: true })}
+        ${chart("Cloud cover (estimated)", make("solar", null, { calc: cover, digits: 0 }), "%", {
+          note: "How far the sunlight falls short of a cloudless sky. Daylight only; haze and a dirty sensor read as cloud too." })}
+        ${chart("Cloud base (estimated)", make("cloud_base", "height", { digits: 0 }), unitsFor(u).height[0], {
+          note: "The lowest per point, from the temperature–dew point spread: where cumulus would form. Layered overcast can sit lower; near zero means fog." })}`)}
+
+      ${longEnough(14) && section("calendar", "Calendar", perStation("By day", (d) => html`<${Calendar} days=${d.days} unit=${u} />`, { any: true }))}
+
+      ${section("stations", "Stations", html`
+        ${chart("Battery", make("battery", null, { digits: 2 }), "V", { wide: true,
+          note: "Charged by the solar panel, so it should climb on sunny days. Under about 2.4 V the Tempest reports less often." })}
+        ${paired && chart(`Temperature difference · ${names[a]} − ${names[b]}`, diff("temp", "temp", 1), unitsFor(u).temp[0])}
+        ${paired && chart(`Pressure difference · ${names[a]} − ${names[b]}`, diff("pressure", "pressure", u === "imperial" ? 3 : 2), unitsFor(u).pressure[0], {
+          note: "Nearby stations should agree closely on sea-level pressure, so a steady offset is one barometer reading off." })}`)}`}`;
 }
 
 // ---- Stations ---------------------------------------------------------------------------

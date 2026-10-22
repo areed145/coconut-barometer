@@ -504,8 +504,12 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .wxtemp b { display: block; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .dial { width: 108px; height: 108px; flex: none; }
 .rose { display: flex; gap: var(--s5); align-items: center; flex-wrap: wrap; }
-.rose-grid { display: flex; flex-wrap: wrap; gap: var(--s4); margin-bottom: var(--s4); }
-.rose-grid > .card { flex: 1 1 300px; margin-bottom: 0; }
+/* Weather history: titled sections of cards, at most two across (so each station's pair lines up); .wide takes the row */
+.wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - var(--s4)) / 2))), 1fr)); gap: var(--s4); }
+.wxgrid > .card { margin-bottom: 0; }
+.wxgrid > .card.wide { grid-column: 1 / -1; }
+.wxsection { scroll-margin-top: calc(var(--header-h) + var(--s3)); }
+.jump { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: baseline; margin: 0 0 var(--s2); }
 .rose svg { flex: 1 1 180px; min-width: 0; width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }
