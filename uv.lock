@@ -426,6 +426,59 @@ wheels = [
 ]
 
 [[package]]
+name = "coconut-barometer"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "anthropic" },
+    { name = "aprslib" },
+    { name = "argon2-cffi" },
+    { name = "cryptography" },
+    { name = "duckdb" },
+    { name = "fastapi" },
+    { name = "flickrapi" },
+    { name = "pycountry" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "reverse-geocoder" },
+    { name = "uvicorn" },
+    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "websockets", version = "17.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+
+[package.optional-dependencies]
+openai = [
+    { name = "openai" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.40" },
+    { name = "aprslib", specifier = ">=0.7" },
+    { name = "argon2-cffi", specifier = ">=25.1.0" },
+    { name = "cryptography", specifier = ">=50.0.2" },
+    { name = "duckdb", specifier = ">=1.4.0" },
+    { name = "fastapi", specifier = ">=0.156.1" },
+    { name = "flickrapi", specifier = ">=2.4" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40" },
+    { name = "pycountry", specifier = ">=22" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "requests", specifier = ">=2.28" },
+    { name = "reverse-geocoder", specifier = ">=1.5" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
+    { name = "websockets", specifier = ">=13" },
+]
+provides-extras = ["openai"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "httpx", specifier = ">=0.28.1" }]
+
+[[package]]
 name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -575,59 +628,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/1d/74/eb2eeca2185a17afa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/c2/8e4cb1429b2d7196659e048d6a55f53b687663a704943459af33dca92142/fastapi-0.156.1-py3-none-any.whl", hash = "sha256:0422f86554a11df52f0b80c34e5ba2f1d415cd0bca0c0910fdd37df80d4b534a", size = 146673, upload-time = "2026-10-20T18:24:07.134Z" },
 ]
-
-[[package]]
-name = "flickr-organizer"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "anthropic" },
-    { name = "aprslib" },
-    { name = "argon2-cffi" },
-    { name = "cryptography" },
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "flickrapi" },
-    { name = "pycountry" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "reverse-geocoder" },
-    { name = "uvicorn" },
-    { name = "websockets", version = "16.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "websockets", version = "17.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
-
-[package.optional-dependencies]
-openai = [
-    { name = "openai" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=0.40" },
-    { name = "aprslib", specifier = ">=0.7" },
-    { name = "argon2-cffi", specifier = ">=25.1.0" },
-    { name = "cryptography", specifier = ">=50.0.2" },
-    { name = "duckdb", specifier = ">=1.4.0" },
-    { name = "fastapi", specifier = ">=0.156.1" },
-    { name = "flickrapi", specifier = ">=2.4" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.40" },
-    { name = "pycountry", specifier = ">=22" },
-    { name = "pyyaml", specifier = ">=6" },
-    { name = "requests", specifier = ">=2.28" },
-    { name = "reverse-geocoder", specifier = ">=1.5" },
-    { name = "uvicorn", specifier = ">=0.54.0" },
-    { name = "websockets", specifier = ">=13" },
-]
-provides-extras = ["openai"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "httpx", specifier = ">=0.28.1" }]
 
 [[package]]
 name = "flickrapi"

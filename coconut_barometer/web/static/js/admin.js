@@ -216,7 +216,7 @@ function Account() {
     e.preventDefault();
     if (pw.new !== pw.again) return toast("The new passwords don't match.");
     try { await api("/api/admin/password", { method: "POST", body: { current: pw.current, new: pw.new } });
-      toast("Password changed. Sign in again."); window.dispatchEvent(new Event("fo:logged-out"));
+      toast("Password changed. Sign in again."); window.dispatchEvent(new Event("cb:logged-out"));
     } catch (err) { toast(err.status === 403 ? "Wrong current password." : err.message); }
   };
   const end = async (id) => { await api(`/api/admin/sessions/${id}`, { method: "DELETE" }); load(); };

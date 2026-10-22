@@ -2,7 +2,7 @@
 # Needs a paid instance (persistent disk; free instances sleep and lose files).
 services:
   - type: web
-    name: flickr-organizer
+    name: coconut-barometer
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: 1c-2g                 # 1 CPU, 2 GB: a full-library plan peaks around 400 MB (0.5c-512mb is too tight)
@@ -15,5 +15,5 @@ services:
       sizeGB: 5
     # No environment variables needed: open the app and finish setup (create a login or
     # restore a backup) with the code from the Logs. API keys go in Settings (encrypted;
-    # the key is secret.key on the disk). Optional: FLICKR_ORGANIZER_ALLOWED_HOSTS for a
+    # the key is secret.key on the disk). Optional: ALLOWED_HOSTS for a
     # custom domain (the onrender.com name is allowed automatically).

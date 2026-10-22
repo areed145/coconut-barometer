@@ -49,7 +49,7 @@ def _error_code(exc: Exception) -> int | None:
 class FlickrClient:
     def __init__(self, api_key: str, api_secret: str, calls_per_second: float = 1.0, limiter=None):
         """limiter: defaults to the rate limit shared by every process using this API key.
-        With FLICKR_ORGANIZER_DATA set (a server), the Flickr login and the rate-limit file
+        With DATA_DIR set (a server), the Flickr login and the rate-limit file
         live there instead of ~/.flickr, so they survive redeploys."""
         if not api_key or not api_secret:
             raise SystemExit(

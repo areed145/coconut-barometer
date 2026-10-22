@@ -3,8 +3,8 @@ import os
 import tempfile
 import unittest
 
-from flickr_organizer.changes import Change, Settled
-from flickr_organizer.store import Store
+from coconut_barometer.changes import Change, Settled
+from coconut_barometer.store import Store
 
 
 class ChangeTest(unittest.TestCase):

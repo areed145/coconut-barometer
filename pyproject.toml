@@ -1,5 +1,5 @@
 [project]
-name = "flickr-organizer"
+name = "coconut-barometer"
 version = "0.1.0"
 description = "Auto-tag and album-sort a Flickr library using geotags and vision LLMs"
 requires-python = ">=3.10"
@@ -29,15 +29,15 @@ dev = [
 ]
 
 [project.scripts]
-flickr-organizer = "flickr_organizer.cli:main"
+coconut-barometer = "coconut_barometer.cli:main"
 
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["flickr_organizer*"]
+include = ["coconut_barometer*"]
 
 [tool.setuptools.package-data]
-"flickr_organizer.review" = ["static/*"]
-"flickr_organizer.web" = ["static/*", "static/**/*"]
+"coconut_barometer.review" = ["static/*"]
+"coconut_barometer.web" = ["static/*", "static/**/*"]

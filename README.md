@@ -1,6 +1,6 @@
 # Coconut Barometer
 
-Coconut Barometer is a personal website for browsing and organizing your Flickr library. It includes a private photo gallery, map, analytics, and a review workflow for proposed titles, descriptions, tags and albums. The existing Python package and command-line entry point remain named `flickr_organizer` / `flickr-organizer`.
+Coconut Barometer is a personal website for browsing and organizing your Flickr library. It includes a private photo gallery, map, analytics, and a review workflow for proposed titles, descriptions, tags and albums. The Python package is `coconut_barometer` and the command is `coconut-barometer` (both were `flickr_organizer` / `flickr-organizer` before the rename).
 
 Adds your Flickr photos to the right albums and tags, using:
 
@@ -12,37 +12,38 @@ Every photo (and video, from its preview frame) gets all four kinds of proposal:
 
 ## Setup
 
-Uses [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`). `uv sync` creates `.venv` with the exact versions in `uv.lock` and installs this project in editable mode. Run commands with `uv run flickr-organizer …`, or activate `.venv` and use `python -m flickr_organizer …` as below.
+Uses [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`). `uv sync` creates `.venv` with the exact versions in `uv.lock` and installs this project in editable mode. Run commands with `uv run coconut-barometer …`, or activate `.venv` and use `python -m coconut_barometer …` as below.
 
 ```bash
-cd flickr-organizer
+cd coconut-barometer
 uv sync                     # add --extra openai for OpenAI/Ollama; --no-dev on a server
 source .venv/bin/activate
 
-cp config.example.yaml config.yaml
-# edit config.yaml: set flickr.api_key, flickr.api_secret and vision.api_key
+# config.yaml is optional. To start from the example categories, briefs and rules, either
+cp config.example.yaml config.yaml    # ... and edit it (flickr.api_key, flickr.api_secret, vision.api_key), or
+python -m coconut_barometer settings import-file config.example.yaml   # load it into Settings instead
 #   Flickr key: https://www.flickr.com/services/apps/create/
 #   Anthropic key: https://console.anthropic.com/
-python -m flickr_organizer auth      # opens the browser; paste the code back. Token is cached in ~/.flickr/
-python -m flickr_organizer sync      # caches your photo list + album membership locally
-python -m flickr_organizer albums    # lists your album titles, so you can match them in config.yaml
-python -m flickr_organizer check     # validates config.yaml and checks album names against your library
+python -m coconut_barometer auth      # opens the browser; paste the code back. Token is cached in ~/.flickr/
+python -m coconut_barometer sync      # caches your photo list + album membership locally
+python -m coconut_barometer albums    # lists your album titles, so you can match them in config.yaml
+python -m coconut_barometer check     # validates config.yaml and checks album names against your library
 ```
 
-Every command checks `config.yaml` when it starts and stops with a list of problems (a misspelled setting, a wrong type, a value out of range, an unknown `{placeholder}`, a broken regex) rather than failing partway through a run. `check` also shows warnings, such as album names that match no album, a call rate over Flickr's limit, or missing keys.
+Every command checks the settings (config.yaml, if there is one, and Settings) when it starts and stops with a list of problems (a misspelled setting, a wrong type, a value out of range, an unknown `{placeholder}`, a broken regex) rather than failing partway through a run. `check` also shows warnings, such as album names that match no album, a call rate over Flickr's limit, or missing keys.
 
 Edit `config.yaml` so that the category `album:` names, US state `title:` format, and `cities:` match the albums you already have. Albums are matched by title, ignoring case, accents and punctuation. If a title doesn't match, that album is skipped. Nothing gets created unless you set `albums.create_missing: true`.
 
 ## Web app
 
-To run it on Render from GitHub (HTTPS, a persistent disk, the hourly scheduler), see [docs/DEPLOY.md](docs/DEPLOY.md). Backups: `flickr-organizer backup` (and `backup --list`), `restore <file>` with the app stopped, or **Settings → Backups → Restore a backup** in the web app (it restarts into it). A new server with no login opens on a setup page: create a login or drag in a backup, with the setup code from the server's log.
+To run it on Render from GitHub (HTTPS, a persistent disk, the hourly scheduler), see [docs/DEPLOY.md](docs/DEPLOY.md). Backups: `coconut-barometer backup` (and `backup --list`), `restore <file>` with the app stopped, or **Settings → Backups → Restore a backup** in the web app (it restarts into it). A new server with no login opens on a setup page: create a login or drag in a backup, with the setup code from the server's log.
 
 ```bash
-flickr-organizer user add <name>     # the login (or create it on the setup page; 12+ characters)
-flickr-organizer serve               # http://127.0.0.1:8000
+coconut-barometer user add <name>     # the login (or create it on the setup page; 12+ characters)
+coconut-barometer serve               # http://127.0.0.1:8000
 ```
 
-Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and uPlot, stored in `flickr_organizer/web/static/vendor`), so there's no build step:
+Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and uPlot, stored in `coconut_barometer/web/static/vendor`), so there's no build step:
 
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
 - **Albums**: covers and counts; open one for its photos.
@@ -52,9 +53,9 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
 - The top bar shows when the last sync ran and the next is due, with **Sync now**.
 
-**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, map tiles and colors, backups, and the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables. The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
+**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, map tiles and colors, backups, and the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables (the database path and the platform's port and host names only). The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
 
-API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database, in `FLICKR_ORGANIZER_SECRET_KEY` or a key file (`~/.config/flickr-organizer/secret.key`, readable only by you; on a server, `secret.key` in the data directory; `FLICKR_ORGANIZER_KEY_FILE` moves it). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. `flickr-organizer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides; `settings new-key` makes a key for `FLICKR_ORGANIZER_SECRET_KEY` on a server. Keep that key safe and separate from database backups: without it, stored keys can't be read (set them again).
+API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database and the backups, in a key file (`~/.config/coconut-barometer/secret.key`, readable only by you, or the `flickr-organizer` one from before the rename; on a server, `secret.key` in the data directory). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. API keys can't come from environment variables. `coconut-barometer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides. Keep the key safe and separate from database backups (Settings → Backups → **Download encryption key**): without it, stored keys can't be read (set them again).
 
 The page's Account section changes your password (which signs out every session), lists signed-in sessions so you can end one, and shows the change history.
 
@@ -66,7 +67,7 @@ Every API route except login needs a session. It's built to be reachable from th
 - the session cookie is HttpOnly, SameSite=Strict and Secure; only a hash of its token is stored, so a copy of the database can't be used to log in; a new password signs out every session
 - every request that changes something needs the session's CSRF token (`X-CSRF-Token`)
 - a strict Content-Security-Policy (scripts and styles from the app only), no framing, HSTS, and only `web.allowed_hosts` are accepted
-- secrets can come from the environment (`FLICKR_API_KEY`, `FLICKR_API_SECRET`, `ANTHROPIC_API_KEY`) instead of config.yaml
+- API keys are stored encrypted (see Settings); they're never read from the environment
 - `serve` refuses to start without a login, and refuses to listen beyond localhost without secure cookies
 
 | API | |
@@ -84,8 +85,8 @@ Every API route except login needs a session. It's built to be reachable from th
 ## Workflow: review photo by photo
 
 ```bash
-python -m flickr_organizer process --limit 50   # sync, then per photo: EXIF -> classify -> plan, into a queue
-python -m flickr_organizer review               # opens http://127.0.0.1:8765
+python -m coconut_barometer process --limit 50   # sync, then per photo: EXIF -> classify -> plan, into a queue
+python -m coconut_barometer review               # opens http://127.0.0.1:8765
 ```
 
 `process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through photos in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into the queue. It can be stopped and resumed; queued photos are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans everything (`--media video` or `--media photo` to limit it; photos the review tool is applying are never touched); applied and rejected changes still never come back.
@@ -94,15 +95,15 @@ python -m flickr_organizer review               # opens http://127.0.0.1:8765
 
 ## Useful commands
 
-`flickr-organizer --help` lists every command and `flickr-organizer <command> --help` shows its options. Common maintenance commands:
+`coconut-barometer --help` lists every command and `coconut-barometer <command> --help` shows its options. Common maintenance commands:
 
 ```bash
-flickr-organizer status
-flickr-organizer check
-flickr-organizer settings show
-flickr-organizer settings import-file config.yaml
-flickr-organizer backup --list
-flickr-organizer user list
+coconut-barometer status
+coconut-barometer check
+coconut-barometer settings show
+coconut-barometer settings import-file config.yaml
+coconut-barometer backup --list
+coconut-barometer user list
 ```
 
 `settings import-file` copies settings and encrypted API keys from a YAML file into the database; settings already changed in the admin page take precedence unless `--overwrite` is supplied. `settings import-secrets --blank` stores just the API keys encrypted and clears them from the config file. `restore <file>` replaces the database and should be run with the web app stopped. On a server, stage a backup as `restore.db.gz` (or `restore.db`) in the data directory and restart the app to restore it during startup.
@@ -110,18 +111,18 @@ flickr-organizer user list
 ## Preview without queueing
 
 ```bash
-python -m flickr_organizer plan            # totals of what the rules would propose right now
-python -m flickr_organizer plan --list     # every change, e.g. after editing a category or a brief
+python -m coconut_barometer plan            # totals of what the rules would propose right now
+python -m coconut_barometer plan --list     # every change, e.g. after editing a category or a brief
 ```
 
 `plan` is read-only: it uses what's already stored (it doesn't sync or classify), queues nothing, and changes nothing on Flickr.
 
 ## What's remembered
 
-Everything lives in a local DuckDB file (`flickr_organizer.duckdb`). DuckDB lets one process use a database at a time, so stop `serve` before running a command-line command such as `sync` or `backup` against the same file (or use the app's own pages):
+Everything lives in a local DuckDB file (`db.duckdb`, beside config.yaml or in the current folder). DuckDB lets one process use a database at a time, so stop `serve` before running a command-line command such as `sync` or `backup` against the same file (or use the app's own pages):
 
 - Vision results are cached, so a photo is classified once. It's classified again only if you change the model, the categories, the prompt, or the description/title briefs.
-- Applied, rejected and edited changes are never proposed again (dropping a tag rejects just that tag). Failed ones are proposed again. The full rules are at the top of `flickr_organizer/changes.py`.
+- Applied, rejected and edited changes are never proposed again (dropping a tag rejects just that tag). Failed ones are proposed again. The full rules are at the top of `coconut_barometer/changes.py`.
 
 ## Tuning
 
@@ -144,7 +145,7 @@ Tags you add by convention, each group with its own flag under `standard_tags`: 
 
 - They only add tags a photo doesn't already have, and they share the photo's single `add_tags` row, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the groups lower in the config list drop off first.
 - Date tags skip photos that already have a year tag (`y2019` or `2019`) and photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
-- Camera tags need each photo's EXIF: `python -m flickr_organizer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `standard_tags.camera.albums` also adds photos to your camera albums.
+- Camera tags need each photo's EXIF: `python -m coconut_barometer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `standard_tags.camera.albums` also adds photos to your camera albums.
 
 ### Keeping in sync, and stats history
 
@@ -164,7 +165,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 ### Engagement data
 
 - `sync` also records each photo's views, faves and comment count, license and original size (no extra calls), keeps a daily snapshot of those counts in `photo_stats` so you can see growth over time, and saves your account's total views in `account_stats` (1 call; needs Flickr Pro stats).
-- `python -m flickr_organizer social` fetches the details: your groups and which of your photos are in each pool (about one call per group), the comments on your photos, and who faved them and when. Comments and faves are fetched only for photos whose count changed since last time, so the first run is the big one (one call per photo with comments; one per 50 faves) and later runs are small. Use `--skip-groups`, `--skip-comments`, `--skip-faves` or `--limit` to split it up; it's safe to stop and resume.
+- `python -m coconut_barometer social` fetches the details: your groups and which of your photos are in each pool (about one call per group), the comments on your photos, and who faved them and when. Comments and faves are fetched only for photos whose count changed since last time, so the first run is the big one (one call per photo with comments; one per 50 faves) and later runs are small. Use `--skip-groups`, `--skip-comments`, `--skip-faves` or `--limit` to split it up; it's safe to stop and resume.
 
 ## Costs and limits
 
@@ -174,7 +175,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 
 ## Adding a vision provider
 
-Subclass `flickr_organizer.vision.base.VisionProvider`, implement `classify(image, media_type, prompt, schema) -> dict`, and register the class in `flickr_organizer/vision/__init__.py`. If a server speaks the OpenAI API, it already works with `provider: openai` + `base_url`.
+Subclass `coconut_barometer.vision.base.VisionProvider`, implement `classify(image, media_type, prompt, schema) -> dict`, and register the class in `coconut_barometer/vision/__init__.py`. If a server speaks the OpenAI API, it already works with `provider: openai` + `base_url`.
 
 ## Tests
 

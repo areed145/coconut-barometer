@@ -21,7 +21,7 @@ async function loadQueue() { ids = await api('/api/queue?status=' + $('#status')
 async function show() {
   const main = $('#main');
   $('#pos').textContent = ids.length ? `${idx + 1} of ${ids.length}` : '';
-  if (!ids.length) { main.innerHTML = `<div class="empty">Nothing here. Run <code>python -m flickr_organizer process</code> to queue more photos.</div>`; item = null; loadSummary(); return; }
+  if (!ids.length) { main.innerHTML = `<div class="empty">Nothing here. Run <code>python -m coconut_barometer process</code> to queue more photos.</div>`; item = null; loadSummary(); return; }
   item = await api('/api/item/' + ids[idx]);
   const p = item.photo, editable = item.status === 'pending' || item.status === 'failed';
   loadSummary();

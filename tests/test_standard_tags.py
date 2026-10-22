@@ -5,16 +5,16 @@ import tempfile
 import unittest
 
 from fakes import photo, FakeFlickr, fake_geocoder, CFG
-from flickr_organizer.camera import fetch_cameras, pending_cameras
-from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.camera import fetch_cameras, pending_cameras
+from coconut_barometer.config import from_dict
+from coconut_barometer.planner import build_plan
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class StandardTagsTest(unittest.TestCase):
     def setUp(self):
-        import flickr_organizer.standard_tags as std_mod
+        import coconut_barometer.standard_tags as std_mod
         orig, std_mod.country_names = std_mod.country_names, lambda cc: {"US": ["United States"], "JP": ["Japan"]}[cc]
         self.addCleanup(setattr, std_mod, "country_names", orig)
         self.tmp = tempfile.mkdtemp()

@@ -29,18 +29,16 @@ export function RestoreBackup({ send, disabled }) {
   if (d) return html`<div class="restore"><p><span class="spin">⟳</span> Uploaded and checked. Restoring and restarting:
       this page reloads by itself when the app is back (usually under a minute).</p>
     ${d.keys > 0 && !d.key_given && !d.readable && html`<p class="problem">This backup's ${d.keys} API keys are encrypted with a key this
-      server doesn't have, so you'll need to set them again in Settings.</p>`}
-    ${d.key_ignored && html`<p class="problem">FLICKR_ORGANIZER_SECRET_KEY is set on the server and wins over the key you gave:
-      delete it in the server's environment.</p>`}</div>`;
+      server doesn't have, so you'll need to set them again in Settings.</p>`}</div>`;
   return html`<div class="restore">
     <${DropZone} onFiles=${onFiles} accept=".gz,.db,.key" disabled=${disabled || state.busy}>
       ${file ? html`<strong>${file.name}</strong> <span class="muted">· ${(file.size / 1048576).toFixed(1)} MB · drop another to replace</span>`
-        : html`<strong>Drop a backup here</strong> <span class="muted">(.db.gz from <code>flickr-organizer backup</code>), or click to choose.
+        : html`<strong>Drop a backup here</strong> <span class="muted">(.db.gz from <code>coconut-barometer backup</code>), or click to choose.
           Drop <code>secret.key</code> too to bring the API keys.</span>`}
     <//>
     <label for="restore-key">Encryption key <span class="muted">(optional)</span></label>
     <input id="restore-key" type="password" autocomplete="off" spellcheck="false" value=${key} disabled=${state.busy}
-           onInput=${(e) => setKey(e.target.value)} placeholder="contents of ~/.config/flickr-organizer/secret.key" />
+           onInput=${(e) => setKey(e.target.value)} placeholder="contents of ~/.config/coconut-barometer/secret.key" />
     <p class="why">The key the backup's API keys are encrypted with, from the computer it came from. Without it they can't be read,
       and you set them again in Settings.</p>
     <button class="primary" disabled=${!file || disabled || state.busy} onClick=${go}>${state.busy ? "Uploading…" : "Restore"}</button>

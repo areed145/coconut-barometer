@@ -9,13 +9,13 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
-from flickr_organizer import settings as S
-from flickr_organizer.config import load_config, read_raw
-from flickr_organizer.settings_meta import META
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import hash_password
+from coconut_barometer import settings as S
+from coconut_barometer.config import load_config, read_raw
+from coconut_barometer.settings_meta import META
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 PASSWORD = "correct horse battery"
 CONFIG = """database: db.duckdb
@@ -38,12 +38,14 @@ class Base(unittest.TestCase):
         self.cfg_path = os.path.join(self.tmp, "config.yaml")
         with open(self.cfg_path, "w") as f:
             f.write(CONFIG)
-        self.env = mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_KEY_FILE": os.path.join(self.tmp, "keys", "secret.key")})
-        self.env.start()
-        for var in ("FLICKR_API_KEY", "FLICKR_API_SECRET", "ANTHROPIC_API_KEY", "VISION_API_KEY", S.KEY_ENV,
-                    "FLICKR_ORGANIZER_DATABASE"):
+        self.key_file = os.path.join(self.tmp, "keys", "secret.key")
+        for patch in (mock.patch.object(S, "DEFAULT_KEY_FILE", self.key_file),
+                      mock.patch.object(S, "OLD_KEY_FILE", os.path.join(self.tmp, "old-keys", "secret.key")),
+                      mock.patch.dict(os.environ)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        for var in ("DATABASE_PATH", "DATA_DIR"):
             os.environ.pop(var, None)
-        self.addCleanup(self.env.stop)
         self.store = Store(os.path.join(self.tmp, "db.duckdb"))
 
     def file_raw(self):
@@ -51,15 +53,16 @@ class Base(unittest.TestCase):
 
 
 class LayersTest(Base):
-    def test_admin_overrides_file_and_env_overrides_admin(self):
+    def test_admin_overrides_file_and_keys_never_come_from_the_environment(self):
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-admin"}, [], "owner")
         self.assertEqual(load_config(self.cfg_path)["vision"]["model"], "from-admin")
         _, sources, _ = S.layer(self.file_raw(), self.store)
         self.assertEqual((sources["vision.model"], sources["flickr.calls_per_second"], sources["flickr.api_key"]),
                          ("admin", "default", "file"))
-        with mock.patch.dict(os.environ, {"FLICKR_API_KEY": "env-key"}):
-            self.assertEqual(load_config(self.cfg_path)["flickr"]["api_key"], "env-key")
-            self.assertEqual(S.layer(self.file_raw(), self.store)[1]["flickr.api_key"], "env")
+        with mock.patch.dict(os.environ, {"FLICKR_API_KEY": "env-key", "ANTHROPIC_API_KEY": "env-key"}):
+            cfg = load_config(self.cfg_path)
+            self.assertEqual((cfg["flickr"]["api_key"], S.layer(self.file_raw(), self.store)[1]["flickr.api_key"]),
+                             ("file-key", "file"))
 
     def test_save_validates_first_and_refuses_locked_or_unknown_settings(self):
         with self.assertRaises(S.SettingsError) as e:
@@ -90,7 +93,7 @@ class LayersTest(Base):
         self.assertEqual((raw["theme"]["color_high"], sources["theme.color_high"]), ("#00ff00", "admin"))
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 9}, [], "owner")
         self.assertEqual(self.store.admin_settings(), {"theme.color_high": "#00ff00", "vision.concurrency": 9})
-        from flickr_organizer.config import retire
+        from coconut_barometer.config import retire
         self.assertEqual(retire({"map": {"color_low": "#000000", "expand_at": 9}}),
                          {"map": {"expand_at": 9}, "theme": {"color_low": "#000000"}})
 
@@ -99,12 +102,12 @@ class LayersTest(Base):
         self.store.save_admin_settings({"weather.units": "imperial"}, [], "old", [])
         raw, sources, _ = S.layer(self.file_raw(), self.store)
         self.assertEqual((raw["display"]["units"], sources["display.units"]), ("imperial", "admin"))
-        from flickr_organizer.config import retire
+        from coconut_barometer.config import retire
         self.assertEqual(retire({"weather": {"units": "imperial"}}), {"display": {"units": "imperial"}})
 
     def test_import_file_keeps_page_changes(self):
         import argparse, contextlib, io
-        from flickr_organizer.cli import cmd_settings
+        from coconut_barometer.cli import cmd_settings
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-page"}, [], "owner")
         args = argparse.Namespace(action="import-file", file=None, config=self.cfg_path, overwrite=False, blank=False)
         with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -131,22 +134,28 @@ class SecretsTest(Base):
         self.assertNotIn(b"sk-ant-very-secret", dump)
         self.assertEqual(load_config(self.cfg_path)["vision"]["api_key"], "sk-ant-very-secret-1234")
         self.assertIsNone(S.decrypt("flickr.api_key", row["nonce"], row["ciphertext"]))   # can't move to another field
-        key_file = os.environ["FLICKR_ORGANIZER_KEY_FILE"]
-        self.assertEqual(stat.S_IMODE(os.stat(key_file).st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(self.key_file).st_mode), 0o600)
         self.assertEqual(row["hint"], "1234")
 
     def test_without_the_key_the_value_is_reported_not_guessed(self):
         S.set_secret(self.store, "flickr.api_key", "abcdefgh-ijkl-5678", "owner")
-        os.remove(os.environ["FLICKR_ORGANIZER_KEY_FILE"])
+        os.remove(self.key_file)
         raw, _, problems = S.layer(self.file_raw(), self.store)
         self.assertEqual(raw["flickr"]["api_key"], "file-key")             # falls back to config.yaml
         self.assertTrue(any("flickr.api_key" in p for p in problems))
 
-    def test_key_from_the_environment(self):
-        with mock.patch.dict(os.environ, {S.KEY_ENV: S.new_key()}):
-            S.set_secret(self.store, "flickr.api_secret", "from-the-page-9999", "owner")
-            self.assertEqual(load_config(self.cfg_path)["flickr"]["api_secret"], "from-the-page-9999")
-        self.assertFalse(os.path.exists(os.environ["FLICKR_ORGANIZER_KEY_FILE"]))   # no key file made
+    def test_the_key_file_from_before_the_rename_is_still_used(self):
+        old = S.OLD_KEY_FILE
+        os.makedirs(os.path.dirname(old))
+        with open(old, "w") as f:
+            f.write(S.new_key())
+        S.set_secret(self.store, "flickr.api_secret", "from-the-page-9999", "owner")
+        self.assertEqual(load_config(self.cfg_path)["flickr"]["api_secret"], "from-the-page-9999")
+        self.assertFalse(os.path.exists(self.key_file))                   # no second key made beside it
+        os.makedirs(os.path.dirname(self.key_file))
+        with open(self.key_file, "w") as f:                               # once the new one exists, it wins
+            f.write(S.new_key())
+        self.assertEqual(str(S.key_file()), self.key_file)
 
     def test_both_base64_alphabets_give_the_same_key(self):
         import base64
@@ -223,7 +232,7 @@ class AdminApiTest(Base):
         self.assertEqual(self.app.state.runtime.cfg["flickr"]["api_key"], "new-flickr-key-0001")
 
     def test_the_encryption_key_downloads_and_opens_a_backup_elsewhere(self):
-        from flickr_organizer import backup as B
+        from coconut_barometer import backup as B
         get = lambda pw: self.c.post("/api/admin/encryption-key/download", json={"password": pw}, headers=self.h)
         self.assertEqual(get(PASSWORD).status_code, 404)                 # no API key saved yet, so no key
         self.c.put("/api/admin/secrets/flickr.api_key", json={"value": "new-flickr-key-0001", "password": PASSWORD},

@@ -4,7 +4,7 @@ import os
 import pwd
 import sys
 
-data = os.environ.get("FLICKR_ORGANIZER_DATA", "/var/data")
+data = os.environ.get("DATA_DIR", "/var/data")
 user = pwd.getpwnam("app")
 if os.getuid() == 0:
     os.makedirs(data, exist_ok=True)

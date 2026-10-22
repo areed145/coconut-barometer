@@ -4,10 +4,10 @@ import tempfile
 import unittest
 
 from fakes import FakeFlickr
-from flickr_organizer.review import ReviewApp
-from flickr_organizer import social
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.review import ReviewApp
+from coconut_barometer import social
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class SocialTest(unittest.TestCase):

@@ -13,13 +13,13 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, CFG
-from flickr_organizer import backup as B
-from flickr_organizer.config import apply_env, database_path, from_dict, read_raw
-from flickr_organizer.settings import _key_from_text
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import hash_password
+from coconut_barometer import backup as B
+from coconut_barometer.config import apply_env, database_path, from_dict, read_raw
+from coconut_barometer.settings import _key_from_text
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 PASSWORD = "correct horse battery"
 
@@ -27,25 +27,30 @@ PASSWORD = "correct horse battery"
 class PlatformTest(unittest.TestCase):
     def test_render_listens_on_its_port_behind_its_proxy(self):
         env = {"RENDER": "true", "PORT": "10000", "RENDER_EXTERNAL_HOSTNAME": "photos.onrender.com",
-               "FLICKR_ORGANIZER_ALLOWED_HOSTS": "photos.example.com, www.example.com"}
+               "ALLOWED_HOSTS": "photos.example.com, www.example.com"}
         web = apply_env({"web": {"allowed_hosts": ["localhost"], "secure_cookies": False}}, env)["web"]
         self.assertEqual((web["host"], web["port"], web["trusted_proxies"], web["secure_cookies"]),
                          ("0.0.0.0", 10000, ["*"], True))
         self.assertEqual(web["allowed_hosts"], ["localhost", "photos.example.com", "www.example.com", "photos.onrender.com"])
         self.assertNotIn("web", apply_env({}, {}))                     # nothing set: nothing added
 
-    def test_config_is_optional_with_a_data_directory(self):
+    def test_config_is_optional(self):
+        from coconut_barometer.config import load_config
         data = tempfile.mkdtemp()
-        with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_DATA": data}):
+        with mock.patch.dict(os.environ, {"DATA_DIR": data}):
             self.assertEqual(read_raw(os.path.join(data, "no-such-config.yaml")), {})
-            self.assertEqual(database_path("/elsewhere/config.yaml", {}), os.path.join(data, "flickr_organizer.duckdb"))
-        with self.assertRaises(SystemExit):
-            read_raw(os.path.join(data, "no-such-config.yaml"))           # locally it's still required
+            self.assertEqual(database_path("/elsewhere/config.yaml", {}), os.path.join(data, "db.duckdb"))
+        here = os.path.realpath(tempfile.mkdtemp())                       # locally too: the database goes beside it
+        with mock.patch.dict(os.environ):
+            os.environ.pop("DATA_DIR", None)
+            os.environ.pop("DATABASE_PATH", None)
+            cfg = load_config(os.path.join(here, "config.yaml"))
+        self.assertEqual((cfg["database"], cfg["vision"]["model"]), (os.path.join(here, "db.duckdb"), "claude-haiku-5-5"))
 
     def test_encryption_key_formats(self):
         raw = os.urandom(32)
         self.assertEqual(_key_from_text(base64.b64encode(raw).decode()), raw)          # Render's generateValue
-        self.assertEqual(_key_from_text(base64.urlsafe_b64encode(raw).decode()), raw)  # `settings new-key`
+        self.assertEqual(_key_from_text(base64.urlsafe_b64encode(raw).decode()), raw)  # a secret.key file
         self.assertEqual(len(_key_from_text("x" * 40)), 32)                           # a long passphrase
         with self.assertRaises(SystemExit):
             _key_from_text("short")
@@ -88,8 +93,18 @@ class BackupTest(unittest.TestCase):
         restored.close()
         self.assertGreater(kept.stat().st_size, 0)
 
+    def test_backups_are_named_for_the_app_and_old_ones_still_count(self):
+        made = B.make_backup(self.cfg)
+        self.assertRegex(made.name, r"^coconut_barometer_\d{8}-\d{6}\.db\.gz$")
+        old = made.with_name("flickr_organizer-20200101-000000.db.gz")    # from before the rename
+        newer_old = made.with_name("flickr_organizer-29990101-000000.db.gz")
+        for f in (old, newer_old):
+            f.write_bytes(made.read_bytes())
+        self.assertEqual([b["name"] for b in B.list_backups(self.cfg)], [newer_old.name, made.name, old.name])
+        self.assertEqual(B.backup_path(self.cfg, old.name), old)
+
     def test_names_outside_the_backup_folder_are_refused(self):
-        for name in ("../db.duckdb", "/etc/passwd", "flickr_organizer-x.db.gz/../../db.duckdb", "other.db.gz"):
+        for name in ("../db.duckdb", "/etc/passwd", "coconut_barometer_x.db.gz/../../db.duckdb", "other.db.gz"):
             with self.assertRaises(FileNotFoundError):
                 B.backup_path(self.cfg, name)
 
@@ -108,11 +123,11 @@ class BackupTest(unittest.TestCase):
 
 class RestoreOnStartTest(unittest.TestCase):
     def test_a_dropped_in_backup_is_restored_once_before_start(self):
-        from flickr_organizer.cli import _restore_on_start
+        from coconut_barometer.cli import _restore_on_start
 
         data = tempfile.mkdtemp()
-        with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_DATA": data}):
-            cfg = from_dict({"database": os.path.join(data, "flickr_organizer.db")})
+        with mock.patch.dict(os.environ, {"DATA_DIR": data}):
+            cfg = from_dict({"database": os.path.join(data, "coconut_barometer.db")})
             store = Store(cfg["database"])
             sync(FakeFlickr(), store, log=lambda *a: None)
             os.replace(B.make_backup(cfg), os.path.join(data, "restore.db.gz"))
@@ -226,12 +241,10 @@ class SetupTest(unittest.TestCase):
 
     def setUp(self):
         self.data = tempfile.mkdtemp()
-        env = mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_DATA": self.data})
+        env = mock.patch.dict(os.environ, {"DATA_DIR": self.data})
         env.start()
         self.addCleanup(env.stop)
-        for var in ("FLICKR_ORGANIZER_KEY_FILE", "FLICKR_ORGANIZER_SECRET_KEY"):
-            os.environ.pop(var, None)
-        self.cfg = from_dict({**CFG, "database": os.path.join(self.data, "flickr_organizer.duckdb"),
+        self.cfg = from_dict({**CFG, "database": os.path.join(self.data, "db.duckdb"),
                               "web": {"allowed_hosts": ["testserver"]}})
         Store(self.cfg["database"]).close()
         self.app = create_app(self.cfg, None, scheduler=False, background=False)   # no worker holding the file open
@@ -258,18 +271,18 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(r.status_code, 429)
 
     def test_restore_from_another_machine_brings_its_key(self):
-        from flickr_organizer import settings as S
-        from flickr_organizer.cli import _restore_on_start
+        from coconut_barometer import settings as S
+        from coconut_barometer.cli import _restore_on_start
 
-        laptop = tempfile.mkdtemp()                       # the laptop: a database with an API key in it
-        laptop_key = S.new_key()
-        with mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_SECRET_KEY": laptop_key}):
+        laptop = tempfile.mkdtemp()                       # the laptop: a database with an API key in it, its own key
+        with mock.patch.dict(os.environ, {"DATA_DIR": laptop}):
             lcfg = from_dict({"database": os.path.join(laptop, "db.duckdb")})
             ldb = Store(lcfg["database"])
             sync(FakeFlickr(), ldb, log=lambda *a: None)
             ldb.set_password_hash("me", hash_password(PASSWORD))
             S.set_secret(ldb, "flickr.api_key", "laptop-flickr-key", "cli")
             backup = B.make_backup(lcfg).read_bytes()
+            laptop_key = S.export_key()
         up = lambda key="", code=None: self.c.post("/api/setup/restore", content=backup, headers={
             "X-Setup-Code": code or self.rt.setup_code, "X-Encryption-Key": key})
         self.assertEqual(up(code="wrong").status_code, 403)
@@ -295,17 +308,16 @@ class FreshServerTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.env = mock.patch.dict(os.environ, {"FLICKR_ORGANIZER_KEY_FILE": os.path.join(self.tmp, "secret.key")})
+        from coconut_barometer import settings as S
+        self.env = mock.patch.object(S, "DEFAULT_KEY_FILE", os.path.join(self.tmp, "secret.key"))
         self.env.start()
         self.addCleanup(self.env.stop)
-        for var in ("FLICKR_API_KEY", "FLICKR_API_SECRET", "ANTHROPIC_API_KEY"):
-            os.environ.pop(var, None)
         self.cfg_path = os.path.join(self.tmp, "config.yaml")
         with open(self.cfg_path, "w") as f:
             f.write("database: db.duckdb\nweb:\n  allowed_hosts: [testserver]\n")
         Store(os.path.join(self.tmp, "db.duckdb")).set_password_hash("owner", hash_password(PASSWORD))
-        from flickr_organizer.cli import _new_client
-        from flickr_organizer.config import load_config
+        from coconut_barometer.cli import _new_client
+        from coconut_barometer.config import load_config
         cfg = load_config(self.cfg_path)
         self.assertIsNone(_new_client(cfg))                                 # no keys: no client, no prompt
         self.built = []

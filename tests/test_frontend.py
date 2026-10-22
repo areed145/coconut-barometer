@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-STATIC = os.path.join(os.path.dirname(__file__), "..", "flickr_organizer", "web", "static")
+STATIC = os.path.join(os.path.dirname(__file__), "..", "coconut_barometer", "web", "static")
 JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
 OURS = sorted(glob.glob(os.path.join(STATIC, "js", "*.js")))
 

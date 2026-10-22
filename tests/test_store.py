@@ -4,8 +4,8 @@ import tempfile
 import unittest
 
 from fakes import FakeFlickr
-from flickr_organizer.store import SCHEMA_VERSION, SchemaTooNew, Store
-from flickr_organizer.sync import sync
+from coconut_barometer.store import SCHEMA_VERSION, SchemaTooNew, Store
+from coconut_barometer.sync import sync
 
 
 class SchemaTest(unittest.TestCase):
@@ -74,7 +74,7 @@ class OneProcessTest(unittest.TestCase):
         import sys
         path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         store = Store(path)                                   # this process holds the file
-        out = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); from flickr_organizer.store import Store; Store(%r)"
+        out = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); from coconut_barometer.store import Store; Store(%r)"
                               % (os.path.join(os.path.dirname(__file__), ".."), path)], capture_output=True, text=True)
         store.close()
         self.assertNotEqual(out.returncode, 0)

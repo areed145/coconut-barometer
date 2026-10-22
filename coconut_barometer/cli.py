@@ -1,4 +1,4 @@
-"""Command line entry point:  python -m flickr_organizer <command>"""
+"""Command line entry point:  python -m coconut_barometer <command>"""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,7 @@ def _client(cfg):
 def _new_client(cfg):
     """A Flickr client for the web app: never prompts (a server can't answer), and None until
     the API keys are set. Without a saved Flickr login, calls fail until you use Settings →
-    Connect Flickr (or `flickr-organizer auth`)."""
+    Connect Flickr (or `coconut-barometer auth`)."""
     from .flickr_client import FlickrClient
 
     if not (cfg["flickr"]["api_key"] and cfg["flickr"]["api_secret"]):
@@ -158,7 +158,7 @@ def cmd_check(config_path: str) -> int:
     elif not errors:
         warnings.append(f"no database yet at {db}; run `auth` then `sync`")
     if not os.path.exists(os.path.expanduser("~/.flickr/oauth-tokens.sqlite")):
-        warnings.append("no saved Flickr login (~/.flickr); run `python -m flickr_organizer auth`")
+        warnings.append("no saved Flickr login (~/.flickr); run `python -m coconut_barometer auth`")
 
     print(f"{config_path}: {len(errors)} error(s), {len(warnings)} warning(s)")
     for title, items in (("Errors", errors), ("Warnings", warnings), ("Info", notes)):
@@ -224,8 +224,6 @@ def _restore_on_start(cfg, store):
                 os.replace(staged_key, target)
                 os.chmod(target, 0o600)
                 print(f"Installed the backup's encryption key at {target}.")
-                if os.environ.get(S.KEY_ENV):
-                    print(f"! {S.KEY_ENV} is set, so it's used instead: delete it to use the backup's key.")
             return Store(cfg["database"])
     return store
 
@@ -273,11 +271,6 @@ def cmd_settings(cfg, store, args):
     from .config import read_raw
 
     file_raw = read_raw(args.config)
-    if args.action == "new-key":
-        print(S.new_key())
-        print("Set it as FLICKR_ORGANIZER_SECRET_KEY on the server (keep it out of the database and backups).",
-              file=sys.stderr)
-        return
     if args.action == "show":
         _, sources, problems = S.layer(file_raw, store)
         shown = {p: src for p, src in sources.items() if src in ("admin", "env")}
@@ -442,7 +435,7 @@ def cmd_process(cfg, store, args):
         return
     stats = process(cfg, store, client, provider, photo_ids=args.photo, limit=args.limit,
                     rebuild=args.rebuild, refresh_each=args.refresh_each, media=args.media)
-    print(f"Done: {stats}\nReview them with:  python -m flickr_organizer review")
+    print(f"Done: {stats}\nReview them with:  python -m coconut_barometer review")
 
 
 def cmd_social(cfg, store, args):
@@ -483,8 +476,8 @@ def cmd_review(cfg, store, args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="flickr_organizer", description="Auto-tag and album-sort a Flickr library.")
-    ap.add_argument("-c", "--config", default=os.environ.get("FLICKR_ORGANIZER_CONFIG", "config.yaml"))
+    ap = argparse.ArgumentParser(prog="coconut_barometer", description="Auto-tag and album-sort a Flickr library.")
+    ap.add_argument("-c", "--config", default=os.environ.get("CONFIG_PATH", "config.yaml"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("auth", help="authorize with Flickr (write access)")
     p = sub.add_parser("sync", help="bring the database up to date with Flickr (whatever's due; cheap)")
@@ -524,8 +517,8 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="only this many photos' comments/faves")
     p.add_argument("--no-sync", action="store_true", help="skip the bulk sync at the start")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    p = sub.add_parser("settings", help="admin-page settings: show | import-file | import-secrets | new-key")
-    p.add_argument("action", choices=["show", "import-file", "import-secrets", "new-key"])
+    p = sub.add_parser("settings", help="admin-page settings: show | import-file | import-secrets")
+    p.add_argument("action", choices=["show", "import-file", "import-secrets"])
     p.add_argument("file", nargs="?", help="with import-file: the YAML to import (default: the config file)")
     p.add_argument("--blank", action="store_true", help="with import-secrets: also blank the keys in config.yaml")
     p.add_argument("--overwrite", action="store_true",

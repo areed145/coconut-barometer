@@ -19,7 +19,7 @@ export async function api(path, { method = "GET", body, params } = {}) {
   const r = await fetch(url, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
   let data = null;
   try { data = await r.json(); } catch { /* empty body */ }
-  if (r.status === 401 && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("fo:logged-out"));
+  if (r.status === 401 && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("cb:logged-out"));
   if (!r.ok) {
     const detail = Array.isArray(data?.detail) ? data.detail.map((d) => (typeof d === "string" ? d : d.msg)).join("; ") : data?.detail;
     throw new ApiError(r.status, detail, r.headers);
@@ -86,7 +86,7 @@ export const logShare = (v, hi, lo = 0) => {
 };
 
 // ---- light / dark: Auto (the device's setting), or chosen in the top bar ----------------
-const THEME_KEY = "fo-theme";
+const THEME_KEY = "cb-theme";
 export const themeChoice = () => { try { return localStorage.getItem(THEME_KEY) || "auto"; } catch { return "auto"; } };
 const deviceDark = matchMedia("(prefers-color-scheme: dark)");
 export const isDark = () => {
@@ -98,7 +98,7 @@ const themeChanged = () => {
     m.content = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     m.removeAttribute("media");
   });
-  window.dispatchEvent(new Event("fo:theme"));
+  window.dispatchEvent(new Event("cb:theme"));
 };
 export function setThemeChoice(choice) {
   try { choice === "auto" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, choice); } catch { /* this session only */ }
@@ -110,8 +110,8 @@ deviceDark.addEventListener?.("change", () => { if (themeChoice() === "auto") th
 // Re-render when the theme changes (for things drawn from the colors at render time).
 export function useThemeTick() {
   const [tick, setTick] = useState(0);
-  useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener("fo:theme", on);
-    return () => window.removeEventListener("fo:theme", on); }, []);
+  useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener("cb:theme", on);
+    return () => window.removeEventListener("cb:theme", on); }, []);
   return tick;
 }
 

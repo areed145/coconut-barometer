@@ -7,14 +7,14 @@ import time
 import unittest
 
 from fakes import FakeFlickr, CFG
-from flickr_organizer import activity
-from flickr_organizer.activity import Activity
-from flickr_organizer.aprs.stream import Hub, handle
-from flickr_organizer.config import from_dict
-from flickr_organizer.flickr_client import FlickrClient
-from flickr_organizer.ratelimit import SharedRateLimiter
-from flickr_organizer.review import ReviewApp
-from flickr_organizer.store import Store
+from coconut_barometer import activity
+from coconut_barometer.activity import Activity
+from coconut_barometer.aprs.stream import Hub, handle
+from coconut_barometer.config import from_dict
+from coconut_barometer.flickr_client import FlickrClient
+from coconut_barometer.ratelimit import SharedRateLimiter
+from coconut_barometer.review import ReviewApp
+from coconut_barometer.store import Store
 
 
 class ActivityTest(unittest.TestCase):

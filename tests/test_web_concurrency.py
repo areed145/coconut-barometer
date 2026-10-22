@@ -15,11 +15,11 @@ import httpx
 import uvicorn
 
 from fakes import FakeFlickr, CFG
-from flickr_organizer.config import from_dict
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import hash_password
+from coconut_barometer.config import from_dict
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 
 class ConcurrencyTest(unittest.TestCase):

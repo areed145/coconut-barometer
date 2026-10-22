@@ -2,8 +2,8 @@
 caching, a provider being down, and the endpoint and CSP that let the browser load the tiles."""
 import unittest
 
-from flickr_organizer.weather.imagery import Imagery, expand_periods
-from flickr_organizer.web.security import CSP
+from coconut_barometer.weather.imagery import Imagery, expand_periods
+from coconut_barometer.web.security import CSP
 
 DOMAIN = ("<Domains><DimensionDomain><ows:Identifier>time</ows:Identifier>"
           "<Domain>2026-10-21T20:00:00Z/2026-10-21T21:00:00Z/PT10M,2026-10-21T22:00:00Z/2026-10-21T22:00:00Z/PT10M</Domain>"

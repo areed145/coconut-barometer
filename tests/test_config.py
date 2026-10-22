@@ -7,10 +7,10 @@ import unittest
 from contextlib import redirect_stdout
 
 from fakes import FakeFlickr
-from flickr_organizer.cli import cmd_check
-from flickr_organizer.config import DEFAULTS, _merge, load_config, validate
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.cli import cmd_check
+from coconut_barometer.config import DEFAULTS, _merge, load_config, validate
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -61,7 +61,7 @@ class ValidateTest(unittest.TestCase):
             f.write("vision:\n  enabled: true\n  include_videos: false\n  describe: {enabled: false, reword: true}\n"
                     "  title: {enabled: true, replace: all}\nrename: {enabled: true}\ngeo: {enabled: false}\n"
                     "web: {process_new: true}\n")
-        from flickr_organizer.config import read_raw
+        from coconut_barometer.config import read_raw
         raw = read_raw(path)
         self.assertEqual(problems(raw)[0], [])
         self.assertEqual(raw["schedule"], {"new_photos": "process"})            # process_new: true carried over

@@ -189,7 +189,7 @@ class Database:
         self.path = path
         if is_sqlite_file(path):
             raise ValueError(f"{path} is a SQLite database from before the move to DuckDB, which this version can't "
-                             "read. Converting one needs an older version (git history: store/migration.py).")
+                             "read. Converting one needs an older version (git history: flickr_organizer/store/migration.py).")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         try:
             self.db = Connection(path)

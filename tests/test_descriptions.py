@@ -4,12 +4,12 @@ import tempfile
 import unittest
 
 from fakes import FakeFlickr, fake_geocoder, FakeVision, CFG
-from flickr_organizer.apply import apply_changes
-from flickr_organizer.classify import classify_photos, fingerprint, pending_photos
-from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.apply import apply_changes
+from coconut_barometer.classify import classify_photos, fingerprint, pending_photos
+from coconut_barometer.config import from_dict
+from coconut_barometer.planner import build_plan
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class DescribeTest(unittest.TestCase):

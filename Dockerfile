@@ -10,14 +10,14 @@ WORKDIR /app
 # Dependencies first (cached until uv.lock changes), then the app itself.
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-editable --no-install-project
-COPY flickr_organizer ./flickr_organizer
+COPY coconut_barometer ./coconut_barometer
 RUN uv sync --locked --no-dev --no-editable
 
 RUN useradd --system --create-home --uid 10001 app
 COPY docker/entrypoint.py /entrypoint.py
 
 # Everything that must persist lives on the disk (render.yaml mounts it at /var/data).
-ENV PATH="/app/.venv/bin:$PATH" FLICKR_ORGANIZER_DATA=/var/data PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH" DATA_DIR=/var/data PYTHONUNBUFFERED=1
 EXPOSE 10000
 ENTRYPOINT ["python", "/entrypoint.py"]
-CMD ["flickr-organizer", "serve"]
+CMD ["coconut-barometer", "serve"]

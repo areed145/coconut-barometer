@@ -17,7 +17,8 @@ from pathlib import Path
 
 from .store.db import is_sqlite_file
 
-PREFIX, SUFFIX = "flickr_organizer-", ".db.gz"
+PREFIX, SUFFIX = "coconut_barometer_", ".db.gz"
+OLD_PREFIX = "flickr_organizer-"            # made before the rename: still listed, downloadable and pruned
 
 
 def backup_dir(cfg: dict) -> Path:
@@ -27,7 +28,8 @@ def backup_dir(cfg: dict) -> Path:
 
 def list_backups(cfg: dict) -> list[dict]:
     d = backup_dir(cfg)
-    files = sorted(d.glob(f"{PREFIX}*{SUFFIX}"), reverse=True) if d.exists() else []
+    files = [f for p in (PREFIX, OLD_PREFIX) for f in d.glob(f"{p}*{SUFFIX}")] if d.exists() else []
+    files.sort(key=lambda f: f.name.removeprefix(PREFIX).removeprefix(OLD_PREFIX), reverse=True)   # newest first, by the time in the name
     return [{"name": f.name, "size": f.stat().st_size, "created_at": int(f.stat().st_mtime)} for f in files]
 
 
@@ -59,7 +61,7 @@ def make_backup(cfg: dict) -> Path:
 
 def backup_path(cfg: dict, name: str) -> Path:
     """A backup by name, refusing anything that isn't one of ours (no path tricks)."""
-    if not (name.startswith(PREFIX) and name.endswith(SUFFIX)) or "/" in name or "\\" in name or ".." in name:
+    if not (name.startswith((PREFIX, OLD_PREFIX)) and name.endswith(SUFFIX)) or "/" in name or "\\" in name or ".." in name:
         raise FileNotFoundError(name)
     p = backup_dir(cfg) / name
     if not p.is_file():
@@ -118,7 +120,7 @@ def stage_restore(cfg: dict, upload: str, key_text: str | None = None) -> dict:
     try:
         key = S._key_from_text(key_text) if key_text and key_text.strip() else None
     except SystemExit as e:
-        raise ValueError(str(e.code).replace(S.KEY_ENV, "the encryption key"))
+        raise ValueError(str(e.code))
     info = check_backup_file(upload, key)
     if key and info["keys"] and not info["readable"]:
         raise ValueError("that encryption key doesn't open the API keys in this backup")
@@ -132,8 +134,7 @@ def stage_restore(cfg: dict, upload: str, key_text: str | None = None) -> dict:
             f.write(key_text.strip())
     os.replace(upload, target)
     os.chmod(target, 0o600)
-    return {"staged": target.name, **info, "key_given": bool(key),
-            "key_ignored": bool(key and os.environ.get(S.KEY_ENV))}
+    return {"staged": target.name, **info, "key_given": bool(key)}
 
 
 def restore(cfg: dict, source: str) -> Path:

@@ -2,7 +2,7 @@
 
 DEFAULTS is the single source of every setting's default; code reads cfg[...] directly.
 load_config refuses a config with errors (unknown key, wrong type, bad choice, number out
-of range, unknown placeholder, broken regex). `python -m flickr_organizer check` also
+of range, unknown placeholder, broken regex). `python -m coconut_barometer check` also
 lists warnings and checks the config against your library.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
-    "database": "flickr_organizer.duckdb",
+    "database": "db.duckdb",
     "albums": {"create_missing": False},
     "geo": {
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
@@ -114,10 +114,8 @@ RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"
           ("weatherflow", "calls_per_second"): (0.1, 10)}
 COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
-# Secrets can come from the environment instead of config.yaml (on a server, keep them there).
-ENV_OVERRIDES = {"FLICKR_API_KEY": ("flickr", "api_key"), "FLICKR_API_SECRET": ("flickr", "api_secret"),
-                 "WEATHERFLOW_TOKEN": ("weatherflow", "token"), "ANTHROPIC_API_KEY": ("vision", "api_key"), "VISION_API_KEY": ("vision", "api_key"),
-                 "FLICKR_ORGANIZER_DATABASE": ("database",)}
+# Settings the environment can set (API keys can't: they go in Settings, encrypted).
+ENV_OVERRIDES = {"DATABASE_PATH": ("database",)}
 PLACEHOLDERS = {
     ("vision", "describe", "instructions"): {"max_words"},
     ("vision", "title", "instructions"): {"max_words"},
@@ -353,16 +351,16 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def data_dir(environ=os.environ) -> Path | None:
-    """FLICKR_ORGANIZER_DATA: where a server keeps everything that must persist (on Render,
+    """DATA_DIR: where a server keeps everything that must persist (on Render,
     the disk's mount path): the database, the Flickr login, the rate-limit file, backups."""
-    d = environ.get("FLICKR_ORGANIZER_DATA")
+    d = environ.get("DATA_DIR")
     return Path(os.path.expanduser(d)) if d else None
 
 
 def database_path(cfg_path: str | os.PathLike, raw: dict, environ=os.environ) -> str:
-    """FLICKR_ORGANIZER_DATABASE, else config.yaml's `database`, else the data directory's,
+    """DATABASE_PATH, else config.yaml's `database`, else the data directory's,
     else the default; relative paths are relative to config.yaml's folder."""
-    db = environ.get("FLICKR_ORGANIZER_DATABASE") or raw.get("database")
+    db = environ.get("DATABASE_PATH") or raw.get("database")
     if not db and data_dir(environ):
         return str(data_dir(environ) / DEFAULTS["database"])
     db = db or DEFAULTS["database"]
@@ -371,13 +369,11 @@ def database_path(cfg_path: str | os.PathLike, raw: dict, environ=os.environ) ->
 
 
 def read_raw(path: str | os.PathLike) -> dict:
-    """The YAML exactly as written (no defaults). On a server (FLICKR_ORGANIZER_DATA set),
-    config.yaml is optional: everything else comes from the admin page and the environment."""
+    """The YAML exactly as written (no defaults). It's optional: without it, everything comes from the
+    defaults, Settings (in the database) and the environment."""
     p = Path(path)
     if not p.exists():
-        if data_dir():
-            return {}
-        raise SystemExit(f"Config not found: {p}. Copy config.example.yaml to config.yaml first.")
+        return {}
     try:
         raw = yaml.safe_load(p.read_text()) or {}
     except yaml.YAMLError as e:
@@ -406,7 +402,7 @@ def load_config(path: str | os.PathLike, admin: bool = True) -> dict:
     errors, _warnings = validate(raw, cfg)
     if errors:
         raise SystemExit(f"{p} has {len(errors)} problem(s):\n" + "\n".join(f"  - {e}" for e in errors)
-                         + "\nRun `python -m flickr_organizer check` for details.")
+                         + "\nRun `python -m coconut_barometer check` for details.")
     cfg["database"] = database_path(p, raw)
     return cfg
 
@@ -428,14 +424,14 @@ def apply_env(raw: dict, environ=os.environ) -> dict:
 def apply_platform(raw: dict, environ=os.environ) -> dict:
     """Hosting platforms set their own variables. On Render: listen on 0.0.0.0:$PORT behind
     its TLS proxy (trusted for X-Forwarded-*; it puts the real client address first), and
-    accept the service's own host name. FLICKR_ORGANIZER_ALLOWED_HOSTS adds more (comma-separated,
+    accept the service's own host name. ALLOWED_HOSTS adds more (comma-separated,
     e.g. your custom domain). Secure cookies stay on."""
     web = raw.setdefault("web", {}) if isinstance(raw.get("web", {}), dict) else raw["web"]
     if not isinstance(web, dict):
         return raw
     if environ.get("PORT", "").isdigit():
         web["port"] = int(environ["PORT"])
-    extra = [h.strip() for h in environ.get("FLICKR_ORGANIZER_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    extra = [h.strip() for h in environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
     if environ.get("RENDER_EXTERNAL_HOSTNAME"):
         extra.append(environ["RENDER_EXTERNAL_HOSTNAME"])
     if extra:
@@ -450,14 +446,14 @@ def apply_platform(raw: dict, environ=os.environ) -> dict:
     return raw
 
 
-PLATFORM_ENV = {"web.port": "PORT", "web.allowed_hosts": "FLICKR_ORGANIZER_ALLOWED_HOSTS / RENDER_EXTERNAL_HOSTNAME",
+PLATFORM_ENV = {"web.port": "PORT", "web.allowed_hosts": "ALLOWED_HOSTS / RENDER_EXTERNAL_HOSTNAME",
                 "web.host": "RENDER", "web.trusted_proxies": "RENDER", "web.secure_cookies": "RENDER"}
 
 
 def platform_paths(environ=os.environ) -> dict[str, str]:
     """Settings the platform's environment is setting right now (for the admin page)."""
     on = {"web.port": environ.get("PORT", "").isdigit(),
-          "web.allowed_hosts": bool(environ.get("FLICKR_ORGANIZER_ALLOWED_HOSTS") or environ.get("RENDER_EXTERNAL_HOSTNAME")),
+          "web.allowed_hosts": bool(environ.get("ALLOWED_HOSTS") or environ.get("RENDER_EXTERNAL_HOSTNAME")),
           "web.host": bool(environ.get("RENDER")), "web.trusted_proxies": bool(environ.get("RENDER")),
           "web.secure_cookies": bool(environ.get("RENDER"))}
     return {p: PLATFORM_ENV[p] for p, yes in on.items() if yes}

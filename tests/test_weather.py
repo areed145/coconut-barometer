@@ -8,17 +8,17 @@ from collections import deque
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, fake_geocoder, CFG
-from flickr_organizer.config import from_dict
-from flickr_organizer.store import Store
-from flickr_organizer.weather import sync as wxsync
-from flickr_organizer.store.weather import clear_sky, local_midnight
-from flickr_organizer.weather.parse import obs_st, sea_level
+from coconut_barometer.config import from_dict
+from coconut_barometer.store import Store
+from coconut_barometer.weather import sync as wxsync
+from coconut_barometer.store.weather import clear_sky, local_midnight
+from coconut_barometer.weather.parse import obs_st, sea_level
 import json
 import threading
 
-from flickr_organizer.weather.stream import Hub, WeatherStream, handle
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import hash_password
+from coconut_barometer.weather.stream import Hub, WeatherStream, handle
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 DAY = 86400
 NOW = 1_700_000_000
@@ -218,7 +218,7 @@ class FakeSocket:
 
 class StreamThreadTest(unittest.TestCase):
     def test_subscribes_each_tempest_stores_what_arrives_and_asks_for_a_fill_on_connect(self):
-        from flickr_organizer.weather.service import WeatherService
+        from coconut_barometer.weather.service import WeatherService
         path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
         Store(path).wx_save_stations([STATION])
         svc = WeatherService(from_dict({**CFG, "database": path, "weatherflow": {"token": "tok", "backfill_days": 7,
@@ -273,8 +273,8 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "part": "noon"}).status_code, 422)
 
     def test_map_lists_stations_and_frames(self):
-        from flickr_organizer.web.api import weather as wx_api
-        from flickr_organizer.weather.imagery import Imagery
+        from coconut_barometer.web.api import weather as wx_api
+        from coconut_barometer.weather.imagery import Imagery
         from test_weather_map import FakeGet
         self.app.dependency_overrides[wx_api.imagery] = lambda: Imagery(get=FakeGet(), clock=lambda: 1_792_620_000)
         self.login()

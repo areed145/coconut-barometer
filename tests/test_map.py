@@ -9,14 +9,14 @@ import unittest
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, CFG
-from flickr_organizer.config import DEFAULTS, _merge, from_dict, validate
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import CSP, hash_password
+from coconut_barometer.config import DEFAULTS, _merge, from_dict, validate
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import CSP, hash_password
 
 PASSWORD = "correct horse battery"
-STATIC = os.path.join(os.path.dirname(__file__), "..", "flickr_organizer", "web", "static")
+STATIC = os.path.join(os.path.dirname(__file__), "..", "coconut_barometer", "web", "static")
 
 
 class MapTest(unittest.TestCase):

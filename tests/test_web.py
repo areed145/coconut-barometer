@@ -7,11 +7,11 @@ import unittest
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, fake_geocoder, CFG
-from flickr_organizer.config import from_dict
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import COOKIE, hash_password, token_hash
+from coconut_barometer.config import from_dict
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import COOKIE, hash_password, token_hash
 
 PASSWORD = "correct horse battery"
 

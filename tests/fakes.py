@@ -1,11 +1,19 @@
 """Shared test doubles: a fake Flickr API, fake geocoder, fake vision model, base config."""
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from flickr_organizer.flickr_client import FlickrCallError  # noqa: E402
-from flickr_organizer.vision.base import VisionProvider  # noqa: E402
+from coconut_barometer import settings as _settings  # noqa: E402
+
+# Never near your real key files: the encryption key lives in a temp folder unless a test moves it.
+_KEYS = tempfile.mkdtemp(prefix="cb-test-keys-")
+_settings.DEFAULT_KEY_FILE = os.path.join(_KEYS, "secret.key")
+_settings.OLD_KEY_FILE = os.path.join(_KEYS, "before-the-rename", "secret.key")
+
+from coconut_barometer.flickr_client import FlickrCallError  # noqa: E402
+from coconut_barometer.vision.base import VisionProvider  # noqa: E402
 
 
 def photo(pid, lat=0, lon=0, acc=16, title="", tags=""):
@@ -144,7 +152,7 @@ class FakeFlickr:
                 {"tag": "LensModel", "raw": {"_content": "28-300mm"}}]}}
         if method == "flickr.photos.setTags":
             import shlex
-            from flickr_organizer.util import norm_tag
+            from coconut_barometer.util import norm_tag
             for ph in self.photos:
                 if ph["id"] == p["photo_id"]:
                     ph["tags"] = " ".join(norm_tag(t) for t in shlex.split(p["tags"]))

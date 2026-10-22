@@ -8,12 +8,12 @@ import unittest
 from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
-from flickr_organizer.aprs.service import AprsService
-from flickr_organizer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle
-from flickr_organizer.config import from_dict, validate
-from flickr_organizer.store import Store
-from flickr_organizer.web.app import create_app
-from flickr_organizer.web.security import hash_password
+from coconut_barometer.aprs.service import AprsService
+from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle
+from coconut_barometer.config import from_dict, validate
+from coconut_barometer.store import Store
+from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 NOW = 1_700_000_000
 CALL = "KJ4TFD-10"

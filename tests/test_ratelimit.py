@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from flickr_organizer.ratelimit import STALE_AFTER, SharedRateLimiter, fcntl, limiter_path
+from coconut_barometer.ratelimit import STALE_AFTER, SharedRateLimiter, fcntl, limiter_path
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 INTERVAL = 0.05
@@ -40,7 +40,7 @@ class SharedRateLimiterTest(unittest.TestCase):
 
     def test_separate_processes_share_the_rate(self):
         script = ("import sys, time; sys.path.insert(0, sys.argv[1]);"
-                  "from flickr_organizer.ratelimit import SharedRateLimiter;"
+                  "from coconut_barometer.ratelimit import SharedRateLimiter;"
                   "lim = SharedRateLimiter(sys.argv[2], 10)\n"
                   "for _ in range(5):\n    lim.wait(); print(time.time(), flush=True)")
         procs = [subprocess.Popen([sys.executable, "-c", script, ROOT, self.path], stdout=subprocess.PIPE, text=True)

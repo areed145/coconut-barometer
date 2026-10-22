@@ -6,12 +6,12 @@ import time
 import unittest
 
 from fakes import photo, FakeFlickr, CFG
-from flickr_organizer import stats_history
-from flickr_organizer.config import from_dict
-from flickr_organizer.incremental import sync_incremental
-from flickr_organizer.schedule import due, run_due
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer import stats_history
+from coconut_barometer.config import from_dict
+from coconut_barometer.incremental import sync_incremental
+from coconut_barometer.schedule import due, run_due
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class IncrementalTest(unittest.TestCase):

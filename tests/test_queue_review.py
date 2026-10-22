@@ -5,11 +5,11 @@ import time
 import unittest
 
 from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
-from flickr_organizer.config import from_dict
-from flickr_organizer.pipeline import process
-from flickr_organizer.review import ReviewApp
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.config import from_dict
+from coconut_barometer.pipeline import process
+from coconut_barometer.review import ReviewApp
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class QueueReviewTest(unittest.TestCase):
@@ -225,7 +225,7 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(out["stats"]["skipped"], 1)
 
     def test_overwrite_never_wipes_a_photo_with_no_wanted_tags(self):
-        from flickr_organizer.planner import build_plan
+        from coconut_barometer.planner import build_plan
         self.fl.photos[3]["tags"] = "mine"
         sync(self.fl, self.store, log=lambda *a: None)
         rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, photo_ids={"4"}, tag_mode="replace")

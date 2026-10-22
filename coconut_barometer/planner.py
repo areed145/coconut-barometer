@@ -1,5 +1,5 @@
 """Turn what's known about each photo (geotag, vision results, EXIF, albums) into
-proposed Changes, by running the rules in flickr_organizer/rules/.
+proposed Changes, by running the rules in coconut_barometer/rules/.
 
 Proposals only ever add, apart from titles and descriptions, and tags when you process a
 photo with "overwrite".

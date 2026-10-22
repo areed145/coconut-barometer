@@ -12,12 +12,12 @@ import urllib.error
 import urllib.request
 
 from fakes import FakeFlickr
-from flickr_organizer.review import ReviewApp
-from flickr_organizer.review.server import make_server
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.review import ReviewApp
+from coconut_barometer.review.server import make_server
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
-STATIC = os.path.join(os.path.dirname(__file__), "..", "flickr_organizer", "review", "static")
+STATIC = os.path.join(os.path.dirname(__file__), "..", "coconut_barometer", "review", "static")
 
 
 class ServerTest(unittest.TestCase):

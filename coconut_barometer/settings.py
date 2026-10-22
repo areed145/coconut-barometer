@@ -2,14 +2,14 @@
 
 Lowest to highest:  DEFAULTS  <  config.yaml  <  the admin page (database)  <  environment
 
-The admin page writes the third layer; CLI and web both read all four (load_config).
+The admin page writes the third layer; CLI and web both read all four (load_config). The environment
+only sets where the database is and what the platform decides (port, host names); never API keys.
 The settings that protect the server itself (LOCKED) can't be changed from the page.
 
 API keys (SECRETS) set on the page are stored AES-256-GCM encrypted, each bound to its
-setting name. The encryption key never goes in the database: it comes from the
-FLICKR_ORGANIZER_SECRET_KEY environment variable, or a key file (default
-~/.config/flickr-organizer/secret.key, created on first use, readable only by you;
-FLICKR_ORGANIZER_KEY_FILE moves it; on a server it's secret.key on the data disk). A copy of the database alone doesn't reveal them.
+setting name. The encryption key never goes in the database or the backups: it's a key file,
+secret.key on the data disk on a server, else ~/.config/coconut-barometer/secret.key (created on
+first use, readable only by you). A copy of the database alone doesn't reveal them.
 """
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ LOCKED = {"database": "where the database is", "web.host": "what address the ser
           "web.port": "what port the server listens on", "web.allowed_hosts": "which host names are accepted",
           "web.trusted_proxies": "whose X-Forwarded-For headers are believed",
           "web.secure_cookies": "whether the login cookie needs HTTPS"}
-KEY_ENV, KEY_FILE_ENV = "FLICKR_ORGANIZER_SECRET_KEY", "FLICKR_ORGANIZER_KEY_FILE"
-DEFAULT_KEY_FILE = "~/.config/flickr-organizer/secret.key"
+DEFAULT_KEY_FILE = "~/.config/coconut-barometer/secret.key"
+OLD_KEY_FILE = "~/.config/flickr-organizer/secret.key"     # before the rename: still used when it's the one there
 
 
 class SettingsError(ValueError):
@@ -88,23 +88,22 @@ def _key_from_text(text: str) -> bytes:
         if len(key) == 32:
             return key
     if len(text) < 32:
-        raise SystemExit(f"{KEY_ENV} is too short: use `flickr-organizer settings new-key` (or 32+ random characters)")
+        raise SystemExit("the encryption key is too short (use the contents of a secret.key file)")
     return hashlib.sha256(text.encode()).digest()
 
 
 def key_file() -> Path:
-    """FLICKR_ORGANIZER_KEY_FILE, else secret.key in the data directory (on a server, the
-    disk, so it survives redeploys), else ~/.config/flickr-organizer/secret.key."""
+    """secret.key in the data directory (on a server, the disk, so it survives redeploys), else
+    ~/.config/coconut-barometer/secret.key, or the one from before the rename if only that exists."""
     from .config import data_dir
 
-    if os.environ.get(KEY_FILE_ENV):
-        return Path(os.path.expanduser(os.environ[KEY_FILE_ENV]))
-    return data_dir() / "secret.key" if data_dir() else Path(os.path.expanduser(DEFAULT_KEY_FILE))
+    if data_dir():
+        return data_dir() / "secret.key"
+    path, old = Path(os.path.expanduser(DEFAULT_KEY_FILE)), Path(os.path.expanduser(OLD_KEY_FILE))
+    return old if old.exists() and not path.exists() else path
 
 
 def _key(create: bool) -> bytes | None:
-    if os.environ.get(KEY_ENV):
-        return _key_from_text(os.environ[KEY_ENV])
     path = key_file()
     if path.exists():
         return _key_from_text(path.read_text())
@@ -118,7 +117,7 @@ def _key(create: bool) -> bytes | None:
 
 
 def export_key() -> str | None:
-    """The key in use (from the environment or the key file), as text a restore takes; None before there is one."""
+    """The key in use, as text a restore takes; None before there is one."""
     key = _key(create=False)
     return base64.urlsafe_b64encode(key).decode() if key else None
 
@@ -182,7 +181,7 @@ def layer(file_raw: dict, store, environ=os.environ) -> tuple[dict, dict[str, st
             value = decrypt(name, row["nonce"], row["ciphertext"])
             if value is None:
                 problems.append(f"{name}: stored encrypted, but the key to read it isn't here "
-                                f"({KEY_ENV} or {DEFAULT_KEY_FILE}); set it again on the admin page")
+                                f"({key_file()}); set it again on the admin page")
                 continue
             set_path(raw, name, value)
             sources[name] = "admin"

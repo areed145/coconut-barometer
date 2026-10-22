@@ -4,11 +4,11 @@ import tempfile
 import unittest
 
 from fakes import FakeFlickr, CFG
-from flickr_organizer.config import from_dict
-from flickr_organizer.planner import build_plan
-from flickr_organizer.rules import Context, AlbumWant, TagWant, resolve
-from flickr_organizer.store import Store
-from flickr_organizer.sync import sync
+from coconut_barometer.config import from_dict
+from coconut_barometer.planner import build_plan
+from coconut_barometer.rules import Context, AlbumWant, TagWant, resolve
+from coconut_barometer.store import Store
+from coconut_barometer.sync import sync
 
 
 class RulesTest(unittest.TestCase):

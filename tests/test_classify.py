@@ -2,14 +2,14 @@
 import unittest
 
 from fakes import CFG
-from flickr_organizer.classify import build_prompt, build_schema
-from flickr_organizer.config import from_dict
+from coconut_barometer.classify import build_prompt, build_schema
+from coconut_barometer.config import from_dict
 
 
 class ClassifyPromptTest(unittest.TestCase):
     def test_location_in_prompt(self):
-        from flickr_organizer.geo import place_label
-        import flickr_organizer.geo as geo_mod
+        from coconut_barometer.geo import place_label
+        import coconut_barometer.geo as geo_mod
         orig, geo_mod.country_names = geo_mod.country_names, lambda cc: ["United States"]
         self.addCleanup(setattr, geo_mod, "country_names", orig)
         acc = {"country": 1, "state": 6, "city": 11}

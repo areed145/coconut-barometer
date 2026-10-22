@@ -1,4 +1,7 @@
-# Copy to config.yaml and edit. config.yaml holds your API keys, so it's gitignored.
+# A starting point, all optional: the app runs without any config.yaml (defaults + Settings in the
+# web app, which are saved in the database). Either copy this to config.yaml and edit it, or load it
+# into Settings once: `coconut-barometer settings import-file config.example.yaml`.
+# config.yaml is gitignored; API keys are better set in Settings (stored encrypted).
 
 flickr:
   api_key: ""            # https://www.flickr.com/services/apps/create/
@@ -6,7 +9,7 @@ flickr:
   # Flickr allows 3600 calls/hour per key; 1/sec is exactly that. Lower it (e.g. 0.9) for headroom.
   calls_per_second: 1
 
-database: flickr_organizer.duckdb   # local state: photo cache, classifications, decisions
+database: db.duckdb   # local state: photo cache, classifications, decisions (this is the default)
 
 albums:
   # Your albums mostly exist already, so by default the tool only adds photos to
@@ -306,7 +309,7 @@ standard_tags:
       California: [west, coast, pacific]
     region_overrides: {}      # e.g. MX: [americas, centralamerica]
 
-  # 3. Camera, from EXIF. Run `python -m flickr_organizer camera` first (one call per
+  # 3. Camera, from EXIF. Run `python -m coconut_barometer camera` first (one call per
   #    photo, cached; `process` keeps it up to date). Tags are the words of Flickr's camera
   #    name: "Nikon D90" -> nikon d90, "Apple iPhone X" -> apple iphone x.
   camera:
@@ -342,10 +345,10 @@ schedule:
   #   process  processed right after the sync
   new_photos: queue
 
-# The web app (`flickr-organizer serve`). With no login yet it opens on a setup page
-# (or: `flickr-organizer user add <name>`).
-# On a server keep host 127.0.0.1 and put Caddy (HTTPS) in front; secrets can come from the
-# environment instead of this file: FLICKR_API_KEY, FLICKR_API_SECRET, ANTHROPIC_API_KEY.
+# The web app (`coconut-barometer serve`). With no login yet it opens on a setup page
+# (or: `coconut-barometer user add <name>`).
+# On a server keep host 127.0.0.1 and put Caddy (HTTPS) in front. API keys belong in Settings
+# (stored encrypted), not here.
 web:
   host: 127.0.0.1
   port: 8000

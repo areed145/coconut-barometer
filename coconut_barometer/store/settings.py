@@ -1,5 +1,5 @@
 """Settings made on the admin page, encrypted API keys, and the change history.
-Encryption itself is in flickr_organizer/settings.py; this only stores bytes."""
+Encryption itself is in coconut_barometer/settings.py; this only stores bytes."""
 from __future__ import annotations
 
 import json

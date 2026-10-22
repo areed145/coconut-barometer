@@ -31,8 +31,8 @@ export function baseMap({ L, cfg }, el, options = {}) {
   }).addTo(map);
   map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
   const swap = () => tiles.setUrl(url());          // light or dark tiles, following the theme
-  window.addEventListener("fo:theme", swap);
-  map.on("unload", () => window.removeEventListener("fo:theme", swap));
+  window.addEventListener("cb:theme", swap);
+  map.on("unload", () => window.removeEventListener("cb:theme", swap));
   return map;
 }
 

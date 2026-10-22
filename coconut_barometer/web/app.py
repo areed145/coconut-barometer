@@ -1,7 +1,7 @@
 """The FastAPI app: JSON API under /api (login required), the frontend under /,
 the review worker and the sync scheduler in the background.
 
-    flickr-organizer serve                # http://127.0.0.1:8000 (put Caddy in front on a server)
+    coconut-barometer serve                # http://127.0.0.1:8000 (put Caddy in front on a server)
 
 With no login yet, the page offers first-run setup: create one, or restore a backup.
 """

@@ -146,8 +146,8 @@ function App() {
     api("/api/auth/session").then(signedIn).catch(() => {
       api("/api/setup").then((s) => setSetup(s.needed)).catch(() => {}).finally(signedOut);
     });
-    window.addEventListener("fo:logged-out", signedOut);
-    return () => window.removeEventListener("fo:logged-out", signedOut);
+    window.addEventListener("cb:logged-out", signedOut);
+    return () => window.removeEventListener("cb:logged-out", signedOut);
   }, []);
   return html`${session === undefined ? html`<div class="boot">Loading…</div>`
     : session ? html`<${Shell} session=${session} onLogout=${signedOut} />`
