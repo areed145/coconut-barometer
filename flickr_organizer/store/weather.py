@@ -129,6 +129,36 @@ class WeatherStore(Database):
             devices[dev] = cols
         return {"bucket": bucket, "t": ts, "devices": devices}
 
+    def wx_days(self, device_id: int, start: int, end: int) -> dict:
+        """Temperature by local day at the station, for the daily band and the hour-by-day heatmap:
+        {timezone, days: [{t: local midnight, date, low, high, mean, hours: [24 hourly means, None where no data]}]}."""
+        row = self.db.execute("SELECT s.timezone FROM wx_devices d JOIN wx_stations s ON s.station_id = d.station_id "
+                              "WHERE d.device_id=?", (device_id,)).fetchone()
+        tz = row[0] if row else None
+        try:
+            zone = ZoneInfo(tz) if tz else ZoneInfo("UTC")
+        except Exception:
+            zone = ZoneInfo("UTC")
+        rows = self.db.execute("SELECT (ts // 3600) * 3600 AS t, AVG(temp), MIN(temp), MAX(temp) FROM wx_obs "
+                               "WHERE device_id=? AND ts>=? AND ts<=? AND temp IS NOT NULL GROUP BY 1 ORDER BY 1",
+                               (device_id, start, end)).fetchall()
+        days: dict[str, dict] = {}
+        for t, avg, lo, hi in rows:
+            local = datetime.fromtimestamp(t, zone)
+            d = days.setdefault(local.date().isoformat(), {
+                "t": int(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()),
+                "low": lo, "high": hi, "sum": [0.0] * 24, "n": [0] * 24})
+            d["low"], d["high"] = min(d["low"], lo), max(d["high"], hi)
+            d["sum"][local.hour] += avg          # the repeated hour when the clocks go back is averaged
+            d["n"][local.hour] += 1
+        out = []
+        for date, d in sorted(days.items()):
+            hours = [s / n if n else None for s, n in zip(d["sum"], d["n"])]
+            seen = [h for h in hours if h is not None]
+            out.append({"t": d["t"], "date": date, "low": d["low"], "high": d["high"],
+                        "mean": sum(seen) / len(seen), "hours": hours})
+        return {"timezone": zone.key, "days": out}
+
     def wx_lightning(self, device_id: int, start: int, end: int, step: int = 1800) -> dict:
         """Strikes per `step`-second bin and kilometre of distance, for a heatmap. The station reports one
         average distance and a count per observation, so that's what is binned: cells = [[bin start, km, strikes], ...]."""

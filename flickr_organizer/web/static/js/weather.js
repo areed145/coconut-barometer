@@ -180,6 +180,105 @@ function Lightning({ device, start, end, unit }) {
     <p class="muted heatkey"><span>${num(d.total)} strikes · fewer</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i><span>more per 30 min</span></p>`;
 }
 
+// Temperature by local day at the station: a low-to-high bar per day (mean marked), and a heatmap of the hourly
+// means, days across and hours down. Both are colored along the Settings → Colors gradient, cold to warm.
+function Days({ device, name, start, end, unit }) {
+  const [d, setD] = useState(null);
+  const band = useRef(null), heat = useRef(null), readout = useRef(null);
+  const theme = useThemeTick();
+  useEffect(() => {
+    let live = true;
+    setD(null);
+    api(`/api/wx/days?device=${device}&start=${start}&end=${end}`).then((x) => live && setD(x)).catch(() => live && setD({ days: [] }));
+    return () => { live = false; };
+  }, [device, start, end]);
+  const [label, conv] = unitsFor(unit).temp;
+  useEffect(() => {
+    if (!d || !d.days.length || !band.current || !heat.current) return;
+    const days = d.days.map((x) => ({ ...x, low: conv(x.low), high: conv(x.high), mean: conv(x.mean),
+                                      hours: x.hours.map((v) => (v == null ? null : conv(v))) }));
+    const axis = { stroke: css("--muted"), grid: { stroke: css("--line"), width: 1 }, ticks: { stroke: css("--line") } };
+    const yAxis = { ...axis, size: 52, labelSize: 14, labelFont: "11px sans-serif" };
+    const span = [days[0].t, days[days.length - 1].t + 86400];
+    const clip = (u, ctx) => { ctx.save(); ctx.beginPath(); ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height); ctx.clip(); };
+
+    const lo = Math.min(...days.map((x) => x.low)), hi = Math.max(...days.map((x) => x.high));
+    const tone = (v) => shade(hi > lo ? (v - lo) / (hi - lo) : 1);
+    const paintBars = (u) => {
+      const { ctx } = u;
+      clip(u, ctx);
+      const w = Math.max(1, (u.valToPos(86400, "x", true) - u.valToPos(0, "x", true)) * 0.7);
+      for (const x of days) {
+        const cx = u.valToPos(x.t + 43200, "x", true), top = u.valToPos(x.high, "y", true), bot = u.valToPos(x.low, "y", true);
+        const g = ctx.createLinearGradient(0, bot, 0, top);
+        g.addColorStop(0, tone(x.low)); g.addColorStop(1, tone(x.high));
+        ctx.fillStyle = g;
+        ctx.fillRect(cx - w / 2, top, w, Math.max(1, bot - top));
+        ctx.fillStyle = css("--fg");
+        ctx.fillRect(cx - w / 2, u.valToPos(x.mean, "y", true) - 1, w, 2);
+      }
+      ctx.restore();
+    };
+    const hidden = { paths: () => null, points: { show: false } };
+    const bandPlot = new uPlot({
+      width: band.current.clientWidth, height: 200, cursor: { points: { show: false } }, legend: { live: true },
+      scales: { x: { time: true, range: () => span } },
+      axes: [axis, { ...yAxis, label }],
+      series: [{}, ...["High", "Mean", "Low"].map((l) => ({ ...hidden, label: l, value: (u, v) => (v == null ? "–" : v.toFixed(1)) }))],
+      hooks: { draw: [paintBars] },
+    }, [days.map((x) => x.t + 43200), days.map((x) => x.high), days.map((x) => x.mean), days.map((x) => x.low)], band.current);
+
+    const cells = days.flatMap((x) => x.hours.filter((v) => v != null));
+    const clo = Math.min(...cells), chi = Math.max(...cells);
+    const paintCells = (u) => {
+      const { ctx } = u;
+      clip(u, ctx);
+      for (const x of days) {
+        const x0 = u.valToPos(x.t, "x", true), x1 = u.valToPos(x.t + 86400, "x", true);
+        x.hours.forEach((v, h) => {
+          if (v == null) return;
+          const y0 = u.valToPos(h, "y", true), y1 = u.valToPos(h + 1, "y", true);
+          ctx.fillStyle = shade(chi > clo ? (v - clo) / (chi - clo) : 1);
+          ctx.fillRect(x0, Math.min(y0, y1), Math.max(1, x1 - x0), Math.abs(y1 - y0));
+        });
+      }
+      ctx.restore();
+    };
+    const hover = (u) => {
+      const out = readout.current;
+      if (!out) return;
+      const { left, top } = u.cursor;
+      const t = left >= 0 ? u.posToVal(left, "x") : null, h = top >= 0 ? Math.floor(u.posToVal(top, "y")) : null;
+      const x = t == null ? null : days.find((x) => t >= x.t && t < x.t + 86400);
+      const v = x && h >= 0 && h < 24 ? x.hours[h] : null;
+      out.textContent = v == null ? "" : `${x.date} ${String(h).padStart(2, "0")}:00 · ${v.toFixed(1)} ${label}`;
+    };
+    const heatPlot = new uPlot({
+      width: heat.current.clientWidth, height: 240, legend: { show: false },
+      cursor: { points: { show: false }, drag: { x: false, y: false } },
+      scales: { x: { time: true, range: () => span }, y: { range: [0, 24], dir: -1 } },
+      axes: [axis, { ...yAxis, label: "hour", splits: () => [0, 6, 12, 18, 24], values: (u, ticks) => ticks.map((h) => `${h}:00`) }],
+      series: [{}, { points: { show: false } }],
+      hooks: { draw: [paintCells], setCursor: [hover] },
+    }, [span, [null, null]], heat.current);
+
+    const ro = new ResizeObserver(() => {
+      bandPlot.setSize({ width: band.current.clientWidth, height: 200 });
+      heatPlot.setSize({ width: heat.current.clientWidth, height: 240 });
+    });
+    ro.observe(band.current); ro.observe(heat.current);
+    return () => { ro.disconnect(); bandPlot.destroy(); heatPlot.destroy(); };
+  }, [d, unit, theme]);
+  const suffix = name ? ` · ${name}` : "";
+  const body = (ref) => !d ? html`<div class="boot">Loading…</div>`
+    : !d.days.length ? html`<p class="muted">No temperatures in this range.</p>` : html`<div class="chart" ref=${ref}></div>`;
+  return html`
+    <div class="card"><h2>Daily high & low${suffix}</h2>${body(band)}</div>
+    <div class="card"><h2>Temperature by hour${suffix}</h2>${body(heat)}
+      ${d && d.days.length > 0 && html`<p class="muted heatkey"><span>colder</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i>
+        <span>warmer · hours in ${d.timezone}</span> <span ref=${readout}></span></p>`}</div>`;
+}
+
 function Rose({ device, start, end, unit }) {
   const [r, setR] = useState(null);
   useEffect(() => { api(`/api/wx/rose?device=${device}&start=${start}&end=${end}`).then(setR).catch(() => setR(null)); }, [device, start, end]);
@@ -262,6 +361,7 @@ function History({ params = {} }) {
     ${!data ? html`<div class="boot">Loading…</div>` : !data.t.length ? html`<p class="muted">Nothing stored for this range yet.</p>` : html`
       <p class="muted">${num(data.t.length)} points, one per ${data.bucket >= 3600 ? `${data.bucket / 3600} h` : `${data.bucket / 60} min`}.</p>
       ${chart("Temperature", make("temp", "temp"), unitsFor(u).temp[0])}
+      ${shown.map((id) => html`<${Days} key=${id} device=${id} name=${shown.length > 1 ? names[id] : ""} start=${data.start} end=${data.end} unit=${u} />`)}
       ${chart("Humidity", make("humidity", null, { digits: 0 }), "%")}
       ${chart("Pressure (sea level)", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0])}
       ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0])}

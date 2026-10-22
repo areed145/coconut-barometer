@@ -65,6 +65,16 @@ def lightning(device: int, start: int | None = None, end: int | None = None, hou
     return {"start": start, "end": end, **db.wx_lightning(device, start, end)}
 
 
+@router.get("/days")
+def days(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
+         db=Depends(store)):
+    """Temperature by local day: the daily low/high/mean and the 24 hourly means, for the band and the heatmap."""
+    start, end = _window(start, end, hours)
+    if device not in {d["device_id"] for d in db.wx_devices()}:
+        raise HTTPException(404, "unknown device")
+    return {"start": start, "end": end, **db.wx_days(device, start, end)}
+
+
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
          db=Depends(store)):

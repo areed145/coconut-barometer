@@ -11,6 +11,7 @@ from fakes import FakeFlickr, FakeVision, fake_geocoder, CFG
 from flickr_organizer.config import from_dict
 from flickr_organizer.store import Store
 from flickr_organizer.weather import sync as wxsync
+from flickr_organizer.store.weather import local_midnight
 from flickr_organizer.weather.parse import obs_st, sea_level
 import json
 import threading
@@ -95,6 +96,18 @@ class StoreTest(unittest.TestCase):
         self.store.wx_save_obs(11, [arr(NOW, direction=350.0), arr(NOW + 60, direction=10.0)])
         d = self.store.wx_history([11], NOW - 100 * DAY, NOW + 3600)["devices"][11]["wind_dir"]
         self.assertTrue(d[0] < 1 or d[0] > 359)
+
+    def test_days_group_by_local_day_and_hour(self):
+        # NOW is 2023-11-14 22:13 UTC = 16:13 in Chicago; 10 h of readings cross local midnight.
+        self.store.wx_save_obs(11, [arr(NOW + i * 600, temp=float(i)) for i in range(60)])
+        d = self.store.wx_days(11, NOW - 1, NOW + DAY)
+        self.assertEqual(d["timezone"], "America/Chicago")
+        self.assertEqual([x["date"] for x in d["days"]], ["2023-11-14", "2023-11-15"])
+        first, second = d["days"]
+        self.assertEqual((first["low"], first["high"], second["high"]), (0.0, 46.0, 59.0))
+        self.assertIsNone(first["hours"][15])
+        self.assertAlmostEqual(first["hours"][16], 2.0)          # 16:13–16:53 -> 0..4
+        self.assertEqual(second["t"], local_midnight("America/Chicago", NOW + DAY))
 
     def test_wind_rose_counts_by_direction(self):
         self.store.wx_save_obs(11, [arr(NOW, wind=1.0, direction=0.0), arr(NOW + 60, wind=6.0, direction=90.0)])
@@ -228,6 +241,7 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(len(h["t"]), 30)
         self.assertEqual(self.c.get("/api/wx/history", params={"device": 99}).status_code, 404)
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11}).json()["total"], 30)
+        self.assertEqual(len(self.c.get("/api/wx/days", params={"device": 11, "hours": 2}).json()["days"]), 1)
 
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
