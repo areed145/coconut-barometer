@@ -21,15 +21,22 @@ const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "sho
 
 // ---- Live -------------------------------------------------------------------------------
 // A tiny trend line (or bars) over the last few hours, scaled to its own range; gaps stay gaps.
-export function Spark({ values = [], values2, bars = false, lo, hi, color = "--chart-1" }) {
+export function Spark({ values = [], values2, bars = false, lo, hi, color = "--chart-1", gradient = false }) {
   const seen = [...values, ...(values2 || [])].filter((v) => v != null);
   if (seen.length < 2) return html`<svg class="spark" viewBox="0 0 100 24"></svg>`;
   const a = lo ?? Math.min(...seen), b = hi ?? Math.max(...seen), r = b - a || 1, n = values.length;
   const x = (i) => (i / Math.max(1, n - 1)) * 100, y = (v) => 22 - ((v - a) / r) * 20;
   const line = (vals) => vals.map((v, i) => (v == null ? "" : `${i && vals[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join("");
+  const segments = values.slice(1).map((v, i) => {
+    const prev = values[i];
+    if (prev == null || v == null) return "";
+    const share = b > a ? ((prev + v) / 2 - a) / (b - a) : 0.5;
+    return html`<path key=${i} d=${`M${x(i).toFixed(1)},${y(prev).toFixed(1)}L${x(i + 1).toFixed(1)},${y(v).toFixed(1)}`}
+      fill="none" stroke=${gradient ? shade(share) : `var(${color})`} stroke-width="1.5" vector-effect="non-scaling-stroke" />`;
+  });
   return html`<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
     ${bars ? values.map((v, i) => (v > 0 ? html`<rect key=${i} x=${x(i)} y=${y(v)} width=${Math.max(0.8, 100 / n)} height=${22 - y(v) + 2} fill=${`var(${color})`} />` : ""))
-      : html`<path d=${line(values)} fill="none" stroke=${`var(${color})`} stroke-width="1.5" vector-effect="non-scaling-stroke" />`}
+      : gradient ? segments : html`<path d=${line(values)} fill="none" stroke=${`var(${color})`} stroke-width="1.5" vector-effect="non-scaling-stroke" />`}
     ${values2 && html`<path d=${line(values2)} fill="none" stroke=${`var(${color})`} stroke-width="1" stroke-dasharray="3 3" opacity=".6" vector-effect="non-scaling-stroke" />`}
   </svg>`;
 }
