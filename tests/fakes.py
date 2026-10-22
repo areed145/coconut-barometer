@@ -128,7 +128,8 @@ class FakeFlickr:
             return {"photo": {"person": people[(pg - 1) * per: pg * per], "page": pg, "pages": 2}}
         if method == "flickr.photos.getInfo":
             ph = next(x for x in self.photos if x["id"] == p["photo_id"])
-            return {"photo": {"title": {"_content": ph["title"]}, "description": ph["description"],
+            return {"photo": {"id": ph["id"], "server": ph["server"], "secret": ph["secret"], "media": ph["media"],
+                              "title": {"_content": ph["title"]}, "description": ph["description"],
                               "tags": {"tag": [{"_content": t} for t in ph["tags"].split()]},
                               "dates": {"taken": ph["datetaken"], "takenunknown": "0", "lastupdate": "1"}}}
         if method == "flickr.photos.getAllContexts":

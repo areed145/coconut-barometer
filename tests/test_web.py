@@ -177,6 +177,24 @@ class WebTest(unittest.TestCase):
         self.assertIn("1", self.fl.sets["102"]["photos"])                    # Food, on (fake) Flickr
         self.assertEqual(self.c.get("/api/review/items/1").json()["status"], "applied")
 
+    def test_send_to_review_again_uses_the_latest_image_and_asks_the_model_again(self):
+        headers = self.csrf()
+        seen = []
+        self.app.state.runtime.review.process_kw["downloader"] = lambda u: (seen.append(u), (b"jpg", "image/jpeg"))[1]
+        self.c.post("/api/review/items/1/process", headers=headers)
+        self.wait()
+        item = self.c.get("/api/review/items/1").json()
+        self.c.post("/api/review/items/1/decide", json={"choices": [{"approve": True} for _ in item["changes"]]},
+                    headers=headers)
+        self.wait()
+        self.fl.photos[0]["secret"] = "new"                                  # replaced on Flickr since
+        self.c.post("/api/review/items/1/process", headers=headers)
+        self.wait()
+        self.assertEqual(seen, ["https://live.staticflickr.com/1/1_s.jpg", "https://live.staticflickr.com/1/1_new.jpg"])
+        self.c.post("/api/review/items/2/process", params={"if_new": True}, headers=headers)   # look-ahead: no
+        self.wait()                                                                              # extra calls
+        self.assertEqual(len(seen), 2)
+
     def test_sync_now_and_status(self):
         headers = self.csrf()
         self.assertEqual(self.c.post("/api/sync/run", json={"mode": "incremental"}, headers=headers).json(),

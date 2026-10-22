@@ -147,8 +147,11 @@ if __name__ == "__main__":
 class ParseInfoThumbTest(unittest.TestCase):
     def test_thumbnail_refreshed_from_get_info(self):
         from flickr_organizer.sync import parse_info
-        out = parse_info({"id": "9", "server": "65535", "secret": "abc", "media": "video",
-                          "title": {"_content": "t"}, "description": {"_content": ""}})
-        self.assertEqual(out["thumb_url"], "https://live.staticflickr.com/65535/9_abc_m.jpg")
+        info = {"id": "9", "server": "65535", "secret": "abc", "media": "video",
+                "title": {"_content": "t"}, "description": {"_content": ""}}
+        out = parse_info(info, "url_m")
+        self.assertEqual(out["thumb_url"], "https://live.staticflickr.com/65535/9_abc.jpg")    # url_m: 500 px
         self.assertEqual(out["media"], "video")
-        self.assertNotIn("thumb_url", parse_info({"title": {}, "description": {}}))
+        self.assertEqual(parse_info(info, "url_z")["thumb_url"], "https://live.staticflickr.com/65535/9_abc_z.jpg")
+        self.assertNotIn("thumb_url", parse_info(info))                    # applying changes: thumbnail left alone
+        self.assertNotIn("thumb_url", parse_info({"title": {}, "description": {}}, "url_m"))

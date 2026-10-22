@@ -80,8 +80,12 @@ def normalize_photo(p: dict, thumb_key: str) -> dict:
     }
 
 
-def parse_info(info: dict) -> dict:
-    """flickr.photos.getInfo -> the photos-table fields it can refresh."""
+SIZE_SUFFIX = {"url_q": "_q", "url_n": "_n", "url_m": "", "url_z": "_z"}   # url_m is 500 px: no suffix (_m is 240)
+
+
+def parse_info(info: dict, thumb_key: str | None = None) -> dict:
+    """flickr.photos.getInfo -> the photos-table fields it can refresh.
+    thumb_key (vision.thumbnail): also the thumbnail, at that size, from the photo's current secret."""
     dates = info.get("dates") or {}
     out = {
         "title": (info.get("title") or {}).get("_content", ""),
@@ -94,15 +98,17 @@ def parse_info(info: dict) -> dict:
     loc = info.get("location")
     if loc and loc.get("latitude") not in (None, "", 0, "0"):
         out.update(lat=float(loc["latitude"]), lon=float(loc["longitude"]), accuracy=int(loc.get("accuracy") or 16))
-    if info.get("id") and info.get("server") and info.get("secret"):  # fresh thumbnail (videos start as a placeholder)
+    if thumb_key and info.get("id") and info.get("server") and info.get("secret"):  # videos start as a placeholder
         out.update(server=info["server"], secret=info["secret"], media=info.get("media") or "photo",
-                   thumb_url=f"https://live.staticflickr.com/{info['server']}/{info['id']}_{info['secret']}_m.jpg")
+                   thumb_url=f"https://live.staticflickr.com/{info['server']}/{info['id']}_{info['secret']}"
+                             f"{SIZE_SUFFIX.get(thumb_key, '')}.jpg")
     return out
 
 
-def refresh_photo(client, store, photo_id: str, albums: bool = False) -> None:
+def refresh_photo(client, store, photo_id: str, albums: bool = False, thumb_key: str | None = None) -> None:
     """Re-read one photo from Flickr (1 call; +1 with albums) into the local store."""
-    store.update_photo(photo_id, **parse_info(client.call("flickr.photos.getInfo", photo_id=photo_id)["photo"]))
+    info = client.call("flickr.photos.getInfo", photo_id=photo_id)["photo"]
+    store.update_photo(photo_id, **parse_info(info, thumb_key))
     if albums:
         sets = client.call("flickr.photos.getAllContexts", photo_id=photo_id).get("set", [])
         store.set_photo_albums(photo_id, [str(s["id"]) for s in sets])

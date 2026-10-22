@@ -48,6 +48,7 @@ class ReviewApp:
         self.paused = lambda: False                     # true while the SQLite import runs: nothing else may write
         self.processing: set[str] = set()
         self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
+        self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
         self.running: dict | None = None                # the job the worker is on: {kind, photo_id, started}
@@ -181,6 +182,8 @@ class ReviewApp:
         self.processing.add(photo_id)
         if tags == "replace":
             self.tag_modes[photo_id] = tags
+        if not if_new:                                  # you asked: the latest image, and a new look at it
+            self.fresh.add(photo_id)
         if not self.background:
             return self._process(self.store, photo_id)
         self.jobs.put(("process", photo_id))
@@ -324,12 +327,15 @@ class ReviewApp:
     def _process(self, store, photo_id: str) -> dict:
         from ..pipeline import process
 
+        fresh = photo_id in self.fresh
         try:
             stats = process(self.cfg, store, self.client, self._vision(), photo_ids=[photo_id], rebuild=True,
-                            tag_mode=self.tag_modes.get(photo_id, "add"), log=lambda *a: None, **self.process_kw)
+                            refresh_each=fresh, reclassify=fresh, tag_mode=self.tag_modes.get(photo_id, "add"),
+                            log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)
             self.tag_modes.pop(photo_id, None)
+            self.fresh.discard(photo_id)
         self._count_vision(stats)
         tokens = {"input_tokens": stats["input_tokens"], "output_tokens": stats["output_tokens"]}
         if stats["retry_later"]:
