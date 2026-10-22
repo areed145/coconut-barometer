@@ -79,7 +79,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
   const [busy, setBusy] = useState(false);
   const [jobs, setJobs] = useState({ applying: 0, processing: 0 });
   const [goto, setGoto] = useState("");
-  const [tagMode, setTagMode] = useState("add");       // when (re-)processing: add to tags, or replace them
+  const [tagMode, setTagMode] = useState("replace");   // when (re-)processing: replace its tags, or add to them
   const seq = useRef(0);
   const current = useRef(null);
 
@@ -215,8 +215,8 @@ export function Reviewer({ onCount, targetPhotoId }) {
             <button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>
             <select value=${tagMode} onChange=${(e) => setTagMode(e.target.value)} aria-label="Tags when processing"
                     title="What processing proposes for the photo's existing tags">
-              <option value="add">Tags: add to existing</option>
               <option value="replace">Tags: overwrite existing</option>
+              <option value="add">Tags: add to existing</option>
             </select></span>`}
         </div>
         <div class="card"><h2>On Flickr now</h2><dl class="kv">

@@ -21,7 +21,7 @@ def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
                photo_ids: set[str] | None = None, tag_mode: str = "add") -> list[Change]:
     """photo_ids: plan only these photos (the per-photo queue); default is the whole library.
     tag_mode: "add" to the photo's tags, or "replace" them (see rules.resolve)."""
-    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids)
+    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids, tag_mode=tag_mode)
     changes = resolve(ctx, [w for rule in WANT_RULES for w in rule.propose(ctx)], tag_mode)
     for rule in CHANGE_RULES:
         changes += rule.propose(ctx)

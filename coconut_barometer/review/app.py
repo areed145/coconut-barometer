@@ -47,7 +47,7 @@ class ReviewApp:
         self.syncing = False
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
-        self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
+        self.tag_modes: dict[str, str] = {}             # photo -> "add" while its processing waits
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
@@ -160,10 +160,10 @@ class ReviewApp:
         self.jobs.put(("apply", photo_id))
         return {"status": "applying"}
 
-    def process(self, photo_id: str, if_new: bool = False, tags: str = "add") -> dict:
+    def process(self, photo_id: str, if_new: bool = False, tags: str = "replace") -> dict:
         """(Re-)process one photo or video now: EXIF, classify, plan. Returns at once.
         if_new: only if it's waiting to be processed (the reviewer asks ahead for the next ones).
-        tags: "add" to its tags (default), or "replace" them."""
+        tags: "replace" its tags (default; you still approve them), or "add" to them."""
         if tags not in ("add", "replace"):
             raise ValueError(tags)
         if not self.store.photo(photo_id):
@@ -176,7 +176,7 @@ class ReviewApp:
         if self.cfg is None:
             raise RuntimeError("processing isn't available in this session")
         self.processing.add(photo_id)
-        if tags == "replace":
+        if tags == "add":
             self.tag_modes[photo_id] = tags
         if not if_new:                                  # you asked: the latest image, and a new look at it
             self.fresh.add(photo_id)
@@ -337,7 +337,7 @@ class ReviewApp:
             except RuntimeError:          # no vision key yet: they wait under To review
                 return len(new)
             self._count_vision(process(self.cfg, store, self.client, provider, photo_ids=new[:200], rebuild=True,
-                                       log=lambda *a: None, **self.process_kw))
+                                       tag_mode="replace", log=lambda *a: None, **self.process_kw))
         return len(new)
 
     def _count_vision(self, stats: dict) -> dict:
@@ -362,7 +362,7 @@ class ReviewApp:
         fresh = photo_id in self.fresh
         try:
             stats = process(self.cfg, store, self.client, self._vision(), photo_ids=[photo_id], rebuild=True,
-                            refresh_each=fresh, reclassify=fresh, tag_mode=self.tag_modes.get(photo_id, "add"),
+                            refresh_each=fresh, reclassify=fresh, tag_mode=self.tag_modes.get(photo_id, "replace"),
                             log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)

@@ -17,7 +17,8 @@ def propose(ctx: Context) -> list:
     for pid, p in ctx.photos.items():
         camera = ctx.cameras.get(pid) or ""      # camera tags only if switched on (tags_for); albums always
         wants += [TagWant(pid, t, source) for t, source in std.tags_for(p, places.get(pid), camera,
-                                                                         ctx.members.get(pid, set()))]
+                                                                         ctx.members.get(pid, set()),
+                                                                         replacing=ctx.tag_mode == "replace")]
         if camera:
             wants += [AlbumWant(pid, title, "std:camera", reason=f"camera: {camera}")
                       for title in std.camera_albums(camera)]

@@ -56,6 +56,12 @@ class StandardTagsTest(unittest.TestCase):
         self.assertNotIn("houston", t["3"])                  # accuracy 6: no city tag
         self.assertNotIn("4", t)                             # no geo, date unknown, no camera: nothing
 
+    def test_replacing_tags_still_proposes_dates(self):
+        # skip_if_dated looks at the tags being replaced, so it mustn't drop the date tags.
+        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, tag_mode="replace")
+        t = {r.photo_id: r.new for r in rows if r.action == "set_tags"}
+        self.assertIn("y2024", t["3"])
+
     def test_camera_albums_and_cap(self):
         albums = {(r.photo_id, r.new) for r in self.plan() if r.action == "add_to_album"}
         self.assertIn(("1", "Landscapes"), albums)

@@ -70,10 +70,12 @@ class StandardTagger:
     def needs_places(self) -> bool:
         return bool(self.cfg["place"]["enabled"])
 
-    def tags_for(self, photo, place: dict | None, camera: str | None, album_ids: set[str]) -> list[tuple[str, str]]:
-        """[(tag, source)] in priority order, so the most useful survive the per-photo cap."""
+    def tags_for(self, photo, place: dict | None, camera: str | None, album_ids: set[str],
+                 replacing: bool = False) -> list[tuple[str, str]]:
+        """[(tag, source)] in priority order, so the most useful survive the per-photo cap.
+        replacing: the photo's tags are being replaced, so don't skip anything because of them."""
         out: list[tuple[str, str]] = []
-        have = set((photo["tags"] or "").split())
+        have = set() if replacing else set((photo["tags"] or "").split())
         add = lambda tags, src: out.extend((t, src) for t in tags if t)
 
         if self.cfg["date"]["enabled"]:

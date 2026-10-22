@@ -100,7 +100,7 @@ class QueueReviewTest(unittest.TestCase):
         app.wait()
         item = app.item("6")
         self.assertEqual(item["status"], "pending")                     # classified despite include_videos: false
-        self.assertIn(("add_to_album", "Food"), {(c["action"], c["new"]) for c in item["changes"] if c["action"] != "add_tags"})
+        self.assertIn(("add_to_album", "Food"), {(c["action"], c["new"]) for c in item["changes"] if c["action"] not in ("add_tags", "set_tags")})
         self.assertEqual(app.recent[-1]["kind"], "process")
         self.assertEqual(app.summary()["unprocessed"], 0)
         # Re-processing an already-queued photo works too, and changes nothing that's settled.
@@ -186,11 +186,11 @@ class QueueReviewTest(unittest.TestCase):
         sync(self.fl, self.store, log=lambda *a: None)
         app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
                         process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
-        app.process("1")                                               # the default: add
+        app.process("1", tags="add")
         self.assertNotIn("set_tags", {c["action"] for c in self.store.queue_item("1")["changes"]})
         with self.assertRaises(ValueError):
             app.process("1", tags="wipe")
-        app.process("1", tags="replace")
+        app.process("1")                                               # the default: replace
         changes = self.store.queue_item("1")["changes"]
         tags = next(c for c in changes if c["action"] == "set_tags")
         self.assertNotIn("add_tags", {c["action"] for c in changes})

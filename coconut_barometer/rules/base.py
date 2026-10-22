@@ -37,8 +37,9 @@ class Context:
     geocoding, vision results, EXIF) load on first use, so rules that are off cost nothing."""
 
     def __init__(self, cfg: dict, store, provider_key: str | None, geocoder=None,
-                 photo_ids: set[str] | None = None):
+                 photo_ids: set[str] | None = None, tag_mode: str = "add"):
         self.cfg, self.store, self.provider_key, self._geocoder = cfg, store, provider_key, geocoder
+        self.tag_mode = tag_mode                        # "replace": rules ignore the tags being replaced
         self.photos = {p["id"]: p for p in store.photos() if photo_ids is None or p["id"] in photo_ids}
         self.albums = store.albums()
         self.album_ids = {norm_title(a["title"]): a["id"] for a in self.albums}      # normalized title -> id
