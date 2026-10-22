@@ -37,11 +37,19 @@ export function PhotoGrid({ paged }) {
   const { photos, total, loading, more } = paged;
   const [open, setOpen] = useState(null);           // index into photos
   const sentinel = useRef(null);
+  // An observer only reports changes: if it fired while a page was loading (ignored) and the sentinel is still
+  // within the margin once the page lands, nothing fires again and scrolling stalls. So re-arm after every page
+  // (a fresh observer always reports the current state), and back it with a plain scroll/resize check.
   useEffect(() => {
-    const io = new IntersectionObserver((e) => (e[0].isIntersecting || e[0].intersectionRatio > 0) && more(), { rootMargin: "800px" });
-    if (sentinel.current) io.observe(sentinel.current);
-    return () => io.disconnect();
-  }, [more]);
+    const el = sentinel.current;
+    if (!el) return;
+    const near = () => el.getBoundingClientRect().top < innerHeight + 800 && more();
+    const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting || x.intersectionRatio > 0) && more(), { rootMargin: "800px" });
+    io.observe(el);
+    addEventListener("scroll", near, { passive: true });
+    addEventListener("resize", near);
+    return () => { io.disconnect(); removeEventListener("scroll", near); removeEventListener("resize", near); };
+  }, [more, photos.length, total]);
   if (total === 0) return html`<div class="empty">No photos here.</div>`;
   return html`
     <div class="grid">

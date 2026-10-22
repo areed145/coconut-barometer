@@ -94,10 +94,12 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("const queue = targetPhotoId && targetAt < 0 ? [targetPhotoId, ...list] : list", review)
         self.assertIn("const at = targetPhotoId ? (targetAt < 0 ? 0 : targetAt) : 0", review)
 
-    def test_photo_grid_observer_supports_edge_entries_without_is_intersecting(self):
+    def test_photo_grid_infinite_scroll_rearms_after_each_page(self):
         with open(os.path.join(STATIC, "js", "gallery.js")) as f:
             gallery = f.read()
-        self.assertIn("e[0].isIntersecting || e[0].intersectionRatio > 0", gallery)
+        self.assertIn("x.isIntersecting || x.intersectionRatio > 0", gallery)
+        self.assertIn("}, [more, photos.length, total]);", gallery)
+        self.assertIn('addEventListener("scroll", near, { passive: true });', gallery)
 
 
 if __name__ == "__main__":
