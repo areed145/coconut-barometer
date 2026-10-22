@@ -55,6 +55,18 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "weather" && html`<${WeatherStream} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 
+    def test_aprs_sparks_and_tracks_use_metric_gradients_and_refresh(self):
+        aprs = open(os.path.join(STATIC, "js", "aprs.js")).read()
+        weather = open(os.path.join(STATIC, "js", "weather.js")).read()
+        self.assertIn('values=${t.speeds} lo=${0}', aprs)
+        self.assertIn('values=${t.alts}', aprs)
+        self.assertEqual(aprs.count("gradient />"), 2)
+        self.assertIn('value="speed">Speed</option><option value="altitude">Altitude</option>', aprs)
+        self.assertIn("shade(hi > lo ? (v - lo) / (hi - lo) : 0.5)", aprs)
+        self.assertIn("const stop = every(load, 15000);", aprs)
+        self.assertIn("gradient = false", weather)
+        self.assertIn("gradient ? shade(share)", weather)
+
     def test_interface_theme_control_is_on_the_ui_settings_page(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "ui" && html`<${ThemeSetting} />`', admin)

@@ -2,7 +2,7 @@
 // its newest position), and a card per callsign with what it last sent. Positions come in live from APRS-IS;
 // nothing older than when the app started listening is known. Map markers and popups are built as elements,
 // as on the other maps, to suit the page's CSP.
-import { html, useState, useEffect, useRef, api, ago, toast, every } from "./lib.js";
+import { html, useState, useEffect, useRef, api, ago, toast, every, shade, useThemeTick } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Spark } from "./weather.js";
 
@@ -38,9 +38,10 @@ function popup(call, p, units) {
   return box;
 }
 
-function AprsMap({ calls, tracks, units }) {
+function AprsMap({ calls, tracks, units, gradientBy }) {
   const box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef(false);
   const [ready, setReady] = useState(false);
+  const theme = useThemeTick();
   useEffect(() => {
     let alive = true;
     leaflet().then((lf) => {
@@ -57,13 +58,24 @@ function AprsMap({ calls, tracks, units }) {
     const L = window.L, group = layer.current;
     if (!ready || !group) return;
     group.clearLayers();
+    const values = calls.flatMap((c) => (tracks[c.callsign] || []).map((p) => p[gradientBy])
+      .filter((v) => v != null && Number.isFinite(v)));
+    const lo = values.length ? values.reduce((a, v) => Math.min(a, v), Infinity) : 0;
+    const hi = values.length ? values.reduce((a, v) => Math.max(a, v), -Infinity) : 1;
+    const pointColor = (v, fallback) => gradientBy && v != null
+      ? shade(hi > lo ? (v - lo) / (hi - lo) : 0.5) : fallback;
     const all = [];
     calls.forEach((c, i) => {
       const color = css(COLORS[i % COLORS.length]), pts = tracks[c.callsign] || [];
       const line = pts.map((p) => [p.lat, p.lon]);
-      if (line.length > 1) L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(group);
+      if (gradientBy) {
+        for (let j = 1; j < pts.length; j++) {
+          const a = pts[j - 1][gradientBy], b = pts[j][gradientBy], v = a != null && b != null ? (a + b) / 2 : a ?? b;
+          L.polyline([line[j - 1], line[j]], { color: pointColor(v, color), weight: 3, opacity: 0.8 }).addTo(group);
+        }
+      } else if (line.length > 1) L.polyline(line, { color, weight: 3, opacity: 0.8 }).addTo(group);
       for (const p of pts.slice(0, -1)) {
-        L.circleMarker([p.lat, p.lon], { radius: 3, color, weight: 1, fillOpacity: 0.6 }).bindPopup(popup(c.callsign, p, units)).addTo(group);
+        L.circleMarker([p.lat, p.lon], { radius: 3, color: pointColor(p[gradientBy], color), weight: 1, fillOpacity: 0.6 }).bindPopup(popup(c.callsign, p, units)).addTo(group);
       }
       const last = c.last;
       if (!last) return;
@@ -82,7 +94,7 @@ function AprsMap({ calls, tracks, units }) {
       fitted.current = true;
       map.current.fitBounds(all, { padding: [60, 60], maxZoom: 13 });
     }
-  }, [ready, calls, tracks, units]);
+  }, [ready, calls, tracks, units, gradientBy, theme]);
   return html`<div class="mapwrap aprsmap" ref=${box}></div>`;
 }
 
@@ -170,8 +182,8 @@ function CallCard({ c, i, units, now, track, win }) {
         </div>
       </div>
       ${t.n > 1 && html`<div class="aprssparks">
-        <div><span>Speed</span><${Spark} values=${t.speeds} lo=${0} color=${COLORS[i % COLORS.length]} /></div>
-        ${t.alts && html`<div><span>Altitude</span><${Spark} values=${t.alts} color=${COLORS[i % COLORS.length]} /></div>`}
+        <div><span>Speed</span><${Spark} values=${t.speeds} lo=${0} color=${COLORS[i % COLORS.length]} gradient /></div>
+        ${t.alts && html`<div><span>Altitude</span><${Spark} values=${t.alts} color=${COLORS[i % COLORS.length]} gradient /></div>`}
       </div>`}
       ${p.comment && html`<p class="aprscomment">${p.comment}</p>`}
       <div class="aprsfoot">
@@ -186,6 +198,7 @@ function CallCard({ c, i, units, now, track, win }) {
 export function Aprs() {
   const [d, setD] = useState(null);
   const [hours, setHours] = useState(24);
+  const [gradientBy, setGradientBy] = useState("");
   const [tracks, setTracks] = useState({});
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -195,16 +208,18 @@ export function Aprs() {
     const stop = every(load, 15000);
     return () => { alive = false; stop(); };
   }, []);
-  // Tracks again whenever the window changes or someone's newest position does.
-  const newest = d ? d.callsigns.map((c) => c.last?.ts || 0).join() : "";
+  // Refresh tracks with the station list so beacon frequency keeps up while the page is open.
+  const calls = d ? d.callsigns.map((c) => c.callsign).join(",") : "";
   useEffect(() => {
     if (!d) return;
+    const names = calls ? calls.split(",") : [];
     let alive = true;
-    Promise.all(d.callsigns.map((c) => api(`/api/aprs/track?callsign=${encodeURIComponent(c.callsign)}&hours=${hours}`)
-      .then((x) => [c.callsign, x.points]).catch(() => [c.callsign, []])))
+    const load = () => Promise.all(names.map((call) => api(`/api/aprs/track?callsign=${encodeURIComponent(call)}&hours=${hours}`)
+      .then((x) => [call, x.points]).catch(() => [call, []])))
       .then((pairs) => alive && setTracks(Object.fromEntries(pairs)));
-    return () => { alive = false; };
-  }, [newest, hours]);
+    const stop = every(load, 15000);
+    return () => { alive = false; stop(); };
+  }, [calls, hours]);
 
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.callsigns.length) return html`<div class="card"><h2>No callsigns yet</h2>
@@ -214,10 +229,15 @@ export function Aprs() {
     <div class="toolbar">
       <span class="seg" aria-label="Track window">${WINDOWS.map(([label, h]) => html`<button key=${h}
         class=${h === hours ? "primary" : ""} onClick=${() => setHours(h)}>${label}</button>`)}</span>
+      <label class="muted small">Track color
+        <select aria-label="Track color" value=${gradientBy} onChange=${(e) => setGradientBy(e.target.value)}>
+          <option value="">Callsign</option><option value="speed">Speed</option><option value="altitude">Altitude</option>
+        </select>
+      </label>
       <span class=${"status " + (ok ? "s-applied" : "s-failed")} title=${s.error || ""}>${ok ? "APRS-IS connected" : "APRS-IS " + s.state}</span>
       <span class="muted">${s.server ? `${s.server} · ` : ""}${s.last_message ? `last packet ${ago(s.last_message)}` : "no packets yet this session"}</span>
     </div>
-    <${AprsMap} calls=${d.callsigns} tracks=${tracks} units=${d.units} />
+    <${AprsMap} calls=${d.callsigns} tracks=${tracks} units=${d.units} gradientBy=${gradientBy} />
     <div class="cols aprscols">${d.callsigns.map((c, i) => html`<${CallCard} key=${c.callsign} c=${c} i=${i} units=${d.units} now=${d.now}
       track=${tracks[c.callsign]} win=${WINDOWS.find((w) => w[1] === hours)[0]} />`)}</div>`;
 }
