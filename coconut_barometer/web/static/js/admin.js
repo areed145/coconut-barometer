@@ -147,6 +147,21 @@ function FlickrPanel() {
   </div>`;
 }
 
+function WeatherStream() {
+  const [info, setInfo] = useState(null);
+  const load = () => api("/api/wx/stations").then(setInfo).catch(() => {});
+  useEffect(() => every(load, 5000), []);
+  if (!info) return null;
+  const stream = info.stream;
+  const connected = stream?.state === "connected";
+  const label = !info.configured ? "not configured" : connected ? "live stream connected" : `stream ${stream?.state || "unknown"}`;
+  return html`<div class="card"><h2>WeatherFlow connection</h2>
+    <p><span class=${"status " + (!info.configured ? "s-none" : connected ? "s-applied" : "s-failed")}
+      title=${stream?.error || ""}>${label}</span>
+      ${stream?.last_message && html`<span class="muted"> · last message ${ago(stream.last_message)}</span>`}</p>
+  </div>`;
+}
+
 function SyncPanel() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
@@ -265,6 +280,7 @@ export function Admin() {
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "theme" && html`<${ThemeSetting} />`}
         ${section === "keys" && html`<${FlickrPanel} />`}
+        ${section === "weather" && html`<${WeatherStream} />`}
         ${section === "sync" && html`<${SyncPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}

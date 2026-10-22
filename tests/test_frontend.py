@@ -44,6 +44,17 @@ class FrontendTest(unittest.TestCase):
         self.assertIn(".wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%,", css)
         self.assertIn(".rose svg { flex: 1 1 180px; min-width: 0;", css)
 
+    def test_weather_stream_status_is_on_cards_and_in_settings(self):
+        weather = open(os.path.join(STATIC, "js", "weather.js")).read()
+        admin = open(os.path.join(STATIC, "js", "admin.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn('class=${"wxstatus-dot " + (connected ? "s-applied" : "s-failed")}', weather)
+        self.assertIn('stream=${d.stream}', weather)
+        self.assertNotIn("StreamBadge", weather)
+        self.assertIn('api("/api/wx/stations")', admin)
+        self.assertIn('section === "weather" && html`<${WeatherStream} />`', admin)
+        self.assertIn(".wxstatus-dot {", css)
+
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
         for path in OURS:
