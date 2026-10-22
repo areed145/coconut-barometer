@@ -8,24 +8,14 @@ PROPOSALS = ("Every photo gets a proposed title, description, tags and albums, a
              "in the reviewer. ")
 
 SECTIONS = [
-    ("keys", "API keys", "Stored encrypted. Changing one asks for your password."),
-    ("sync", "Sync", "How often the app syncs with Flickr, and what happens to the photos that arrive."),
-    ("titles", "Titles", PROPOSALS + "This is what the model is asked for. Changing the brief or length writes "
-                         "the title again (one model call per photo it applies to)."),
-    ("descriptions", "Descriptions", PROPOSALS + "This is what the model is asked for. Changing the brief or length "
-                                     "writes the description again (one model call per photo it applies to)."),
-    ("tags", "Tags", PROPOSALS + "Tags come from the model, the location and your own conventions."),
-    ("albums", "Albums", PROPOSALS + "Albums come from what's in the photo, where it was taken, and the camera."),
-    ("map", "Map", "The Map page: photos clustered by where they were taken."),
-    ("theme", "Colors", "One gradient for everything that shows an amount: map clusters and the bars in "
-                         "Analytics. Small amounts get the first color, the largest the second, on a log scale."),
-    ("display", "Units", "How the Weather and APRS pages show values. Everything is stored metric, so changing this "
-                         "changes nothing saved."),
+    ("photos", "Photos", PROPOSALS + "Titles, descriptions, tags and albums are proposed for each photo, and you accept "
+                              "or decline them in the reviewer."),
     ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
                            "from their WebSocket. Every station on the token's account is found by itself."),
     ("aprs", "APRS", "Callsigns to follow on the APRS page. Their positions are heard live from APRS-IS (read-only, "
                      "nothing is transmitted) and kept, so the tracks start from when the app began listening."),
-    ("vision", "Vision model", "The model that looks at each photo and writes the proposals."),
+    ("keys", "API keys", "Stored encrypted. Changing one asks for your password."),
+    ("sync", "Sync", "How often the app syncs with Flickr, and what happens to the photos that arrive."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
     ("web", "Server", "The settings in grey protect the server itself and stay in config.yaml or the environment."),
@@ -64,8 +54,10 @@ META = {
                                   "Shared by everything using the key. 1 = Flickr's 3600/hour limit.", group="Limits"),
 
     # ---- Weather
-    "display.units": _m("display", "Units", options={"metric": "Metric (°C, km/h or m/s, hPa, mm, m)",
-                                                      "imperial": "Imperial (°F, mph, inHg, in, ft)"}),
+    "display.units": _m("weather", "Units", "How the Weather and APRS pages show values. Everything is stored metric, "
+                        "so changing this changes nothing saved.", group="Display",
+                        options={"metric": "Metric (°C, km/h or m/s, hPa, mm, m)",
+                                 "imperial": "Imperial (°F, mph, inHg, in, ft)"}),
     "weatherflow.backfill_days": _m("weather", "History to fetch (days)", "How far back the REST sync reaches, one request "
                                     "per day per station. Raise it later to fill in older days; it only fetches what's missing.",
                                     group="History"),
@@ -76,97 +68,98 @@ META = {
                          "within a few seconds."),
 
     # ---- Titles
-    "vision.title.max_words": _m("titles", "Length (words)"),
-    "vision.title.instructions": _m("titles", "Brief", "{max_words} is filled in. Empty uses the built-in brief. "
-                                    "The model is always told never to guess a location or name a person."),
+    "vision.title.max_words": _m("photos", "Length (words)", group="Titles"),
+    "vision.title.instructions": _m("photos", "Brief", "{max_words} is filled in. Empty uses the built-in brief. "
+                                    "The model is always told never to guess a location or name a person.",
+                                    group="Titles"),
 
     # ---- Descriptions
-    "vision.describe.max_words": _m("descriptions", "Length (words)"),
-    "vision.describe.instructions": _m("descriptions", "Brief",
+    "vision.describe.max_words": _m("photos", "Length (words)", group="Descriptions"),
+    "vision.describe.instructions": _m("photos", "Brief",
                                        "{max_words} is filled in. Empty uses the built-in brief. The model is always "
-                                       "told never to guess a location or name a person."),
+                                       "told never to guess a location or name a person.", group="Descriptions"),
 
     # ---- Tags
-    "vision.extra_tags.max": _m("tags", "Descriptive tags per photo",
+    "vision.extra_tags.max": _m("photos", "Descriptive tags per photo",
                                 "What the model sees: landmarks, aircraft types, species, things in view.",
                                 group="From the model"),
-    "vision.extra_tags.prefix": _m("tags", "Prefix for them", "e.g. ai: to tell them apart. Usually empty.",
+    "vision.extra_tags.prefix": _m("photos", "Prefix for them", "e.g. ai: to tell them apart. Usually empty.",
                                    group="From the model"),
-    "geo.add_tags": _m("tags", "Tag the country, state and city", "e.g. japan, texas, austin, from the location "
+    "geo.add_tags": _m("photos", "Tag the country, state and city", "e.g. japan, texas, austin, from the location "
                        "albums below.", group="From the location"),
-    "standard_tags.max_tags_per_photo": _m("tags", "Most tags per photo", "Flickr allows 75. When a photo would "
+    "standard_tags.max_tags_per_photo": _m("photos", "Most tags per photo", "Flickr allows 75. When a photo would "
                                            "go over, the kinds lower on this page drop off first.", group="Limits"),
-    "standard_tags.date.enabled": _m("tags", "Date tags", group="Your conventions: dates"),
-    "standard_tags.date.formats": _m("tags", "Formats", "{year} {month:02d} {day:02d} {season}",
+    "standard_tags.date.enabled": _m("photos", "Date tags", group="Your conventions: dates"),
+    "standard_tags.date.formats": _m("photos", "Formats", "{year} {month:02d} {day:02d} {season}",
                                      group="Your conventions: dates"),
-    "standard_tags.date.skip_if_dated": _m("tags", "Skip photos that already have a year tag",
+    "standard_tags.date.skip_if_dated": _m("photos", "Skip photos that already have a year tag",
                                            group="Your conventions: dates"),
-    "standard_tags.place.enabled": _m("tags", "Place tags", group="Your conventions: places"),
-    "standard_tags.place.country": _m("tags", "Country", group="Your conventions: places"),
-    "standard_tags.place.regions": _m("tags", "Region (americas, westerneurope …)", group="Your conventions: places"),
-    "standard_tags.place.state": _m("tags", "State / province", group="Your conventions: places"),
-    "standard_tags.place.state_abbr": _m("tags", "US state abbreviation", group="Your conventions: places"),
-    "standard_tags.place.city": _m("tags", "Town", group="Your conventions: places"),
-    "standard_tags.place.extra": _m("tags", "Extra tags", "Country code, country or state → tags.",
+    "standard_tags.place.enabled": _m("photos", "Place tags", group="Your conventions: places"),
+    "standard_tags.place.country": _m("photos", "Country", group="Your conventions: places"),
+    "standard_tags.place.regions": _m("photos", "Region (americas, westerneurope …)", group="Your conventions: places"),
+    "standard_tags.place.state": _m("photos", "State / province", group="Your conventions: places"),
+    "standard_tags.place.state_abbr": _m("photos", "US state abbreviation", group="Your conventions: places"),
+    "standard_tags.place.city": _m("photos", "Town", group="Your conventions: places"),
+    "standard_tags.place.extra": _m("photos", "Extra tags", "Country code, country or state → tags.",
                                     group="Your conventions: places"),
-    "standard_tags.place.region_overrides": _m("tags", "Region overrides", "Country code → region tags.",
+    "standard_tags.place.region_overrides": _m("photos", "Region overrides", "Country code → region tags.",
                                                group="Your conventions: places"),
-    "standard_tags.camera.enabled": _m("tags", "Camera tags", "From each photo's EXIF (fetched once).",
+    "standard_tags.camera.enabled": _m("photos", "Camera tags", "From each photo's EXIF (fetched once).",
                                        group="Your conventions: cameras"),
-    "standard_tags.camera.name_words": _m("tags", "Words of the camera name", group="Your conventions: cameras"),
-    "standard_tags.camera.rules": _m("tags", "Extra tags", "When the camera name matches (regex).",
+    "standard_tags.camera.name_words": _m("photos", "Words of the camera name", group="Your conventions: cameras"),
+    "standard_tags.camera.rules": _m("photos", "Extra tags", "When the camera name matches (regex).",
                                      group="Your conventions: cameras"),
-    "standard_tags.album_tags.enabled": _m("tags", "Album tags", "Every photo in an album gets its tags.",
+    "standard_tags.album_tags.enabled": _m("photos", "Album tags", "Every photo in an album gets its tags.",
                                            group="Your conventions: albums"),
-    "standard_tags.album_tags.from_categories": _m("tags", "Use the categories' tags",
+    "standard_tags.album_tags.from_categories": _m("photos", "Use the categories' tags",
                                                    group="Your conventions: albums"),
-    "standard_tags.album_tags.albums": _m("tags", "More album tags", "Album title → tags.",
+    "standard_tags.album_tags.albums": _m("photos", "More album tags", "Album title → tags.",
                                           group="Your conventions: albums"),
 
     # ---- Albums
-    "vision.categories": _m("albums", "Categories", "Each category's album and tags, for the photos the model "
+    "vision.categories": _m("photos", "Categories", "Each category's album and tags, for the photos the model "
                             "scores it on. The description is what the model reads.", group="By subject"),
-    "vision.min_confidence": _m("albums", "Minimum confidence",
+    "vision.min_confidence": _m("photos", "Minimum confidence",
                                 "0-1. Categories scored below this aren't proposed. No re-run needed to change it.",
                                 group="By subject"),
-    "geo.cities": _m("albums", "City albums", "Photos within radius_km of a point go in the album.",
+    "geo.cities": _m("photos", "City albums", "Photos within radius_km of a point go in the album.",
                      group="By location"),
-    "geo.countries.auto_match": _m("albums", "Match country names to albums automatically", group="By location"),
-    "geo.countries.aliases": _m("albums", "Country albums by code",
+    "geo.countries.auto_match": _m("photos", "Match country names to albums automatically", group="By location"),
+    "geo.countries.aliases": _m("photos", "Country albums by code",
                                 "Country code → your album title, e.g. TH → \"Thailand, Vietnam, Laos\".",
                                 group="By location"),
-    "geo.us_states.enabled": _m("albums", "US state albums", group="By location"),
-    "geo.us_states.title": _m("albums", "US state album title", "{state} is filled in, e.g. \"{state}, USA\".",
+    "geo.us_states.enabled": _m("photos", "US state albums", group="By location"),
+    "geo.us_states.title": _m("photos", "US state album title", "{state} is filled in, e.g. \"{state}, USA\".",
                               group="By location"),
-    "geo.min_accuracy.country": _m("albums", "Geotag precision for countries", "1 world … 16 street.",
+    "geo.min_accuracy.country": _m("photos", "Geotag precision for countries", "1 world … 16 street.",
                                    group="By location"),
-    "geo.min_accuracy.state": _m("albums", "Geotag precision for states", group="By location"),
-    "geo.min_accuracy.city": _m("albums", "Geotag precision for cities and towns", group="By location"),
-    "standard_tags.camera.albums": _m("albums", "Camera albums", "Camera name (regex) → album.", group="By camera"),
-    "albums.create_missing": _m("albums", "Create missing albums",
+    "geo.min_accuracy.state": _m("photos", "Geotag precision for states", group="By location"),
+    "geo.min_accuracy.city": _m("photos", "Geotag precision for cities and towns", group="By location"),
+    "standard_tags.camera.albums": _m("photos", "Camera albums", "Camera name (regex) → album.", group="By camera"),
+    "albums.create_missing": _m("photos", "Create missing albums",
                                 "Off: only add photos to albums you already have. On: also propose new albums.",
                                 group="New albums"),
 
     # ---- Map
-    "map.carto_key": _m("map", "CARTO API key", "Free from carto.com/basemaps/apikey. Without it the map tiles "
+    "map.carto_key": _m("photos", "CARTO API key", "Free from carto.com/basemaps/apikey. Without it the map tiles "
                         "say \"API KEY REQUIRED\". It goes in the address of every map tile, so anyone who can "
                         "open the map can see it (that's how CARTO keys work): restrict it to your sites in "
-                        "CARTO's dashboard. Reload the map after changing it.", group="Map tiles"),
-    "map.expand_at": _m("map", "Show thumbnails from (photos)", "Clicking a cluster zooms in one level; once it "
-                        "holds this many photos or fewer, it opens into thumbnails instead.", group="Clusters"),
+                        "CARTO's dashboard. Reload the map after changing it.", group="Map"),
+    "map.expand_at": _m("photos", "Show thumbnails from (photos)", "Clicking a cluster zooms in one level; once it "
+                        "holds this many photos or fewer, it opens into thumbnails instead.", group="Map"),
 
     # ---- Colors
-    "theme.color_low": _m("theme", "Low", "e.g. a cluster of a few photos, or a short bar."),
-    "theme.color_high": _m("theme", "High", "e.g. the biggest cluster, or the longest bar."),
+    "theme.color_low": _m("photos", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
+    "theme.color_high": _m("photos", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
 
     # ---- Vision model
-    "vision.provider": _m("vision", "Provider", "claude / anthropic, openai, or ollama (local)."),
-    "vision.model": _m("vision", "Model", "e.g. claude-haiku-5-5 (cheapest) or claude-sonnet-5-5."),
-    "vision.base_url": _m("vision", "Server URL", "Only for Ollama or another OpenAI-compatible server."),
-    "vision.thumbnail": _m("vision", "Image size sent", "url_m (500 px) is plenty."),
-    "vision.concurrency": _m("vision", "Photos at once"),
-    "vision.use_photo_text": _m("vision", "Show the model your title, description and tags", group="What it's told"),
-    "vision.use_location": _m("vision", "Show the model the geotag's town and country", "Helps it name landmarks.",
+    "vision.provider": _m("photos", "Provider", "claude / anthropic, openai, or ollama (local).", group="Vision model"),
+    "vision.model": _m("photos", "Model", "e.g. claude-haiku-5-5 (cheapest) or claude-sonnet-5-5.", group="Vision model"),
+    "vision.base_url": _m("photos", "Server URL", "Only for Ollama or another OpenAI-compatible server.", group="Vision model"),
+    "vision.thumbnail": _m("photos", "Image size sent", "url_m (500 px) is plenty.", group="Vision model"),
+    "vision.concurrency": _m("photos", "Photos at once", group="Vision model"),
+    "vision.use_photo_text": _m("photos", "Show the model your title, description and tags", group="What it's told"),
+    "vision.use_location": _m("photos", "Show the model the geotag's town and country", "Helps it name landmarks.",
                               group="What it's told"),
 
     # ---- Backups
