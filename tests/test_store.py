@@ -56,6 +56,18 @@ class ConcurrentWritersTest(unittest.TestCase):
         self.assertEqual(b.get_meta("k"), "b")
 
 
+class MembershipsTest(unittest.TestCase):
+    def test_rewriting_memberships_changes_only_what_differs(self):
+        store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
+        members = lambda: {(r[0], r[1]) for r in store.db.execute("SELECT album_id, photo_id FROM memberships")}
+        store.set_photo_albums("p1", ["a1", "a2"])
+        store.set_photo_albums("p1", ["a2", "a3", "a3"])                # kept, added, removed; a repeat is fine
+        store.replace_album_members("a2", ["p1", "p2"])
+        self.assertEqual(members(), {("a2", "p1"), ("a3", "p1"), ("a2", "p2")})
+        store.replace_library([], [], [("a2", "p2"), ("a9", "p9")])
+        self.assertEqual(members(), {("a2", "p2"), ("a9", "p9")})
+
+
 class OneProcessTest(unittest.TestCase):
     def test_a_second_process_gets_a_clear_message_not_a_stack_trace(self):
         import subprocess

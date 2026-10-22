@@ -21,10 +21,9 @@ class LibraryStore(Database):
         with self.db:
             self.db.execute("DELETE FROM photos")
             self.db.execute("DELETE FROM albums")
-            self.db.execute("DELETE FROM memberships")
             self._write_photos(photos)
             self._write_albums(albums)
-            self.db.executemany("INSERT OR IGNORE INTO memberships VALUES (?, ?)", memberships)
+            self._set_memberships("TRUE", (), set(memberships))
             self._snapshot()
         self.set_meta("last_sync", int(time.time()))
 
@@ -54,8 +53,15 @@ class LibraryStore(Database):
 
     def replace_album_members(self, album_id: str, photo_ids: Iterable[str]) -> None:
         with self.db:
-            self.db.execute("DELETE FROM memberships WHERE album_id=?", (album_id,))
-            self.db.executemany("INSERT OR IGNORE INTO memberships VALUES (?, ?)", [(album_id, p) for p in photo_ids])
+            self._set_memberships("album_id=?", (album_id,), {(album_id, p) for p in photo_ids})
+
+    def _set_memberships(self, where: str, params: tuple, want: set[tuple[str, str]]) -> None:
+        """Make the (album_id, photo_id) rows matching `where` exactly `want`. Deletes only what's gone and
+        inserts only what's new: deleting a row and re-adding it in one transaction fails at commit in
+        DuckDB and takes the whole process down."""
+        have = {(r[0], r[1]) for r in self.db.execute(f"SELECT album_id, photo_id FROM memberships WHERE {where}", params)}
+        self.db.executemany("DELETE FROM memberships WHERE album_id=? AND photo_id=?", sorted(have - want))
+        self.db.executemany("INSERT INTO memberships VALUES (?, ?)", sorted(want - have))
 
     def snapshot_counts(self) -> None:
         """Today's (UTC) views/faves/comments for every photo, one row per photo per day."""
@@ -104,8 +110,7 @@ class LibraryStore(Database):
 
     def set_photo_albums(self, photo_id: str, album_ids: list[str]) -> None:
         with self.db:
-            self.db.execute("DELETE FROM memberships WHERE photo_id=?", (photo_id,))
-            self.db.executemany("INSERT OR IGNORE INTO memberships VALUES (?, ?)", [(a, photo_id) for a in album_ids])
+            self._set_memberships("photo_id=?", (photo_id,), {(a, photo_id) for a in album_ids})
 
     def set_title_local(self, photo_id: str, title: str) -> None:
         with self.db:
