@@ -10,7 +10,7 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 const COLORS = ["--chart-1", "--chart-2", "--chart-3"];
 const colorOf = (i) => `var(${COLORS[i % COLORS.length]})`;
 const WINDOWS = [["6h", 6], ["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30]];
-// Stored metric (m/s, m); shown in km/h or mph, m or ft, following Settings → Weather → Units.
+// Stored metric (m/s, m); shown in km/h or mph, m or ft, following Settings → Display → Units.
 const UNITS = { metric: { speed: ["km/h", 3.6], height: ["m", 1] }, imperial: { speed: ["mph", 2.23694], height: ["ft", 3.28084] } };
 const show = (units, kind, v) => { const [label, k] = (UNITS[units] || UNITS.metric)[kind]; return v == null ? "–" : `${Math.round(v * k)} ${label}`; };
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -224,7 +224,6 @@ export function Aprs() {
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.callsigns.length) return html`<div class="card"><h2>No callsigns yet</h2>
     <p>Add the callsigns to follow under <a href="#/settings">Settings → APRS</a>.</p></div>`;
-  const s = d.stream, ok = s.state === "connected";
   return html`
     <div class="toolbar">
       <span class="seg" aria-label="Track window">${WINDOWS.map(([label, h]) => html`<button key=${h}
@@ -234,8 +233,6 @@ export function Aprs() {
           <option value="">Callsign</option><option value="speed">Speed</option><option value="altitude">Altitude</option>
         </select>
       </label>
-      <span class=${"status " + (ok ? "s-applied" : "s-failed")} title=${s.error || ""}>${ok ? "APRS-IS connected" : "APRS-IS " + s.state}</span>
-      <span class="muted">${s.server ? `${s.server} · ` : ""}${s.last_message ? `last packet ${ago(s.last_message)}` : "no packets yet this session"}</span>
     </div>
     <${AprsMap} calls=${d.callsigns} tracks=${tracks} units=${d.units} gradientBy=${gradientBy} />
     <div class="cols aprscols">${d.callsigns.map((c, i) => html`<${CallCard} key=${c.callsign} c=${c} i=${i} units=${d.units} now=${d.now}

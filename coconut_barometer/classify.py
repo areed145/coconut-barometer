@@ -6,6 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import activity
+from .config import VISION_CONCURRENCY, VISION_THUMBNAIL
 
 PROMPT_VERSION = 3
 
@@ -113,7 +114,7 @@ def _brief(cfg: dict, default: str, rules: str) -> str:
 # Switches that are gone, at the values every result so far was made with: kept in the
 # fingerprints so those results stay valid (otherwise every photo would be classified again).
 _LEGACY = {"describe": {"enabled": True, "reword": True}, "title": {"enabled": True, "replace": "generic_or_place"},
-           "extra_tags": {"enabled": True}}
+           "extra_tags": {"enabled": True, "prefix": ""}}
 
 
 def text_fingerprint(vcfg: dict) -> str:
@@ -130,7 +131,7 @@ def fingerprint(vcfg: dict, provider_key: str) -> str:
         "provider": provider_key,
         "cats": {k: v["description"] for k, v in sorted(vcfg["categories"].items())},
         "tags": {**vcfg["extra_tags"], **_LEGACY["extra_tags"]},
-        "thumb": vcfg["thumbnail"],
+        "thumb": VISION_THUMBNAIL,
         "location": vcfg["use_location"],
     }, sort_keys=True)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
@@ -182,7 +183,7 @@ def classify_photos(store, provider, vcfg: dict, photos, log=print, downloader=_
                 a["detail"] = f"photo {p['id']} · {usage.get('input', 0)} in / {usage.get('output', 0)} out tokens"
         return p, result
 
-    with ThreadPoolExecutor(max_workers=max(1, int(vcfg["concurrency"]))) as pool:
+    with ThreadPoolExecutor(max_workers=VISION_CONCURRENCY) as pool:
         futures = [pool.submit(work, p) for p in photos]
         for i, fut in enumerate(as_completed(futures), 1):
             try:

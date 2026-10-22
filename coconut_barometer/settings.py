@@ -295,7 +295,7 @@ def describe(cfg: dict, sources: dict[str, str], store) -> list[dict]:
         default = get_path(DEFAULTS, path)
         meta = META.get(path, {})
         item = {"path": path, "section": meta.get("section") or path.split(".")[0], "label": meta.get("label", path),
-                "help": meta.get("help", ""), "group": meta.get("group", ""), **_kind(path, default),
+                "help": meta.get("help", ""), "part": meta.get("part", ""), "group": meta.get("group", ""), **_kind(path, default),
                 "source": sources.get(path, "default"),
                 "locked": LOCKED.get(path) or (f"set by the environment ({env[path]})" if path in env else None)}
         if path in SECRETS:

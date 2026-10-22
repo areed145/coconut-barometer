@@ -9,6 +9,7 @@ import time
 
 from .camera import fetch_cameras
 from .classify import classify_photos, fingerprint, pending_photos
+from .config import VISION_CONCURRENCY, VISION_THUMBNAIL
 from .geo import locations_for
 from .planner import build_plan
 from .sync import refresh_photo
@@ -31,7 +32,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
             and (not media or p["media"] == media)]
     todo = todo[:limit] if limit else todo
     stats = {"queued": 0, "nothing_to_change": 0, "retry_later": 0, "input_tokens": 0, "output_tokens": 0}
-    batch = max(8, int(vcfg["concurrency"]) * 4)
+    batch = max(8, VISION_CONCURRENCY * 4)
     quiet = lambda *a: None
     classify_kw = {"downloader": downloader} if downloader else {}
 
@@ -39,7 +40,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
         ids = todo[start:start + batch]
         if refresh_each:
             for pid in ids:
-                refresh_photo(client, store, pid, albums=True, thumb_key=vcfg["thumbnail"])
+                refresh_photo(client, store, pid, albums=True, thumb_key=VISION_THUMBNAIL)
         # EXIF (cached forever once fetched)
         have_exif = store.camera_ids()
         fetch_cameras(client, store, [pid for pid in ids if pid not in have_exif], log=quiet)

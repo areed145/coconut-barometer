@@ -67,11 +67,12 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("gradient = false", weather)
         self.assertIn("gradient ? shade(share)", weather)
 
-    def test_interface_theme_control_is_on_the_ui_settings_page(self):
+    def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
-        self.assertIn('section === "ui" && html`<${ThemeSetting} />`', admin)
-        self.assertIn('section === "photos" && html`<${FlickrPanel} />`', admin)
-        self.assertIn('section === "photos" && html`<${SyncPanel} />`', admin)
+        self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)
+        self.assertIn('section === "connections" && html`<${FlickrPanel} />`', admin)
+        self.assertIn('newPart && s.part === "Sync" && html`<${SyncPanel} />`', admin)
+        self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
         self.assertIn('useState("photos")', admin)
 
     def test_everything_the_page_loads_exists(self):

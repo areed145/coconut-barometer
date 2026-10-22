@@ -13,6 +13,7 @@ from collections import deque
 from .. import activity
 from ..apply import apply_changes, outcomes
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
+from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..planner import photo_page
 
 # "new": synced in, waiting to be processed; shown under To review with the pending ones.
@@ -233,12 +234,12 @@ class ReviewApp:
             "took": {k: round(v, 1) for k, v in took.items()}, "done_in": None if eta is None else round(eta),
             "services": {
                 "flickr": {"configured": self.client is not None, "calls": getattr(self.client, "call_count", 0),
-                           "calls_per_second": cfg.get("flickr", {}).get("calls_per_second"),
+                           "calls_per_second": FLICKR_CALLS_PER_SECOND,
                            "next_slot": limiter.next_free() if hasattr(limiter, "next_free") else None},
                 "weatherflow": {"configured": wx is not None, "calls": wx.call_count if wx else 0,
-                                "calls_per_second": cfg.get("weatherflow", {}).get("calls_per_second")},
+                                "calls_per_second": WEATHERFLOW_CALLS_PER_SECOND},
                 "vision": {"model": cfg.get("vision", {}).get("model"), "provider": cfg.get("vision", {}).get("provider"),
-                           "concurrency": cfg.get("vision", {}).get("concurrency"), **self.vision_usage},
+                           "concurrency": VISION_CONCURRENCY, **self.vision_usage},
             },
             "recent": list(reversed(self.recent)),
         }
@@ -353,7 +354,7 @@ class ReviewApp:
             try:
                 self._provider = self._provider_factory()
             except SystemExit as e:
-                raise RuntimeError(f"{e.code} Set it in Settings → API keys.")
+                raise RuntimeError(f"{e.code} Set it in Settings → Connections.")
         return self._provider
 
     def _process(self, store, photo_id: str) -> dict:

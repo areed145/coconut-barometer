@@ -76,7 +76,7 @@ export function TagsTab() {
         <div class="tagbars"><${Bars} rows=${ranked} value=${metric} onPick=${(r) => pick(r.tag)}
           right=${fmt} after=${(t) => html`<span class=${t.trend > 0.15 ? "up" : t.trend < -0.15 ? "down" : ""}>${arrow(t).trim()}</span>`}
           title=${(t) => `${t.tag}: ${m[3](t)} · ${num(t.photos)} photos${t.trend != null ? ` · ${pct(t.trend)} views in 14 days` : ""}`} /></div>
-        <p class="muted small">Bar color follows Settings → Photos → Colors. ▲ ▼: views rising or falling over the last 14 days against the 14 before
+        <p class="muted small">Bar color follows Settings → Display → Colors. ▲ ▼: views rising or falling over the last 14 days against the 14 before
           (of the ${num(data.days_collected)} days collected). Click a tag for its page.</p>
       </div>
       <div class="cols">

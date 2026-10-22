@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from fakes import FakeFlickr, CFG
 from coconut_barometer.config import from_dict
@@ -26,12 +27,12 @@ class RulesTest(unittest.TestCase):
         build_plan(from_dict(CFG), self.store, None, geocoder=geocoder)
 
     def test_first_want_wins_and_tags_respect_the_cap(self):
-        cfg = from_dict({**CFG, "standard_tags": {"max_tags_per_photo": 2}})
-        ctx = Context(cfg, self.store, None)
-        changes = resolve(ctx, [AlbumWant("1", "Food", "geo:city", reason="first"),
-                                AlbumWant("1", "food", "vision:food", reason="second"),
-                                TagWant("1", "Ramen", "vision:tags"), TagWant("1", "ramen", "std:x"),
-                                TagWant("1", "noodles", "vision:tags"), TagWant("1", "soup", "std:x")])
+        ctx = Context(from_dict(CFG), self.store, None)
+        with mock.patch("coconut_barometer.rules.base.MAX_TAGS_PER_PHOTO", 2):
+            changes = resolve(ctx, [AlbumWant("1", "Food", "geo:city", reason="first"),
+                                    AlbumWant("1", "food", "vision:food", reason="second"),
+                                    TagWant("1", "Ramen", "vision:tags"), TagWant("1", "ramen", "std:x"),
+                                    TagWant("1", "noodles", "vision:tags"), TagWant("1", "soup", "std:x")])
         album = next(c for c in changes if c.action == "add_to_album")
         self.assertEqual((album.new, album.source, album.reason), ("Food", "geo:city", "first"))
         tags = next(c for c in changes if c.action == "add_tags")

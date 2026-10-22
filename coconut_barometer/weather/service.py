@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 
+from ..config import WEATHERFLOW_CALLS_PER_SECOND
 from ..store import Store
 from .client import WeatherFlowClient
 from .stream import Hub, WeatherStream
@@ -34,7 +35,7 @@ class WeatherService:
             self._client = None
         elif self._client is None or self._client.token != token:
             old = self._client
-            self._client = WeatherFlowClient(token, self.cfg["weatherflow"]["calls_per_second"])
+            self._client = WeatherFlowClient(token, WEATHERFLOW_CALLS_PER_SECOND)
             if old:                                   # the Queue page's counter carries on across a token change
                 self._client.call_count, self._client.log = old.call_count, old.log
         return self._client

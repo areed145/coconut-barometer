@@ -1,5 +1,5 @@
 // The Weather section: Live (the stations now), History (charts), Stations (what's stored, sync).
-// Everything is stored metric; Settings → Weather → Units only changes how it's shown here.
+// Everything is stored metric; Settings → Display → Units only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare, every } from "./lib.js";
 import { WxMap } from "./weather_map.js";
@@ -153,7 +153,7 @@ function Live() {
 
 function Empty() {
   return html`<div class="card"><h2>No stations yet</h2>
-    <p>Add your WeatherFlow token under <a href="#/settings">Settings → API keys</a>. The stations on that account are found
+    <p>Add your WeatherFlow token under <a href="#/settings">Settings → Connections</a>. The stations on that account are found
     on the next sync, and their history appears under <a href="#/queue">Queue</a> as it's fetched.</p></div>`;
 }
 
@@ -202,7 +202,7 @@ function TimeChart({ t, series, height = 200, unit = "", bars = false, marks = [
 }
 
 // Strikes by time (30-minute bins, the same span as the other charts) and distance, colored along the
-// Settings → Photos → Colors gradient. Distance bands: 5 km, or 3 mi when the stations are shown in miles.
+// Settings → Display → Colors gradient. Distance bands: 5 km, or 3 mi when the stations are shown in miles.
 function Lightning({ device, start, end, unit }) {
   const [d, setD] = useState(null);
   const box = useRef(null);
@@ -314,7 +314,7 @@ const tempDays = (d, unit) => { const conv = unitsFor(unit).temp[1];
   return d.days.filter((x) => x.low != null).map((x) => ({ ...x, low: conv(x.low), high: conv(x.high), mean: conv(x.mean),
     hours: x.hours.map((v) => (v == null ? null : conv(v))) })); };
 
-// A low-to-high bar per local day, shaded cold to warm along the Settings → Photos → Colors gradient, the mean marked.
+// A low-to-high bar per local day, shaded cold to warm along the Settings → Display → Colors gradient, the mean marked.
 function DailyBand({ d, unit }) {
   return html`<${Plot} deps=${[d, unit]} build=${() => {
     const days = tempDays(d, unit), span = [days[0].t, days[days.length - 1].t + 86400];
@@ -417,7 +417,7 @@ function Rose({ device, start, end, unit }) {
   const parts = html`<div class="seg">${PARTS.map(([k, l]) => html`<button key=${k} class=${k === part ? "primary" : ""} onClick=${() => setPart(k)}>${l}</button>`)}</div>`;
   if (!r || !r.total) return html`${parts}<p class="muted">No wind data for this range${part ? " at this time of day" : ""}.</p>`;
   const max = Math.max(...r.counts.map((c) => c.reduce((a, b) => a + b, 0)));
-  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Photos → Colors gradient, calm to strong
+  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Display → Colors gradient, calm to strong
   const R = 44, step = 22.5, gap = 1.5;
   const arc = (i, r0, r1) => {
     const a0 = ((i * step - step / 2 + gap) - 90) * Math.PI / 180, a1 = ((i * step + step / 2 - gap) - 90) * Math.PI / 180;

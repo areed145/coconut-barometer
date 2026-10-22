@@ -7,14 +7,14 @@ import os
 import sys
 import time
 
-from .config import load_config
+from .config import FLICKR_CALLS_PER_SECOND, load_config
 from .store import Store
 
 
 def _client(cfg):
     from .flickr_client import FlickrClient
 
-    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], cfg["flickr"]["calls_per_second"])
+    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
     c.authenticate("write")
     return c
 
@@ -27,7 +27,7 @@ def _new_client(cfg):
 
     if not (cfg["flickr"]["api_key"] and cfg["flickr"]["api_secret"]):
         return None
-    return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], cfg["flickr"]["calls_per_second"])
+    return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
 
 
 def _provider(cfg):
@@ -101,10 +101,10 @@ def cmd_camera(cfg, store, args):
     if not todo:
         print("Nothing to fetch — every photo's camera is cached.")
         return
-    minutes = len(todo) / cfg["flickr"]["calls_per_second"] / 60
+    minutes = len(todo) / FLICKR_CALLS_PER_SECOND / 60
     took = f"{minutes / 60:.1f} h" if minutes >= 90 else f"{max(1, round(minutes))} min"
     print(f"{len(todo)} photo(s) need camera info: one Flickr call each (~{took} at "
-          f"{cfg['flickr']['calls_per_second']}/s). Safe to stop and resume.")
+          f"{FLICKR_CALLS_PER_SECOND}/s). Safe to stop and resume.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return
     print(f"Cameras: {fetch_cameras(_client(cfg), store, todo)}")
@@ -143,7 +143,6 @@ def cmd_check(config_path: str) -> int:
                   for t in ([v] if isinstance(v, str) else v)]
         named += [(f"standard_tags.camera.albums[{i}].album", r["album"])
                   for i, r in enumerate(cfg["standard_tags"]["camera"]["albums"])]
-        named += [(f"standard_tags.album_tags.albums.{t}", t) for t in cfg["standard_tags"]["album_tags"]["albums"]]
         for where, title in named:
             if missing(title):
                 close = difflib.get_close_matches(norm_title(title), sorted(have), n=1)
@@ -427,7 +426,7 @@ def cmd_process(cfg, store, args):
         return
     exif_calls = len(set(todo) - store.camera_ids())
     calls = exif_calls + (2 * len(todo) if args.refresh_each else 0)
-    minutes = calls / cfg["flickr"]["calls_per_second"] / 60
+    minutes = calls / FLICKR_CALLS_PER_SECOND / 60
     print(f"{len(todo)} photo(s) to process: ~{calls} Flickr call(s) (~{minutes:.0f} min)"
           + f", vision on up to {len(todo)} (~${len(todo) * 0.0006:.2f} on Haiku 5.5)"
           + ". Safe to stop and resume.")
@@ -454,7 +453,7 @@ def cmd_social(cfg, store, args):
              + (0 if args.skip_groups else 2 * max(store.group_count(), 200)))
     print(f"To fetch: {'' if args.skip_groups else 'groups + your photos in each pool, '}"
           f"comments on {len(comments)} photo(s), faves on {len(faves)} photo(s): "
-          f"~{calls} Flickr calls (~{calls / cfg['flickr']['calls_per_second'] / 60:.0f} min). Safe to stop and resume.")
+          f"~{calls} Flickr calls (~{calls / FLICKR_CALLS_PER_SECOND / 60:.0f} min). Safe to stop and resume.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return
     if not args.skip_groups:

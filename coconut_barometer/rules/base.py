@@ -12,6 +12,7 @@ from functools import cached_property
 
 from ..changes import Change, Settled
 from ..classify import fingerprint
+from ..config import MAX_TAGS_PER_PHOTO
 from ..geo import GeoMatcher
 from ..util import clean_tag, norm_tag, norm_title
 
@@ -37,9 +38,8 @@ class Context:
     geocoding, vision results, EXIF) load on first use, so rules that are off cost nothing."""
 
     def __init__(self, cfg: dict, store, provider_key: str | None, geocoder=None,
-                 photo_ids: set[str] | None = None, tag_mode: str = "add"):
+                 photo_ids: set[str] | None = None):
         self.cfg, self.store, self.provider_key, self._geocoder = cfg, store, provider_key, geocoder
-        self.tag_mode = tag_mode                        # "replace": rules ignore the tags being replaced
         self.photos = {p["id"]: p for p in store.photos() if photo_ids is None or p["id"] in photo_ids}
         self.albums = store.albums()
         self.album_ids = {norm_title(a["title"]): a["id"] for a in self.albums}      # normalized title -> id
@@ -98,7 +98,7 @@ def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
             out.append(Change("add_to_album", pid, title, album_id=album_id, source=w.source, confidence=w.confidence,
                               reason=w.reason if album_id else f"{w.reason} (NEW ALBUM)"))
 
-    cap = int(ctx.cfg["standard_tags"]["max_tags_per_photo"])
+    cap = MAX_TAGS_PER_PHOTO
     for pid, by_tag in tags.items():
         current = (ctx.photos[pid]["tags"] or "").split()
         have = {norm_tag(t) for t in current}

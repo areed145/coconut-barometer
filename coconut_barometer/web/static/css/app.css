@@ -107,7 +107,7 @@ label.check { display: inline-flex; gap: var(--s1); align-items: center; font-si
   margin-bottom: var(--s4); }
 /* cards in grids and stacked lists are spaced by the container's gap instead */
 :is(.cols, .cols3, .qlanes, .setup-choices, .panel, .settings, .kpis) > .card { margin-bottom: 0; }
-.card h2, h2.group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 0 0 var(--s3); }
+.card h2, .settings h3.group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 0 0 var(--s3); }
 h1.title { font-size: var(--text-xl); margin: var(--s1) 0 var(--s2); letter-spacing: -.01em; }
 h2.section { font-size: var(--text-base); margin: var(--s5) 0 var(--s3); }
 
@@ -441,7 +441,9 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .admin .sections button { justify-content: flex-start; border: 0; background: none; padding: 0 var(--s3); color: var(--muted); }
 .admin .sections button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .admin .settings { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
-.settings h2.group { margin: var(--s5) 0 var(--s1); padding-bottom: var(--s1); border-bottom: 1px solid var(--line); }
+.settings h2.part { font-size: var(--text-lg); margin: var(--s6) 0 var(--s2); }
+.settings h3.group { margin: var(--s5) 0 var(--s1); padding-bottom: var(--s1); border-bottom: 1px solid var(--line); }
+.settings h2.part + h3.group, .settings h2.part + .card { margin-top: var(--s2); }
 .theme-setting { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); }
 .theme-setting select { width: min(100%, 280px); }
 .setting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 340px); gap: 6px var(--s4); padding: var(--s3) var(--s4);

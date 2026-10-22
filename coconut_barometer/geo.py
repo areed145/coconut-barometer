@@ -126,9 +126,7 @@ class GeoMatcher:
 
     def country_album(self, cc: str) -> str | None:
         aliases = self.cfg["countries"]["aliases"].get(cc)
-        candidates = ([aliases] if isinstance(aliases, str) else list(aliases or []))
-        if self.cfg["countries"]["auto_match"]:
-            candidates += country_names(cc)
+        candidates = ([aliases] if isinstance(aliases, str) else list(aliases or [])) + country_names(cc)
         for c in candidates:
             if norm_title(c) in self.album_titles:
                 return c

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from fakes import photo, FakeFlickr, fake_geocoder, CFG
 from coconut_barometer.camera import fetch_cameras, pending_cameras
@@ -20,7 +21,7 @@ class StandardTagsTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         on = {"enabled": True}
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "enabled": False}, "standard_tags": {
-            "date": on, "album_tags": {"enabled": True, "albums": {"Texas": ["lonestar"]}},
+            "date": on,
             "place": {"enabled": True, "extra": {"Texas": ["southwest"]}},
             "camera": {"enabled": True, "rules": [{"match": "iphone", "tags": ["mobile"]}],
                        "albums": [{"match": "^nikon", "album": "Landscapes"}]}}})
@@ -49,26 +50,20 @@ class StandardTagsTest(unittest.TestCase):
     def test_all_groups_in_priority_order(self):
         t = self.tags()
         self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan", "asia", "tokyo", "nikon", "d90"])
-        # Austin: configured city name, Texas album tag (already a member), state extras.
+        # Austin: configured city name, state extras.
         self.assertEqual(t["2"], ["y2024", "m01", "d01", "unitedstates", "americas", "northamerica", "texas",
-                                  "tx", "austin", "southwest", "apple", "iphone", "x", "mobile", "lonestar"])
-        self.assertNotIn("y2011", t["3"])                    # skip_if_dated
+                                  "tx", "austin", "southwest", "apple", "iphone", "x", "mobile"])
+        self.assertIn("y2024", t["3"])                       # an older-style year tag doesn't stop the date tags
         self.assertNotIn("houston", t["3"])                  # accuracy 6: no city tag
         self.assertNotIn("4", t)                             # no geo, date unknown, no camera: nothing
-
-    def test_replacing_tags_still_proposes_dates(self):
-        # skip_if_dated looks at the tags being replaced, so it mustn't drop the date tags.
-        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, tag_mode="replace")
-        t = {r.photo_id: r.new for r in rows if r.action == "set_tags"}
-        self.assertIn("y2024", t["3"])
 
     def test_camera_albums_and_cap(self):
         albums = {(r.photo_id, r.new) for r in self.plan() if r.action == "add_to_album"}
         self.assertIn(("1", "Landscapes"), albums)
-        self.cfg["standard_tags"]["max_tags_per_photo"] = 4
-        t = self.tags()
+        with mock.patch("coconut_barometer.rules.base.MAX_TAGS_PER_PHOTO", 4):
+            t = self.tags()
         self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan"])
-        self.assertEqual(t["3"], ["unitedstates", "americas"])   # its 2 existing tags leave room for 2
+        self.assertEqual(t["3"], ["y2024", "m01"])               # its 2 existing tags leave room for 2
 
     def test_disabled_by_default(self):
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "enabled": False}})

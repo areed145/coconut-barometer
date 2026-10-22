@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 
 from fakes import FakeFlickr
 from coconut_barometer.cli import cmd_check
-from coconut_barometer.config import DEFAULTS, _merge, load_config, validate
+from coconut_barometer.config import DEFAULTS, _merge, load_config, retire, validate
 from coconut_barometer.store import Store
 from coconut_barometer.sync import sync
 
@@ -27,17 +27,17 @@ class ValidateTest(unittest.TestCase):
         self.assertTrue(cfg["vision"]["categories"])
 
     def test_typos_get_a_suggestion(self):
-        errors, _ = problems({"flickr": {"calls_per_secnd": 1}, "vision": {"categories": {"x": {
+        errors, _ = problems({"vision": {"min_confidenc": 1, "categories": {"x": {
             "description": "d", "tag": ["a"]}}}})
-        self.assertIn("flickr.calls_per_secnd: unknown setting (did you mean flickr.calls_per_second?)", errors)
+        self.assertIn("vision.min_confidenc: unknown setting (did you mean vision.min_confidence?)", errors)
         self.assertIn("vision.categories.x.tag: unknown setting (did you mean tags?)", errors)
 
     def test_types_choices_and_ranges(self):
         errors, _ = problems({"vision": {"use_location": "yes", "provider": "gemini", "min_confidence": 75,
-                                         "concurrency": 2.5}, "geo": None})
+                                         "extra_tags": {"max": 2.5}}, "geo": None})
         joined = "\n".join(errors)
         for expected in ("vision.use_location: should be true or false", "isn't one of claude",
-                         "vision.min_confidence: 75 is outside 0..1", "vision.concurrency: should be a number",
+                         "vision.min_confidence: 75 is outside 0..1", "vision.extra_tags.max: should be a number",
                          "geo: is empty"):
             self.assertIn(expected, joined)
 
@@ -69,9 +69,16 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(raw["vision"], {"describe": {}, "title": {}})
 
     def test_warnings_dont_stop_loading(self):
-        errors, warnings = problems({"flickr": {"calls_per_second": 2}})
+        errors, warnings = problems({"vision": {"categories": {"x": {"description": "d"}}}})
         self.assertEqual(errors, [])
-        self.assertTrue(any("3600 calls/hour" in w for w in warnings))
+        self.assertTrue(any("neither album nor tags" in w for w in warnings))
+
+    def test_removed_settings_are_dropped_not_refused(self):
+        raw = retire({"flickr": {"calls_per_second": 1}, "geo": {"add_tags": True, "countries": {"auto_match": True}},
+                      "standard_tags": {"max_tags_per_photo": 40, "album_tags": {"enabled": True},
+                                        "place": {"enabled": True, "state_abbr": False, "region_overrides": {}}}})
+        self.assertEqual(problems(raw)[0], [])
+        self.assertEqual(raw["standard_tags"], {"place": {"enabled": True}})
 
     def test_load_config_refuses_errors(self):
         path = os.path.join(tempfile.mkdtemp(), "config.yaml")

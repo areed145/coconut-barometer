@@ -19,11 +19,10 @@ from typing import Any
 import yaml
 
 DEFAULTS: dict[str, Any] = {
-    "flickr": {"api_key": None, "api_secret": None, "calls_per_second": 0.9},
+    "flickr": {"api_key": None, "api_secret": None},
     "weatherflow": {
         "token": None,
         "backfill_days": 7,          # history fetched from REST: forward from the newest stored, back this many days
-        "calls_per_second": 2.0,
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
@@ -31,22 +30,19 @@ DEFAULTS: dict[str, Any] = {
     "albums": {"create_missing": False},
     "geo": {
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
-        "countries": {"auto_match": True, "aliases": {}},
+        "countries": {"aliases": {}},
         "us_states": {"enabled": True, "title": "{state}"},
         "cities": [],
-        "add_tags": False,
     },
     "vision": {
         "provider": "claude",
         "model": "claude-haiku-5-5",
         "api_key": None,
         "base_url": None,
-        "thumbnail": "url_m",
-        "concurrency": 4,
         "min_confidence": 0.75,
         "use_photo_text": True,
         "use_location": True,
-        "extra_tags": {"max": 6, "prefix": ""},
+        "extra_tags": {"max": 6},
         "describe": {"max_words": 40, "instructions": None},
         "title": {"max_words": 8, "instructions": None},
         "categories": {},
@@ -83,35 +79,34 @@ DEFAULTS: dict[str, Any] = {
         "carto_key": None,            # CARTO basemaps key (carto.com/basemaps/apikey); goes in every tile URL
     },
     "standard_tags": {
-        "max_tags_per_photo": 75,   # Flickr's limit
-        "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"], "skip_if_dated": True},
-        "place": {"enabled": False, "country": True, "regions": True, "state": True, "state_abbr": True,
-                  "city": True, "extra": {}, "region_overrides": {}},
+        "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"]},
+        "place": {"enabled": False, "extra": {}},
         "camera": {"enabled": False, "name_words": True, "rules": [], "albums": []},
-        "album_tags": {"enabled": False, "from_categories": True, "albums": {}},
     },
 }
 
+# Fixed: not settings any more (see RETIRED).
+FLICKR_CALLS_PER_SECOND = 0.9       # Flickr allows 3600 calls/hour per key; a little under, shared by everything
+WEATHERFLOW_CALLS_PER_SECOND = 2.0
+VISION_THUMBNAIL = "url_m"          # 500 px: plenty for the model
+VISION_CONCURRENCY = 4
+MAX_TAGS_PER_PHOTO = 75             # Flickr's limit
+
 # Settings whose keys are yours (album titles, country codes, category names...).
-FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra"),
-             ("standard_tags", "place", "region_overrides"), ("standard_tags", "album_tags", "albums")}
+FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra")}
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
-           ("vision", "thumbnail"): ("url_q", "url_n", "url_m", "url_z"),
            ("schedule", "new_photos"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
-RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"): (1, 32),
-          ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
+RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
-          ("standard_tags", "max_tags_per_photo"): (1, 75),
           ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
-          ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
-          ("weatherflow", "calls_per_second"): (0.1, 10)}
+          ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650)}
 COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
@@ -129,7 +124,15 @@ RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "i
            ("vision", "extra_tags", "enabled"), ("vision", "describe", "enabled"), ("vision", "describe", "reword"),
            ("vision", "title", "enabled"), ("vision", "title", "replace"), ("web", "process_new"),
            ("standard_tags", "place", "split_words"), ("standard_tags", "coords"), ("standard_tags", "owner"),
-           ("standard_tags", "filler"), ("weather",)}
+           ("standard_tags", "filler"), ("weather",),
+           # Settings cleanup: tags come from place tags (not geo.add_tags), and the rest are fixed above.
+           ("geo", "add_tags"), ("geo", "countries", "auto_match"), ("flickr", "calls_per_second"),
+           ("weatherflow", "calls_per_second"), ("vision", "thumbnail"), ("vision", "concurrency"),
+           ("vision", "extra_tags", "prefix"), ("standard_tags", "max_tags_per_photo"),
+           ("standard_tags", "date", "skip_if_dated"), ("standard_tags", "place", "country"),
+           ("standard_tags", "place", "regions"), ("standard_tags", "place", "state"),
+           ("standard_tags", "place", "state_abbr"), ("standard_tags", "place", "city"),
+           ("standard_tags", "place", "region_overrides"), ("standard_tags", "album_tags")}
 
 
 # Settings that moved: old path -> new path (the old one is used if the new one isn't set).
@@ -240,10 +243,6 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
                 errors.append(f"{name(path)}: {v} is outside {lo}..{'' if hi is None else hi}".rstrip("."))
         checks.append(in_range)
 
-    def rate():
-        if get(("flickr", "calls_per_second")) > 1:
-            warnings.append("flickr.calls_per_second: above 1/s goes over Flickr's 3600 calls/hour limit")
-    checks.append(rate)
     for path, allowed in PLACEHOLDERS.items():
         def placeholders(path=path, allowed=allowed):
             if get(path) is not None:

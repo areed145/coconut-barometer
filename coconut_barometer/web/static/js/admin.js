@@ -162,6 +162,18 @@ function WeatherStream() {
   </div>`;
 }
 
+function AprsStream() {
+  const [s, setS] = useState(null);
+  const load = () => api("/api/aprs/stations").then((d) => setS(d.stream)).catch(() => {});
+  useEffect(() => every(load, 5000), []);
+  if (!s) return null;
+  const ok = s.state === "connected";
+  return html`<div class="card"><h2>APRS-IS connection</h2>
+    <p><span class=${"status " + (ok ? "s-applied" : "s-failed")} title=${s.error || ""}>${ok ? "connected" : s.state}</span>
+      <span class="muted"> · ${s.server ? `${s.server} · ` : ""}${s.last_message ? `last packet ${ago(s.last_message)}` : "no packets yet this session"}</span></p>
+  </div>`;
+}
+
 function SyncPanel() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
@@ -278,15 +290,20 @@ export function Admin() {
       ${section === "account" ? html`<${Account} />` : html`
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
-        ${section === "photos" && html`<${FlickrPanel} />`}
-        ${section === "ui" && html`<${ThemeSetting} />`}
+        ${section === "connections" && html`<${FlickrPanel} />`}
+        ${section === "display" && html`<${ThemeSetting} />`}
         ${section === "weather" && html`<${WeatherStream} />`}
-        ${section === "photos" && html`<${SyncPanel} />`}
+        ${section === "aprs" && html`<${AprsStream} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
-        ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}
+        ${shown.map((s, i) => {
+          const newPart = s.part && s.part !== shown[i - 1]?.part;
+          return html`${newPart && html`<h2 class="part" key=${"p" + s.part}>${s.part}</h2>`}
+          ${newPart && s.part === "Sync" && html`<${SyncPanel} />`}
+          ${s.group && (newPart || s.group !== shown[i - 1]?.group) && html`<h3 class="group" key=${"g" + s.part + s.group}>${s.group}</h3>`}
           <${Field} key=${s.path} s=${s} albums=${data.albums}
             value=${edits[s.path] !== undefined ? edits[s.path] : s.value} dirty=${edits[s.path] !== undefined}
-            onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded} />`)}`}
+            onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded} />`;
+        })}`}
     </div>
     ${(dirty > 0 || errors.length > 0) && html`<div class="savebar">
       ${errors.length > 0 && html`<ul class="errors">${errors.map((e) => html`<li>${e}</li>`)}</ul>`}

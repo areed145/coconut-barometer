@@ -75,7 +75,7 @@ class Runtime:
         new = load_config(self.cfg_path)
         old = self.cfg
         vision_changed = any(new["vision"][k] != old["vision"][k] for k in ("provider", "model", "api_key", "base_url"))
-        keys_changed = (any(new["flickr"][k] != old["flickr"][k] for k in ("api_key", "api_secret", "calls_per_second"))
+        keys_changed = (any(new["flickr"][k] != old["flickr"][k] for k in ("api_key", "api_secret"))
                         or self.client is None)
         self.cfg.clear()
         self.cfg.update(new)

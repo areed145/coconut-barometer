@@ -47,7 +47,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
 - **Albums**: covers and counts; open one for its photos.
-- **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Map (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
+- **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
 - **Review**: the reviewer, as in `review`, with the count of photos waiting in the tab.
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
@@ -136,15 +136,15 @@ Everything lives in a local DuckDB file (`db.duckdb`, beside config.yaml or in t
 
 - Both come from the same model call as the categories, so they add only a few output tokens per photo.
 - Every photo gets a proposal, including ones you titled or described yourself: the reviewer shows what it would replace, and you decide. Once you apply, edit or decline a proposal, it isn't proposed again.
-- The briefs are `vision.title.instructions` and `vision.describe.instructions` (Settings → Titles / Descriptions): plain English, edit them freely. Whatever they say, the model is also told never to guess a location or name a person. Editing one re-runs the model once for the photos it applies to, and the new text is proposed; other settings keep their cached results.
+- The briefs are `vision.title.instructions` and `vision.describe.instructions` (Settings → Photos → Writing): plain English, edit them freely. Whatever they say, the model is also told never to guess a location or name a person. Editing one re-runs the model once for the photos it applies to, and the new text is proposed; other settings keep their cached results.
 - Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there. If you changed the title or description on Flickr since the proposal, it's left alone (and counts as declined).
 
 ### Standard tags
 
-Tags you add by convention, each group with its own flag under `standard_tags`: date (`y2019 m07 d17`), place (`unitedstates americas california ca bakersfield`), camera (`nikon d90`), and optional album tags (every photo in Style gets `style`).
+Tags you add by convention, each group with its own flag under `standard_tags`: date (`y2019 m07 d17`), place (`unitedstates americas california ca bakersfield`) and camera (`nikon d90`).
 
-- They only add tags a photo doesn't already have, and they share the photo's single `add_tags` row, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the groups lower in the config list drop off first.
-- Date tags skip photos that already have a year tag (`y2019` or `2019`) and photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
+- They share the photo's single tags row with the model's tags, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the later groups drop off first.
+- Date tags skip photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
 - Camera tags need each photo's EXIF: `python -m coconut_barometer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `standard_tags.camera.albums` also adds photos to your camera albums.
 
 ### Keeping in sync, and stats history
@@ -170,7 +170,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 ## Costs and limits
 
 - Each photo sends one ~500px thumbnail plus a short prompt, roughly 1k input tokens. Run `--limit 50` and look at the token counts it prints before doing the whole library. Check current API pricing.
-- Flickr allows 3600 API calls per hour per API key. `flickr.calls_per_second` (0.9 if unset; the example config uses 1) is shared by every command using the key: `review`, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
+- Flickr allows 3600 API calls per hour per API key. The app makes at most 0.9 calls a second, shared by every command using the key: `review`, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
 - Reverse geocoding runs offline and returns the nearest town, so a photo taken right at a border can occasionally land in the neighbouring country. That's one reason to review before applying.
 
 ## Adding a vision provider

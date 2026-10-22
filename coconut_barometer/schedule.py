@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 
 from . import stats_history
+from .config import VISION_THUMBNAIL
 from .incremental import sync_incremental, sync_photo_list
 from .sync import sync as full_sync
 
@@ -30,7 +31,7 @@ def due(cfg: dict, store, now: float | None = None) -> list[str]:
 def run_due(cfg: dict, client, store, force: str | None = None, stats: bool | None = None, log=print) -> dict:
     """force: "full" | "photo_list" | "incremental" to run that instead of what's due.
     stats: override schedule.stats (False for quick syncs before process/social)."""
-    thumb = cfg["vision"]["thumbnail"]
+    thumb = VISION_THUMBNAIL
     started_calls = client.call_count
     steps = {"full": ["full"], "photo_list": ["photo_list", "incremental"],
              "incremental": ["incremental"]}[force] if force else due(cfg, store)

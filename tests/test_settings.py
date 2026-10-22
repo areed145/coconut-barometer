@@ -57,7 +57,7 @@ class LayersTest(Base):
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-admin"}, [], "owner")
         self.assertEqual(load_config(self.cfg_path)["vision"]["model"], "from-admin")
         _, sources, _ = S.layer(self.file_raw(), self.store)
-        self.assertEqual((sources["vision.model"], sources["flickr.calls_per_second"], sources["flickr.api_key"]),
+        self.assertEqual((sources["vision.model"], sources["vision.min_confidence"], sources["flickr.api_key"]),
                          ("admin", "default", "file"))
         with mock.patch.dict(os.environ, {"FLICKR_API_KEY": "env-key", "ANTHROPIC_API_KEY": "env-key"}):
             cfg = load_config(self.cfg_path)
@@ -79,11 +79,11 @@ class LayersTest(Base):
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "other"}, [], "owner")
         S.save(self.cfg_path, self.file_raw(), self.store, {"vision.model": "from-file"}, [], "owner")
         self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file"})
-        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 9}, [], "owner")
-        self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file", "vision.concurrency": 9})
-        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 4}, [], "owner")   # the default
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.extra_tags.max": 9}, [], "owner")
+        self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file", "vision.extra_tags.max": 9})
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.extra_tags.max": 6}, [], "owner")   # the default
         self.assertEqual(self.store.admin_settings(), {"vision.model": "from-file"})
-        self.assertEqual([r["path"] for r in self.store.settings_log()][:2], ["vision.concurrency", "vision.concurrency"])
+        self.assertEqual([r["path"] for r in self.store.settings_log()][:2], ["vision.extra_tags.max", "vision.extra_tags.max"])
 
     def test_moved_settings_keep_their_value(self):
         """The gradient moved from map.* to theme.*: a colour saved under the old path still counts,
@@ -91,8 +91,8 @@ class LayersTest(Base):
         self.store.save_admin_settings({"map.color_high": "#00ff00"}, [], "old", [])
         raw, sources, _ = S.layer(self.file_raw(), self.store)
         self.assertEqual((raw["theme"]["color_high"], sources["theme.color_high"]), ("#00ff00", "admin"))
-        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.concurrency": 9}, [], "owner")
-        self.assertEqual(self.store.admin_settings(), {"theme.color_high": "#00ff00", "vision.concurrency": 9})
+        S.save(self.cfg_path, self.file_raw(), self.store, {"vision.extra_tags.max": 9}, [], "owner")
+        self.assertEqual(self.store.admin_settings(), {"theme.color_high": "#00ff00", "vision.extra_tags.max": 9})
         from coconut_barometer.config import retire
         self.assertEqual(retire({"map": {"color_low": "#000000", "expand_at": 9}}),
                          {"map": {"expand_at": 9}, "theme": {"color_low": "#000000"}})
@@ -192,35 +192,36 @@ class AdminApiTest(Base):
     def test_settings_are_grouped_by_primary_area(self):
         payload = self.c.get("/api/admin/settings").json()
         section_ids = [s["id"] for s in payload["sections"]]
-        self.assertEqual(section_ids, ["photos", "weather", "aprs", "ui", "backup", "web"])
+        self.assertEqual(section_ids, ["connections", "photos", "weather", "aprs", "display", "backup", "web"])
         expected = {
-            "flickr.api_key": "photos",
-            "flickr.api_secret": "photos",
-            "vision.api_key": "photos",
-            "vision.title.max_words": "photos",
-            "vision.describe.max_words": "photos",
-            "standard_tags.date.enabled": "photos",
-            "vision.categories": "photos",
-            "map.carto_key": "photos",
-            "schedule.new_photos": "photos",
-            "web.sync_every_minutes": "photos",
-            "schedule.full_every_days": "photos",
-            "schedule.photo_list_every_hours": "photos",
-            "schedule.stats": "photos",
-            "schedule.backfill_days_per_run": "photos",
-            "flickr.calls_per_second": "photos",
-            "weatherflow.token": "weather",
-            "theme.color_low": "ui",
-            "theme.color_high": "ui",
-            "vision.provider": "photos",
-            "display.units": "weather",
-            "weatherflow.backfill_days": "weather",
-            "aprs.callsigns": "aprs",
+            "flickr.api_key": ("connections", ""),
+            "vision.api_key": ("connections", ""),
+            "vision.provider": ("connections", ""),
+            "weatherflow.token": ("connections", ""),
+            "map.carto_key": ("connections", ""),
+            "web.sync_every_minutes": ("photos", "Sync"),
+            "schedule.new_photos": ("photos", "Sync"),
+            "vision.title.max_words": ("photos", "Writing"),
+            "vision.use_location": ("photos", "Writing"),
+            "vision.categories": ("photos", "Subjects"),
+            "geo.cities": ("photos", "Location"),
+            "standard_tags.place.enabled": ("photos", "Location"),
+            "standard_tags.camera.albums": ("photos", "Cameras & dates"),
+            "standard_tags.date.enabled": ("photos", "Cameras & dates"),
+            "albums.create_missing": ("photos", "Albums"),
+            "weatherflow.backfill_days": ("weather", ""),
+            "aprs.callsigns": ("aprs", ""),
+            "display.units": ("display", ""),
+            "theme.color_low": ("display", ""),
+            "map.expand_at": ("display", ""),
         }
-        settings = {s["path"]: s["section"] for s in payload["settings"]}
-        for path, section in expected.items():
-            self.assertEqual(settings[path], section, path)
-        self.assertFalse({"keys", "sync"}.intersection(section_ids))
+        settings = {s["path"]: (s["section"], s["part"]) for s in payload["settings"]}
+        for path, where in expected.items():
+            self.assertEqual(settings[path], where, path)
+        # Each Photos heading appears once: its settings are listed together.
+        parts = [s["part"] for s in payload["settings"] if s["section"] == "photos"]
+        self.assertEqual([p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]],
+                         ["Sync", "Writing", "Subjects", "Location", "Cameras & dates", "Albums"])
 
     def test_retired_settings_in_the_database_dont_block_saving(self):
         self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])
@@ -228,7 +229,7 @@ class AdminApiTest(Base):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(set(self.store.admin_settings()), {"schedule.new_photos"})     # stale rows gone
         choice = self.setting(r.json(), "schedule.new_photos")
-        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "After a sync", "photos"))
+        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "New photos", "photos"))
         self.assertIn("right away", choice["option_labels"]["process"])
         self.assertEqual(self.app.state.runtime.cfg["schedule"]["new_photos"], "process")
 
@@ -237,7 +238,11 @@ class AdminApiTest(Base):
         for gone in ("vision.enabled", "vision.describe.enabled", "vision.title.enabled", "vision.title.replace",
                      "vision.extra_tags.enabled", "geo.enabled", "rename.enabled", "web.process_new",
                      "standard_tags.place.split_words", "standard_tags.coords.enabled", "standard_tags.owner.tags",
-                     "standard_tags.filler.enabled"):
+                     "standard_tags.filler.enabled", "geo.add_tags", "geo.countries.auto_match",
+                     "flickr.calls_per_second", "weatherflow.calls_per_second", "vision.thumbnail", "vision.concurrency",
+                     "vision.extra_tags.prefix", "standard_tags.max_tags_per_photo", "standard_tags.date.skip_if_dated",
+                     "standard_tags.place.country", "standard_tags.place.region_overrides",
+                     "standard_tags.album_tags.enabled", "standard_tags.album_tags.albums"):
             self.assertNotIn(gone, paths)
 
     def test_saving_applies_without_a_restart(self):

@@ -6,8 +6,6 @@
 flickr:
   api_key: ""            # https://www.flickr.com/services/apps/create/
   api_secret: ""
-  # Flickr allows 3600 calls/hour per key; 1/sec is exactly that. Lower it (e.g. 0.9) for headroom.
-  calls_per_second: 1
 
 database: db.duckdb   # local state: photo cache, classifications, decisions (this is the default)
 
@@ -16,7 +14,7 @@ albums:
   # albums whose title it can find. Set true to also propose creating missing ones.
   create_missing: false
 
-# Location albums (and, with add_tags, tags) from each photo's geotag.
+# Location albums from each photo's geotag (location tags are standard_tags.place, below).
 geo:
   # Flickr geo accuracy: 1=world, 3=country, 6=region, 11=city, 16=street (phone GPS).
   min_accuracy:
@@ -24,8 +22,7 @@ geo:
     state: 6
     city: 11
   countries:
-    # Match the country name (e.g. "Japan", "South Korea") to an existing album title.
-    auto_match: true
+    # An album named after the country (e.g. "Japan", "South Korea") is found by itself.
     # ISO code -> your album title(s), for when your album names differ.
     aliases:
       US: "United States"
@@ -92,7 +89,6 @@ geo:
       lat: 36.5785
       lon: -118.2923
       radius_km: 15
-  add_tags: false         # also add tags like "japan", "texas", "austin"
 
 # The model that looks at each photo. Every photo gets a proposed title, description,
 # tags and albums from it; you accept or decline each one in the reviewer.
@@ -101,14 +97,11 @@ vision:
   model: claude-haiku-5-5 # cheapest; use claude-sonnet-5-5 for harder judgement calls
   api_key: ""            # Anthropic or OpenAI key (https://console.anthropic.com/); not needed for ollama
   # base_url: http://localhost:11434/v1   # for ollama / other OpenAI-compatible servers
-  thumbnail: url_m        # Flickr size: url_q (150 sq), url_n (320), url_m (500), url_z (640)
-  concurrency: 4
   min_confidence: 0.6    # categories below this are not proposed
   use_photo_text: true    # give the model your title/description/tags as context
   use_location: true      # give it the town/state/country from the geotag (helps name landmarks)
   extra_tags:              # descriptive tags from the model (e.g. "ramen", "heron")
     max: 8                # room for landmarks, aircraft types and species
-    prefix: ""            # e.g. "ai:" if you want to tell them apart later
   # The description it writes. Proposed for every photo, yours included: you decide.
   # `instructions` is the brief the model gets; edit it freely ({max_words} is filled
   # in). Delete it to use the built-in default. Whatever it says, the model is also told
@@ -282,11 +275,10 @@ vision:
         color, unusual angles, shallow depth of field. NOT an ordinary snapshot.
       tags: [style]
 
-# Tags you apply by convention. Each group has its own flag. They skip tags a photo
-# already has, and all go into the photo's single tags change, so it's still one Flickr
-# call per photo. (Re-processing with "overwrite" in the reviewer replaces its tags instead.)
+# Tags you apply by convention. Each group has its own flag. They all go into the photo's
+# single tags change, so it's still one Flickr call per photo. The reviewer proposes them
+# as a replacement for the photo's tags (or, if you pick "add", only the ones it lacks).
 standard_tags:
-  max_tags_per_photo: 75      # Flickr's limit; groups lower in this list drop off first
 
   # 1. Date, from the date taken. Fields: {year} {month} {day} {season}
   #    Seasons follow the northern calendar (Dec-Feb winter), as your tags do.
@@ -294,20 +286,15 @@ standard_tags:
     enabled: true
     formats: ["y{year}", "m{month:02d}", "d{day:02d}"]   # your newer style: y2019 m07 d17
     # formats: ["{year}", "{season}"]                    # your older style: 2011 summer
-    skip_if_dated: true       # skip photos that already have y2019 or 2019
 
-  # 2. Place, from the geotag (uses geo.min_accuracy for country/state/city).
+  # 2. Place, from the geotag (uses geo.min_accuracy for country/state/city): country, region
+  #    (americas+northamerica, europe+westerneurope ...), state, US state abbreviation, and the
+  #    nearest town or your geo.cities name.
   #    e.g. unitedstates americas northamerica california ca bakersfield
   place:
     enabled: true
-    country: true
-    regions: true             # americas+southamerica, europe+westerneurope, asia+middleeast, ...
-    state: true               # state/province for every country (rajasthan, distritofederal)
-    state_abbr: true          # US only: ca, tx
-    city: true                # nearest town, or your geo.cities name
     extra:                    # more tags by country code, country or state name
       California: [west, coast, pacific]
-    region_overrides: {}      # e.g. MX: [americas, centralamerica]
 
   # 3. Camera, from EXIF. Run `python -m coconut_barometer camera` first (one call per
   #    photo, cached; `process` keeps it up to date). Tags are the words of Flickr's camera
@@ -323,16 +310,6 @@ standard_tags:
       - {match: "^canon", album: "Canon"}
       - {match: "^sony", album: "Sony"}
       - {match: "iphone", album: "iPhone"}
-
-  # 4. Album tags: every photo in an album gets that album's tag, the way your
-  #    style/text/favorite tags already mirror their albums. best/overall/5star
-  #    don't match any album, so they stay manual.
-  album_tags:
-    enabled: false
-    from_categories: true     # use each vision category's album -> tags (Landscapes -> landscapes, ...)
-    albums:
-      Favorites: [favorite]
-      California Favorites: [californiafavorites]
 
 # How often each kind of sync runs (`sync` and the web app's scheduler do whatever is due).
 schedule:

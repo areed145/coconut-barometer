@@ -11,7 +11,6 @@ def propose(ctx: Context) -> list:
     vcfg = ctx.cfg["vision"]
     min_conf = float(vcfg["min_confidence"])
     extra = vcfg["extra_tags"]
-    prefix = extra["prefix"] or ""
     wants: list = []
     for pid in ctx.photos:
         res = ctx.vision(pid)
@@ -25,5 +24,5 @@ def propose(ctx: Context) -> list:
             if c.get("album"):
                 wants.append(AlbumWant(pid, c["album"], f"vision:{cat}", f"{conf:.2f}", res.get("caption", "")))
             wants += [TagWant(pid, t, f"vision:{cat}") for t in c.get("tags", []) or []]
-        wants += [TagWant(pid, prefix + t, "vision:tags") for t in (res.get("tags") or [])[: extra["max"]]]
+        wants += [TagWant(pid, t, "vision:tags") for t in (res.get("tags") or [])[: extra["max"]]]
     return wants

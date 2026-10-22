@@ -1,5 +1,5 @@
 // Small charts for the Analytics tabs, drawn as plain HTML/SVG (no library): bar lists
-// (colored along the Settings → Photos → Colors gradient), photo tiles, a week heatmap and a scatter plot. Nothing uses inline
+// (colored along the Settings → Display → Colors gradient), photo tiles, a week heatmap and a scatter plot. Nothing uses inline
 // HTML or style attributes in markup, so the Content-Security-Policy holds.
 import { html, useState, useMemo, num, pick, shade, logShare } from "./lib.js";
 import { Lightbox } from "./gallery.js";

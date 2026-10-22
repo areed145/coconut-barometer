@@ -12,4 +12,4 @@ Third-party files, stored here so the frontend needs no build step or CDN at run
 
 Downloaded from cdn.jsdelivr.net/npm. To update, replace the file and its hash here.
 
-Map tiles come from CARTO (basemaps.cartocdn.com/rastertiles, OpenStreetMap data), with the free key from carto.com/basemaps/apikey (Settings → Map): 5 million tiles a month, attribution required.
+Map tiles come from CARTO (basemaps.cartocdn.com/rastertiles, OpenStreetMap data), with the free key from carto.com/basemaps/apikey (Settings → Connections → Maps): 5 million tiles a month, attribution required.

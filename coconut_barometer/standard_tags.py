@@ -1,5 +1,5 @@
 """Optional tag groups applied by convention rather than by looking at the photo:
-date, place, camera, and album tags.
+date, place and camera tags.
 
 Each group has its own `enabled` flag under `standard_tags` in config.yaml. Like
 everything else they only add tags, and they go through the reviewed plan.
@@ -35,9 +35,6 @@ _REGION_GROUPS = {
 }
 REGIONS: dict[str, list[str]] = {cc: list(tags) for tags, ccs in _REGION_GROUPS.items() for cc in ccs.split()}
 
-_DATED = re.compile(r"^y?(19|20)\d\d$")
-
-
 def _date_parts(date_taken: str | None):
     m = re.match(r"(\d{4})-(\d\d)-(\d\d)", date_taken or "")
     if not m or m.group(1) < "1900":
@@ -47,75 +44,53 @@ def _date_parts(date_taken: str | None):
 
 
 class StandardTagger:
-    def __init__(self, scfg: dict, geo_cfg: dict, album_titles: dict[str, str], categories: dict):
-        """album_titles: album id -> title."""
+    def __init__(self, scfg: dict, geo_cfg: dict):
         self.cfg = scfg
         self.geo_cfg = geo_cfg
-        self.album_titles = album_titles
-        acfg = scfg["album_tags"]
-        self.album_tags: dict[str, list[str]] = {}
-        if acfg["from_categories"]:
-            for c in categories.values():
-                if c.get("album") and c.get("tags"):
-                    self.album_tags.setdefault(norm_title(c["album"]), []).extend(c["tags"])
-        for title, tags in (acfg["albums"] or {}).items():
-            self.album_tags.setdefault(norm_title(title), []).extend([tags] if isinstance(tags, str) else tags)
         self.camera_rules = [(re.compile(r["match"], re.I), r.get("tags") or []) for r in scfg["camera"]["rules"] or []]
         self.extra_place = {norm_title(k): v for k, v in (scfg["place"]["extra"] or {}).items()}
 
     def any_enabled(self) -> bool:
-        return any(self.cfg[g].get("enabled") for g in
-                   ("date", "place", "camera", "album_tags"))
+        return any(self.cfg[g]["enabled"] for g in ("date", "place", "camera"))
 
     def needs_places(self) -> bool:
         return bool(self.cfg["place"]["enabled"])
 
-    def tags_for(self, photo, place: dict | None, camera: str | None, album_ids: set[str],
-                 replacing: bool = False) -> list[tuple[str, str]]:
-        """[(tag, source)] in priority order, so the most useful survive the per-photo cap.
-        replacing: the photo's tags are being replaced, so don't skip anything because of them."""
+    def tags_for(self, photo, place: dict | None, camera: str | None) -> list[tuple[str, str]]:
+        """[(tag, source)] in priority order, so the most useful survive the per-photo cap."""
         out: list[tuple[str, str]] = []
-        have = set() if replacing else set((photo["tags"] or "").split())
         add = lambda tags, src: out.extend((t, src) for t in tags if t)
 
         if self.cfg["date"]["enabled"]:
-            add(self.date_tags(photo, have), "std:date")
+            add(self.date_tags(photo), "std:date")
         if self.cfg["place"]["enabled"] and place:
             add(self.place_tags(photo, place), "std:place")
         if self.cfg["camera"]["enabled"] and camera:
             add(self.camera_tags(camera), "std:camera")
-        if self.cfg["album_tags"]["enabled"]:
-            for aid in sorted(album_ids):
-                add(self.album_tags.get(norm_title(self.album_titles.get(aid, "")), []), "std:album")
         return out
 
-    def date_tags(self, photo, have: set[str]) -> list[str]:
-        dcfg = self.cfg["date"]
+    def date_tags(self, photo) -> list[str]:
         if photo["date_taken_unknown"]:   # Flickr filled in the upload date; don't tag it
             return []
-        if dcfg["skip_if_dated"] and any(_DATED.match(t) for t in have):
-            return []
         parts = _date_parts(photo["date_taken"])
-        return [f.format(**parts) for f in dcfg["formats"] or []] if parts else []
+        return [f.format(**parts) for f in self.cfg["date"]["formats"] or []] if parts else []
 
     def place_tags(self, photo, place: dict) -> list[str]:
-        pcfg, acc = self.cfg["place"], photo["accuracy"] or 16
+        """Country, region, state (and US abbreviation) and town, each only as precise as the geotag,
+        plus your extra tags for the country code, country or state."""
+        acc = photo["accuracy"] or 16
         min_acc = self.geo_cfg["min_accuracy"]
         cc, state = place.get("cc", ""), place.get("admin1") or ""
         names: list[str] = []
         if not cc or acc < min_acc["country"]:
             return []
         country = country_names(cc)[0]
-        if pcfg["country"]:
-            names.append(country)
-        if pcfg["regions"]:
-            names += (pcfg["region_overrides"] or {}).get(cc) or REGIONS.get(cc, [])
+        names += [country, *REGIONS.get(cc, [])]
         if state and acc >= min_acc["state"]:
-            if pcfg["state"]:
-                names.append(state)
-            if pcfg["state_abbr"] and cc == "US" and state in US_STATES:
+            names.append(state)
+            if cc == "US" and state in US_STATES:
                 names.append(US_STATES[state])
-        if pcfg["city"] and acc >= min_acc["city"]:
+        if acc >= min_acc["city"]:
             names.append(self.city_name(photo, place))
         for key in (cc, country, state):
             names += self.extra_place.get(norm_title(key), []) if key else []
