@@ -511,4 +511,6 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }
 .heatkey { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); margin: var(--s2) 0 0; }
 .heatkey i { display: inline-block; width: 90px; height: 10px; border-radius: 3px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.calendar { display: block; max-width: 100%; height: auto; margin-top: var(--s2); }
 .daterange { display: inline-flex; align-items: center; gap: var(--s2); }

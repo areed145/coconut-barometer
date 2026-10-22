@@ -77,8 +77,9 @@ def days(device: int, start: int | None = None, end: int | None = None, hours: f
 
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
-         db=Depends(store)):
+         part: str | None = Query(None, pattern="^(night|morning|afternoon|evening)$"), db=Depends(store)):
+    """Wind by direction and speed band; `part` keeps one quarter of the station's local day."""
     start, end = _window(start, end, hours)
     if device not in {d["device_id"] for d in db.wx_devices()}:
         raise HTTPException(404, "unknown device")
-    return db.wx_wind_rose(device, start, end)
+    return db.wx_wind_rose(device, start, end, part)

@@ -11,7 +11,7 @@ from fakes import FakeFlickr, FakeVision, fake_geocoder, CFG
 from flickr_organizer.config import from_dict
 from flickr_organizer.store import Store
 from flickr_organizer.weather import sync as wxsync
-from flickr_organizer.store.weather import local_midnight
+from flickr_organizer.store.weather import clear_sky, local_midnight
 from flickr_organizer.weather.parse import obs_st, sea_level
 import json
 import threading
@@ -92,6 +92,33 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(long["bucket"], 86400)
         self.assertAlmostEqual(sum(v for v in long["devices"][11]["rain"] if v), 12.0)
 
+    def test_dew_point_and_lowest_cloud_base(self):
+        self.store.wx_save_obs(11, [arr(NOW, temp=20.0), arr(NOW + 60, temp=10.0)])     # both at 50% humidity
+        d = self.store.wx_history([11], NOW - 100 * DAY, NOW + 3600)["devices"][11]
+        self.assertAlmostEqual(d["dew_point"][0], (9.27 + 0.03) / 2, delta=0.05)
+        self.assertAlmostEqual(d["cloud_base"][0], (10.0 - 0.03) * 125, delta=10)   # the lower of the two
+
+    def test_feels_like_gustiness_and_clear_sky(self):
+        self.store.wx_save_obs(11, [arr(NOW, temp=30.0), arr(NOW + 3 * DAY, temp=0.0), arr(NOW + 6 * DAY, temp=15.0)])
+        h = self.store.wx_history([11], NOW - 100 * DAY, NOW + 7 * DAY)
+        d = h["devices"][11]
+        feels = [v for v in d["feels_like"] if v is not None]
+        self.assertAlmostEqual(feels[0], 31.05, delta=0.1)         # heat index, 30 °C at 50% (88 °F in the NWS table)
+        self.assertAlmostEqual(feels[1], -3.5, delta=0.2)          # wind chill, 0 °C in 3 m/s
+        self.assertEqual(feels[2], 15.0)
+        self.assertAlmostEqual([v for v in d["gust_factor"] if v][0], 5.0 / 3.0)
+        self.assertEqual(len(d["clear_sky"]), len(h["t"]))
+        # Austin in mid-November: around 675 W/m² near solar noon, nothing at night.
+        self.assertAlmostEqual(clear_sky(30.27, -97.74, NOW - 3.5 * 3600), 675, delta=40)
+        self.assertEqual(clear_sky(30.27, -97.74, NOW + 8 * 3600), 0.0)
+
+    def test_wind_rose_by_part_of_the_local_day(self):
+        # NOW is 16:13 in Chicago (afternoon); three hours later is evening.
+        self.store.wx_save_obs(11, [arr(NOW), arr(NOW + 3 * 3600)])
+        self.assertEqual(self.store.wx_wind_rose(11, NOW - 1, NOW + DAY, "afternoon")["total"], 1)
+        self.assertEqual(self.store.wx_wind_rose(11, NOW - 1, NOW + DAY, "evening")["total"], 1)
+        self.assertEqual(self.store.wx_wind_rose(11, NOW - 1, NOW + DAY, "night")["total"], 0)
+
     def test_wind_direction_averages_around_north(self):
         self.store.wx_save_obs(11, [arr(NOW, direction=350.0), arr(NOW + 60, direction=10.0)])
         d = self.store.wx_history([11], NOW - 100 * DAY, NOW + 3600)["devices"][11]["wind_dir"]
@@ -108,6 +135,7 @@ class StoreTest(unittest.TestCase):
         self.assertIsNone(first["hours"][15])
         self.assertAlmostEqual(first["hours"][16], 2.0)          # 16:13–16:53 -> 0..4
         self.assertEqual(second["t"], local_midnight("America/Chicago", NOW + DAY))
+        self.assertEqual((first["rain"], first["uv"]), (0.0, 2.0))
 
     def test_wind_rose_counts_by_direction(self):
         self.store.wx_save_obs(11, [arr(NOW, wind=1.0, direction=0.0), arr(NOW + 60, wind=6.0, direction=90.0)])
@@ -242,6 +270,7 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/wx/history", params={"device": 99}).status_code, 404)
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11}).json()["total"], 30)
         self.assertEqual(len(self.c.get("/api/wx/days", params={"device": 11, "hours": 2}).json()["days"]), 1)
+        self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "part": "noon"}).status_code, 422)
 
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
