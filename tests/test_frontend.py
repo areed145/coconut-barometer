@@ -55,6 +55,11 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "weather" && html`<${WeatherStream} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 
+    def test_interface_theme_control_is_on_the_photos_settings_page(self):
+        admin = open(os.path.join(STATIC, "js", "admin.js")).read()
+        self.assertIn('section === "photos" && html`<${ThemeSetting} />`', admin)
+        self.assertNotIn('section === "theme" && html`<${ThemeSetting} />`', admin)
+
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
         for path in OURS:

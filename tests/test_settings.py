@@ -189,6 +189,27 @@ class AdminApiTest(Base):
         self.assertEqual((key["value"], key["set"], key["kind"]), (None, True, "secret"))
         self.assertTrue(self.setting(r.json(), "web.allowed_hosts")["locked"])
 
+    def test_settings_are_grouped_by_primary_area(self):
+        payload = self.c.get("/api/admin/settings").json()
+        section_ids = [s["id"] for s in payload["sections"]]
+        self.assertEqual(section_ids[:3], ["photos", "weather", "aprs"])
+        self.assertTrue({"titles", "descriptions", "tags", "albums", "theme", "display", "vision"}.isdisjoint(section_ids))
+        expected = {
+            "vision.title.max_words": "photos",
+            "vision.describe.max_words": "photos",
+            "standard_tags.date.enabled": "photos",
+            "vision.categories": "photos",
+            "map.carto_key": "photos",
+            "theme.color_low": "photos",
+            "vision.provider": "photos",
+            "display.units": "weather",
+            "weatherflow.backfill_days": "weather",
+            "aprs.callsigns": "aprs",
+        }
+        settings = {s["path"]: s["section"] for s in payload["settings"]}
+        for path, section in expected.items():
+            self.assertEqual(settings[path], section, path)
+
     def test_retired_settings_in_the_database_dont_block_saving(self):
         self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])
         r = self.c.put("/api/admin/settings", json={"changes": {"schedule.new_photos": "process"}}, headers=self.h)
