@@ -1,10 +1,11 @@
-"""The Weather pages: stations, the live view, history for charts, a wind rose."""
+"""The Weather pages: stations, the live view, history for charts, a wind rose, the radar/satellite map."""
 from __future__ import annotations
 
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ...weather.imagery import Imagery
 from ..deps import runtime, session, store
 
 router = APIRouter(prefix="/api/wx", tags=["weather"], dependencies=[Depends(session)])
@@ -73,6 +74,21 @@ def days(device: int, start: int | None = None, end: int | None = None, hours: f
     if device not in {d["device_id"] for d in db.wx_devices()}:
         raise HTTPException(404, "unknown device")
     return {"start": start, "end": end, **db.wx_days(device, start, end)}
+
+
+_imagery = Imagery()
+
+
+def imagery() -> Imagery:
+    return _imagery
+
+
+@router.get("/map")
+def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(imagery)):
+    """The Map tab: where the stations are, and the radar and satellite frames available now."""
+    return {"units": _units(rt), "now": int(time.time()),
+            "stations": [{k: s[k] for k in ("device_id", "name", "lat", "lon")} for s in db.wx_stations() if s["lat"] is not None],
+            **im.frames()}
 
 
 @router.get("/rose")

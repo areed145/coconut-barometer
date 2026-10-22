@@ -272,6 +272,17 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(len(self.c.get("/api/wx/days", params={"device": 11, "hours": 2}).json()["days"]), 1)
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "part": "noon"}).status_code, 422)
 
+    def test_map_lists_stations_and_frames(self):
+        from flickr_organizer.web.api import weather as wx_api
+        from flickr_organizer.weather.imagery import Imagery
+        from test_weather_map import FakeGet
+        self.app.dependency_overrides[wx_api.imagery] = lambda: Imagery(get=FakeGet(), clock=lambda: 1_792_620_000)
+        self.login()
+        m = self.c.get("/api/wx/map").json()
+        self.assertEqual(m["stations"], [{"device_id": 11, "name": "Backyard", "lat": 30.27, "lon": -97.74}])
+        self.assertEqual(len(m["radar"]["frames"]), 12)
+        self.assertTrue(m["satellite"]["geocolor"]["frames"])
+
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
         csrf = {"X-CSRF-Token": self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).json()["csrf"]}

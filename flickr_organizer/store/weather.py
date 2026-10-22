@@ -90,12 +90,14 @@ class WeatherStore(Database):
 
     def wx_latest(self, device_id: int) -> dict | None:
         """The newest observation with what the Live page adds: sea-level pressure and its 3-hour
-        change, today's rain / high / low (local midnight), and the last lightning."""
+        change, today's rain / high / low (local midnight), feels like, dew point, cloud base and clear-sky
+        sunlight, and the last lightning."""
         st = self.wx_station(device_id)
         if not st:
             return None
         row = self.db.execute(
-            f"SELECT o.*, {SEA_LEVEL_SQL} AS pressure_sl FROM wx_obs o JOIN wx_devices d ON d.device_id = o.device_id "
+            f"SELECT o.*, {SEA_LEVEL_SQL} AS pressure_sl, {FEELS_SQL} AS feels_like, {DEW_SQL} AS dew_point, "
+            f"{CLOUD_BASE_SQL} AS cloud_base FROM wx_obs o JOIN wx_devices d ON d.device_id = o.device_id "
             "JOIN wx_stations s ON s.station_id = d.station_id WHERE o.device_id=? ORDER BY ts DESC LIMIT 1",
             (device_id,)).fetchone()
         if not row:
@@ -110,6 +112,7 @@ class WeatherStore(Database):
         day = self.db.execute("SELECT COALESCE(SUM(rain), 0), MAX(temp), MIN(temp), MAX(wind_gust) FROM wx_obs "
                               "WHERE device_id=? AND ts >= ?", (device_id, midnight)).fetchone()
         obs.update(rain_today=day[0], temp_high=day[1], temp_low=day[2], gust_high=day[3])
+        obs["clear_sky"] = clear_sky(st["lat"], st["lon"], obs["ts"]) if st.get("lat") is not None and st.get("lon") is not None else None
         strike = self.db.execute("SELECT ts, value FROM wx_events WHERE device_id=? AND kind='strike' ORDER BY ts DESC LIMIT 1",
                                  (device_id,)).fetchone()
         if not strike:

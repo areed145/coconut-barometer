@@ -2,6 +2,7 @@
 // Everything is stored metric; the unit setting (Settings → Weather) only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare } from "./lib.js";
+import { WxMap } from "./weather_map.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -19,45 +20,108 @@ const compass = (deg) => (deg == null ? "" : COMPASS[Math.round((deg % 360) / 22
 const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // ---- Live -------------------------------------------------------------------------------
-function WindDial({ dir, speed, unit }) {
-  return html`<svg class="dial" viewBox="-50 -50 100 100" role="img" aria-label=${`Wind from ${compass(dir) || "unknown"}`}>
-    <circle r="44" fill="none" stroke="var(--line)" stroke-width="1.5" />
-    ${[["N", 0, -34], ["E", 34, 0], ["S", 0, 34], ["W", -34, 0]].map(([l, x, y]) =>
-      html`<text x=${x} y=${y} text-anchor="middle" dominant-baseline="central" font-size="8" fill="var(--muted)">${l}</text>`)}
-    ${dir != null && html`<g transform=${`rotate(${(dir + 180) % 360})`}><path d="M0,-30 L7,-12 L0,-17 L-7,-12 Z" fill="var(--accent)" /></g>`}
-    <text y="2" text-anchor="middle" font-size="15" font-weight="600" fill="var(--fg)">${speed == null ? "–" : fmt(unitsFor(unit).speed[1](speed), speed * 2.24 >= 10 ? 0 : 1)}</text>
-    <text y="14" text-anchor="middle" font-size="7" fill="var(--muted)">${unitsFor(unit).speed[0]}</text>
+// A tiny trend line (or bars) over the last few hours, scaled to its own range; gaps stay gaps.
+function Spark({ values = [], values2, bars = false, lo, hi, color = "--chart-1" }) {
+  const seen = [...values, ...(values2 || [])].filter((v) => v != null);
+  if (seen.length < 2) return html`<svg class="spark" viewBox="0 0 100 24"></svg>`;
+  const a = lo ?? Math.min(...seen), b = hi ?? Math.max(...seen), r = b - a || 1, n = values.length;
+  const x = (i) => (i / Math.max(1, n - 1)) * 100, y = (v) => 22 - ((v - a) / r) * 20;
+  const line = (vals) => vals.map((v, i) => (v == null ? "" : `${i && vals[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join("");
+  return html`<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+    ${bars ? values.map((v, i) => (v > 0 ? html`<rect key=${i} x=${x(i)} y=${y(v)} width=${Math.max(0.8, 100 / n)} height=${22 - y(v) + 2} fill=${`var(${color})`} />` : ""))
+      : html`<path d=${line(values)} fill="none" stroke=${`var(${color})`} stroke-width="1.5" vector-effect="non-scaling-stroke" />`}
+    ${values2 && html`<path d=${line(values2)} fill="none" stroke=${`var(${color})`} stroke-width="1" stroke-dasharray="3 3" opacity=".6" vector-effect="non-scaling-stroke" />`}
   </svg>`;
 }
 
-function Stat({ label, children, note }) {
-  return html`<div class="kpi"><span>${label}</span><b>${children}</b>${note && html`<small> ${note}</small>`}</div>`;
+// A bar with a marker at `share` (0–1) along it.
+const Meter = ({ share, background }) => html`<div class="meter" style=${`background: ${background}`}>
+  ${share != null && html`<i style=${`left: ${Math.max(0, Math.min(1, share)) * 100}%`}></i>`}</div>`;
+
+const UV_BANDS = [[3, "low"], [6, "moderate"], [8, "high"], [11, "very high"], [Infinity, "extreme"]];
+const UV_SCALE = "linear-gradient(90deg, #3ea72d 0 25%, #fff300 25% 50%, #f18b00 50% 66.7%, #e53210 66.7% 91.7%, #b567a4 91.7%)";   // WHO colors, 0–12
+
+// Wind: where it's blowing to (the arrow), where it came from over the last half hour (the fading dots on the rim).
+function WindDial({ dir, speed, gust, trail = [], unit }) {
+  const [label, conv] = unitsFor(unit).speed;
+  const recent = trail.filter((d) => d != null).slice(-30);
+  return html`<svg class="dial" viewBox="-50 -50 100 100" role="img" aria-label=${`Wind from ${compass(dir) || "unknown"}`}>
+    <circle r="44" fill="none" stroke="var(--line)" stroke-width="1.5" />
+    ${Array.from({ length: 12 }, (_, i) => html`<line key=${"t" + i} y1="-44" y2=${i % 3 ? "-41" : "-38"} stroke="var(--muted)" stroke-width=".8" transform=${`rotate(${i * 30})`} />`)}
+    ${[["N", 0, -31], ["E", 31, 0], ["S", 0, 31], ["W", -31, 0]].map(([l, x, y]) =>
+      html`<text key=${l} x=${x} y=${y} text-anchor="middle" dominant-baseline="central" font-size="7" fill="var(--muted)">${l}</text>`)}
+    ${recent.map((d, i) => html`<circle key=${"d" + i} cy="-44" r="2.2" fill="var(--chart-2)" opacity=${0.12 + (0.7 * (i + 1)) / recent.length} transform=${`rotate(${d})`} />`)}
+    ${dir != null && html`<g transform=${`rotate(${(dir + 180) % 360})`}><path d="M0,-28 L6,-13 L0,-17 L-6,-13 Z" fill="var(--accent)" /></g>`}
+    <text y="1" text-anchor="middle" font-size="15" font-weight="600" fill="var(--fg)">${speed == null ? "–" : fmt(conv(speed), conv(speed) >= 10 ? 0 : 1)}</text>
+    <text y="11" text-anchor="middle" font-size="6.5" fill="var(--muted)">${label}${gust != null ? ` · gust ${fmt(conv(gust), 0)}` : ""}</text>
+  </svg>`;
 }
 
-function StationCard({ s, rapid, unit, now }) {
+function Tile({ label, value, note, children }) {
+  return html`<div class="wxtile"><span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}</div>`;
+}
+
+function StationCard({ s, rapid, unit, now, events }) {
   const o = s.obs;
+  // The last three hours at one-minute steps, for the sparklines and the wind trail; refreshed each minute.
+  const [recent, setRecent] = useState(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => api(`/api/wx/history?device=${s.device_id}&hours=3`).then((x) => live && setRecent(x.devices[s.device_id])).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, [s.device_id]);
   if (!o) return html`<div class="card"><h2>${s.name}</h2><p class="muted">No observations stored yet. Syncing, or waiting for the first report.</p></div>`;
+  const r = recent || {};
   const live = rapid && now - rapid.ts < 30 ? rapid : null;      // the 3-second wind, while it's flowing
   const dir = live ? live.dir : o.wind_dir, speed = live ? live.speed : o.wind_avg;
-  const trend = o.pressure_change_3h;
+  const trend = o.pressure_change_3h, pDigits = unit === "imperial" ? 2 : 1, rDigits = unit === "imperial" ? 2 : 1;
   const stale = now - o.ts > 600;
+  const lastHour = (r.rain || []).slice(-60).reduce((a, v) => a + (v || 0), 0);
+  const strikes3h = (r.strikes || []).reduce((a, v) => a + (v || 0), 0);
+  const uvBand = o.uv == null ? "" : UV_BANDS.find(([top]) => o.uv < top)[1];
+  const sunShare = o.clear_sky >= 100 && o.solar != null ? Math.min(1, o.solar / o.clear_sky) : null;
+  const range = o.temp_high - o.temp_low;
+  const mine = events.filter((e) => e.device_id === s.device_id).slice(-3).reverse();
   return html`<div class=${"card wxcard" + (stale ? " stale" : "")}>
-    <h2>${s.name} <span class="muted">${stale ? `last report ${ago(o.ts)}` : live ? "live" : ago(o.ts)}</span></h2>
-    <div class="wxmain">
-      <div class="wxtemp"><b>${show(unit, "temp", o.temp)}</b>
-        <span class="muted">${show(unit, "temp", o.temp_low, 0)} – ${show(unit, "temp", o.temp_high, 0)} today</span></div>
-      <${WindDial} dir=${dir} speed=${speed} unit=${unit} />
+    <h2>${s.name} <span class="muted">${stale ? `last report ${ago(o.ts)}` : live ? "live" : ago(o.ts)}</span>
+      ${o.battery != null && html`<span class="muted wxbatt" title="Battery">${fmt(o.battery, 2)} V</span>`}</h2>
+    <div class="wxhero">
+      <div class="wxtemp">
+        <b>${show(unit, "temp", o.temp)}</b>
+        <span class="muted">feels ${show(unit, "temp", o.feels_like, 0)} · dew point ${show(unit, "temp", o.dew_point, 0)}</span>
+        ${o.temp_low != null && html`
+          <${Meter} share=${range > 0 ? (o.temp - o.temp_low) / range : 0.5} background=${`linear-gradient(90deg, ${shade(0)}, ${shade(1)})`} />
+          <div class="ends"><span>${show(unit, "temp", o.temp_low, 0)} low</span><span>today</span><span>high ${show(unit, "temp", o.temp_high, 0)}</span></div>`}
+        <${Spark} values=${r.temp} values2=${r.dew_point} />
+      </div>
+      <${WindDial} dir=${dir} speed=${speed} gust=${live ? null : o.wind_gust} trail=${r.wind_dir} unit=${unit} />
     </div>
-    <div class="kpis small">
-      <${Stat} label="Humidity">${fmt(o.humidity, 0)}%<//>
-      <${Stat} label="Pressure" note=${trend == null ? "" : `${trend >= 0 ? "▲" : "▼"} ${fmt(Math.abs(unitsFor(unit).pressure[1](trend)), unit === "imperial" ? 2 : 1)} / 3 h`}>${show(unit, "pressure", o.pressure_sl, unit === "imperial" ? 2 : 1)}<//>
-      <${Stat} label="Wind" note=${compass(dir)}>${show(unit, "speed", o.wind_avg)}<//>
-      <${Stat} label="Gust" note=${o.gust_high != null ? `${show(unit, "speed", o.gust_high, 0)} today` : ""}>${show(unit, "speed", o.wind_gust)}<//>
-      <${Stat} label="Rain today">${show(unit, "rain", o.rain_today, unit === "imperial" ? 2 : 1)}<//>
-      <${Stat} label="UV">${fmt(o.uv, 1)}<//>
-      <${Stat} label="Solar">${fmt(o.solar, 0)} W/m²<//>
-      <${Stat} label="Lightning" note=${s.obs.last_strike ? `${show(unit, "dist", s.obs.last_strike.distance, 0)} away` : ""}>${s.obs.last_strike ? ago(s.obs.last_strike.ts) : "none"}<//>
+    <div class="wxtiles">
+      <${Tile} label="Humidity" value=${`${fmt(o.humidity, 0)}%`} note=${`dew point ${show(unit, "temp", o.dew_point, 0)}`}>
+        <${Spark} values=${r.humidity} /><//>
+      <${Tile} label="Pressure" value=${show(unit, "pressure", o.pressure_sl, pDigits)}
+        note=${trend == null ? "" : `${trend > 0.1 ? "▲ rising" : trend < -0.1 ? "▼ falling" : "steady"} ${fmt(Math.abs(unitsFor(unit).pressure[1](trend)), pDigits + 1)} / 3 h`}>
+        <${Spark} values=${r.pressure} /><//>
+      <${Tile} label=${`Wind · ${compass(dir) || "calm"}`} value=${show(unit, "speed", o.wind_avg)}
+        note=${`gust ${show(unit, "speed", o.wind_gust, 0)}${o.gust_high != null ? ` · ${show(unit, "speed", o.gust_high, 0)} today` : ""}`}>
+        <${Spark} values=${r.wind_avg} values2=${r.wind_gust} lo=${0} /><//>
+      <${Tile} label="Rain today" value=${show(unit, "rain", o.rain_today, rDigits)}
+        note=${lastHour > 0 ? `${show(unit, "rain", lastHour, rDigits)} in the last hour` : "dry this hour"}>
+        <${Spark} values=${r.rain} bars lo=${0} color="--chart-3" /><//>
+      <${Tile} label="UV" value=${fmt(o.uv, 1)} note=${uvBand}><${Meter} share=${o.uv == null ? null : o.uv / 12} background=${UV_SCALE} /><//>
+      <${Tile} label="Sun" value=${`${fmt(o.solar, 0)} W/m²`}
+        note=${sunShare != null ? `${fmt(sunShare * 100, 0)}% of a clear sky` : o.clear_sky > 0 ? "sun low" : "sun down"}>
+        <${Spark} values=${r.solar} values2=${r.clear_sky} lo=${0} color="--chart-2" /><//>
+      <${Tile} label="Cloud base" value=${show(unit, "height", o.cloud_base, 0)} note=${o.cloud_base != null && o.cloud_base < 100 ? "fog or mist likely" : "estimated, cumulus"}>
+        <${Spark} values=${r.cloud_base} lo=${0} /><//>
+      <${Tile} label="Lightning" value=${o.last_strike ? ago(o.last_strike.ts) : "none"}
+        note=${[o.last_strike?.distance != null && `${show(unit, "dist", o.last_strike.distance, 0)} away`, strikes3h && `${num(strikes3h)} in 3 h`].filter(Boolean).join(" · ")}>
+        <${Spark} values=${r.strikes} bars lo=${0} color="--chart-2" /><//>
     </div>
+    ${mine.length > 0 && html`<p class="wxrecent muted">Recent: ${mine.map((e, i) => html`<span key=${i}>${i ? " · " : ""}${when(e.ts)} ${e.kind === "strike"
+      ? `lightning${e.distance != null ? ` ${show(unit, "dist", e.distance, 0)} away` : ""}` : "rain started"}</span>`)}</p>`}
   </div>`;
 }
 
@@ -83,10 +147,7 @@ function Live() {
     <p class="muted"><${StreamBadge} stream=${d.stream} />
       ${d.stream.last_message ? ` last message ${ago(d.stream.last_message)}` : ""}</p>
     <div class="cols wxcols">${d.stations.map((s) => html`<${StationCard} key=${s.device_id} s=${s}
-      rapid=${d.rapid[String(s.device_id)]} unit=${d.units} now=${d.now} />`)}</div>
-    ${d.events.length > 0 && html`<div class="card"><h2>Recent events</h2>
-      ${d.events.slice().reverse().map((e, i) => html`<div key=${i} class="muted">${when(e.ts)} · ${e.kind === "strike"
-        ? `lightning${e.distance != null ? `, ${show(d.units, "dist", e.distance, 0)} away` : ""}` : "rain started"}</div>`)}</div>`}`;
+      rapid=${d.rapid[String(s.device_id)]} unit=${d.units} now=${d.now} events=${d.events} />`)}</div>`;
 }
 
 function Empty() {
@@ -547,8 +608,9 @@ function Stations() {
     </div>`;
 }
 
-export const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["stations", "Stations"]];
+export const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"], ["stations", "Stations"]];
 
 export function Weather({ tab = "live", params = {} }) {
-  return tab === "history" ? html`<${History} params=${params} />` : tab === "stations" ? html`<${Stations} />` : html`<${Live} />`;
+  return tab === "history" ? html`<${History} params=${params} />` : tab === "stations" ? html`<${Stations} />`
+    : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />` : html`<${Live} />`;
 }

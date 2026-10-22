@@ -500,15 +500,42 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 /* weather */
 .wxcard.stale { opacity: .75; }
 .wxcard h2 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: var(--s2); }
-.wxmain { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); margin-bottom: var(--s3); }
-.wxtemp b { display: block; font-size: 40px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.dial { width: 108px; height: 108px; flex: none; }
+.wxbatt { float: right; }
+.wxhero { display: flex; align-items: center; gap: var(--s4); margin-bottom: var(--s3); }
+.wxtemp { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
+.wxtemp b { font-size: 40px; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.wxtemp .meter { margin-top: var(--s2); }
+.wxtemp .ends { display: flex; justify-content: space-between; font-size: var(--text-2xs); color: var(--muted); }
+.wxtemp .spark { height: 28px; margin-top: var(--s1); }
+.dial { width: 128px; height: 128px; flex: none; }
+.wxtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s2); }
+.wxtile { display: flex; flex-direction: column; min-width: 0; padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.wxtile > span { font-size: var(--text-2xs); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wxtile b { font-size: var(--text-md); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wxtile small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wxtile .spark, .wxtile .meter { margin-top: var(--s2); }
+.spark { display: block; width: 100%; height: 22px; overflow: visible; }
+.meter { position: relative; height: 6px; border-radius: var(--r-pill); }
+.meter i { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--fg); border: 2px solid var(--surface); transform: translate(-50%, -50%); }
+.wxrecent { font-size: var(--text-xs); margin: var(--s3) 0 0; }
 .rose { display: flex; gap: var(--s5); align-items: center; flex-wrap: wrap; }
 /* Weather history: titled sections of cards, at most two across (so each station's pair lines up); .wide takes the row */
 .wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - var(--s4)) / 2))), 1fr)); gap: var(--s4); }
 .wxgrid > .card { margin-bottom: 0; }
 .wxgrid > .card.wide { grid-column: 1 / -1; }
 .wxsection { scroll-margin-top: calc(var(--header-h) + var(--s3)); }
+/* Weather map: station pins (temperature + wind arrow), popups, the loop controls */
+.wxpin-wrap { background: none; border: 0; }
+.wxpin { display: flex; align-items: center; justify-content: center; gap: 2px; height: 28px; border-radius: var(--r-pill);
+  background: var(--surface); color: var(--fg); border: 1px solid var(--line); box-shadow: var(--shadow-1); font-size: var(--text-sm); }
+.wxpin i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 11px solid var(--accent); }
+.wxpop { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); min-width: 180px; }
+.wxpop a { margin-top: var(--s1); }
+.wxloop { display: inline-flex; align-items: center; gap: var(--s2); flex: 1 1 280px; min-width: 0; }
+.wxloop input[type=range] { flex: 1; min-width: 80px; }
+.wxloop .muted { font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wxopacity { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); }
+.wxopacity input { width: 90px; }
 .jump { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: baseline; margin: 0 0 var(--s2); }
 .rose svg { flex: 1 1 180px; min-width: 0; width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
