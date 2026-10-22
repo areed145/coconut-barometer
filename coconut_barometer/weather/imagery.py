@@ -82,6 +82,7 @@ class Imagery:
 
     def _satellite(self, name: str, now: float) -> dict:
         layer, tms, zoom = SATELLITE[name]
+        url = f"{GIBS}/{layer}/default/{{time}}/{tms}/{{z}}/{{y}}/{{x}}.png"
         try:
             # Built by hand: GIBS rejects the time range with its ':' and '/' percent-encoded.
             with activity.log.call("imagery", f"satellite {name}", "NASA GIBS GOES-East") as a:
@@ -92,6 +93,6 @@ class Imagery:
                 times = expand_periods(m.group(1)) if m else []
                 a["detail"] = f"NASA GIBS GOES-East · {len(times)} frames"
         except Exception as e:  # noqa: BLE001
-            return {"frames": [], "error": str(e)[:200]}
+            return {"frames": [], "max_zoom": zoom, "url": url, "error": str(e)[:200]}
         return {"frames": [{"t": t, "time": _iso(t)} for t in times[-SAT_FRAMES:]], "max_zoom": zoom,
-                "url": f"{GIBS}/{layer}/default/{{time}}/{tms}/{{z}}/{{y}}/{{x}}.png", "error": None}
+                "url": url, "error": None}

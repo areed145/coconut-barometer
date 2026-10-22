@@ -87,7 +87,7 @@ export function WxMap({ show, unitsFor, compass }) {
     sync(tiles.current.radar, new Map(radar ? radarFrames.map((f) => [f.layer, f]) : []), (f) =>
       L.tileLayer(info.radar.url.replace("{layer}", f.layer), { pane: "wxradar", maxZoom: 20,
         attribution: 'Radar: <a href="https://mesonet.agron.iastate.edu/">IEM</a> · NWS NEXRAD' }));
-    sync(tiles.current.sat, new Map(satFrames.map((f) => [`${sat}:${f.time}`, f])), (f) =>
+    sync(tiles.current.sat, satInfo?.url ? new Map(satFrames.map((f) => [`${sat}:${f.time}`, f])) : new Map(), (f) =>
       L.tileLayer(satInfo.url.replace("{time}", f.time), { pane: "wxsat", maxZoom: 20, maxNativeZoom: satInfo.max_zoom,
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
   }, [ready, info, radar, sat]);

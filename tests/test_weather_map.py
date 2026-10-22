@@ -71,6 +71,24 @@ class ImageryTest(unittest.TestCase):
         self.assertIn("no route", f["radar"]["error"])
         self.assertTrue(f["satellite"]["infrared"]["frames"])
 
+    def test_a_satellite_error_keeps_its_layer_metadata(self):
+        class InfraredDown(FakeGet):
+            def __call__(self, url, timeout=None, params=None):
+                self.calls.append(url)
+                if "Band13_Clean_Infrared" in url:
+                    raise ConnectionError("GIBS unavailable")
+                if "n0q_0.json" in url:
+                    return Resp({"meta": {"valid": "2026-10-21T22:45:00Z"}})
+                return Resp(text=DOMAIN)
+
+        f = Imagery(get=InfraredDown(), clock=lambda: 1_792_620_000).frames()
+        infrared = f["satellite"]["infrared"]
+        self.assertEqual(infrared["frames"], [])
+        self.assertEqual(infrared["max_zoom"], 6)
+        self.assertIn("{time}", infrared["url"])
+        self.assertIn("GIBS unavailable", infrared["error"])
+        self.assertTrue(f["satellite"]["geocolor"]["frames"])
+
     def test_csp_allows_the_tile_hosts_only_as_images(self):
         img = next(d for d in CSP.split(";") if d.strip().startswith("img-src"))
         for host in ("https://mesonet.agron.iastate.edu", "https://gibs.earthdata.nasa.gov"):
