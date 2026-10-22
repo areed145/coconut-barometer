@@ -1,6 +1,7 @@
 """The per-photo queue (process) and the review tool."""
 import os
 import tempfile
+import time
 import unittest
 
 from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
@@ -150,12 +151,19 @@ class QueueReviewTest(unittest.TestCase):
             view.jobs.put(job)
         view.running = {"kind": "process", "photo_id": "3", "started": 1.0}
         q = view.queue_view()
-        self.assertEqual(q["waiting"], 3)
-        self.assertEqual([(j["kind"], j["position"]) for j in q["flickr"]["jobs"]], [("apply", 1), ("sync", 3)])
-        self.assertEqual([(j["photo_id"], j["position"]) for j in q["vision"]["jobs"]], [("2", 2)])
-        self.assertEqual(q["flickr"]["jobs"][0]["title"], "Ramen in Tokyo")
-        self.assertTrue(q["flickr"]["jobs"][0]["thumb"].endswith("_q.jpg"))
-        self.assertEqual((q["running"]["photo_id"], q["vision"]["model"]), ("3", "m1"))
+        self.assertEqual((q["waiting"], q["by_kind"]), (3, {"apply": 1, "process": 1, "sync": 1}))
+        self.assertEqual([(j["kind"], j["photo_id"], j["position"]) for j in q["line"]],
+                         [("apply", "1", 1), ("process", "2", 2), ("sync", None, 3)])
+        self.assertEqual(q["line"][0]["title"], "Ramen in Tokyo")
+        self.assertTrue(q["line"][0]["thumb"].endswith("_q.jpg"))
+        self.assertEqual((q["running"]["photo_id"], q["services"]["vision"]["model"]), ("3", "m1"))
+        # No job has finished yet, so there's nothing to estimate from.
+        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([None] * 3, None))
+        # Once each kind has taken 10 s, the line is timed from that, behind what's left of the running job.
+        view.recent.extend({"kind": k, "seconds": 10.0} for k in ("apply", "process", "sync"))
+        view.running["started"] = time.time() - 4
+        q = view.queue_view()
+        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([6, 16, 26], 36))
         # A real job through the background worker: timed, and listed under recent.
         choices = [{"approve": True} for _ in self.store.queue_item("1")["changes"]]
         self.decide("1", choices)

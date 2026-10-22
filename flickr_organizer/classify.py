@@ -5,6 +5,8 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from . import activity
+
 PROMPT_VERSION = 3
 
 PROMPT = """You are helping organize a personal Flickr photo library into albums.
@@ -170,8 +172,14 @@ def classify_photos(store, provider, vcfg: dict, photos, log=print, downloader=_
     stats = {"ok": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0}
 
     def work(p):
-        img, ctype = downloader(p["thumb_url"])
-        result = provider.classify(img, ctype, build_prompt(vcfg, p, (locations or {}).get(p["id"], "")), schema)
+        with activity.log.call("cdn", "photo download", f"photo {p['id']}") as a:
+            img, ctype = downloader(p["thumb_url"])
+            a["detail"] = f"photo {p['id']} · {len(img) // 1024} KB"
+        with activity.log.call("vision", provider.key, f"photo {p['id']}") as a:
+            result = provider.classify(img, ctype, build_prompt(vcfg, p, (locations or {}).get(p["id"], "")), schema)
+            usage = result.get("_usage") or {}
+            if usage:
+                a["detail"] = f"photo {p['id']} · {usage.get('input', 0)} in / {usage.get('output', 0)} out tokens"
         return p, result
 
     with ThreadPoolExecutor(max_workers=max(1, int(vcfg["concurrency"]))) as pool:

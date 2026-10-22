@@ -10,6 +10,7 @@ import time
 import webbrowser
 from typing import Any, Iterator
 
+from . import activity
 from .config import data_dir
 from .ratelimit import SharedRateLimiter, limiter_path
 
@@ -24,6 +25,14 @@ class FlickrCallError(Exception):
     def __init__(self, method: str, code: int | None, message: str):
         super().__init__(f"{method}: [{code}] {message}")
         self.method, self.code, self.message = method, code, message
+
+
+DETAIL_PARAMS = ("photo_id", "photoset_id", "group_id", "date", "page", "min_date", "extras_count")
+
+
+def _detail(params: dict) -> str:
+    """What a call was about, for the Queue page's log (ids and pages, never anything else)."""
+    return " ".join(f"{k}={params[k]}" for k in DETAIL_PARAMS if k in params)
 
 
 def _error_code(exc: Exception) -> int | None:
@@ -86,21 +95,28 @@ class FlickrClient:
         fn = self.api
         for part in method.split(".")[1:]:
             fn = getattr(fn, part)
-        delay = 2.0
+        delay, log = 2.0, activity.log
         for attempt in range(5):
-            self.limiter.wait()
+            token = log.begin("flickr", method, _detail(params) + (f" (try {attempt + 1})" if attempt else ""))
+            self.limiter.wait(on_slot=lambda slot: log.until(token, slot))
+            log.running(token)
             self.call_count += 1
             try:
-                return fn(**params)
+                out = fn(**params)
+                log.end(token)
+                return out
             except self._flickrapi.exceptions.FlickrError as e:
                 code = _error_code(e)
                 # 105 = service unavailable; anything else is a real API error.
-                if code == 105 and attempt < 4:
+                retry = code == 105 and attempt < 4
+                log.end(token, "retrying" if retry else f"error {code}", str(e)[:300], error=True)
+                if retry:
                     time.sleep(delay)
                     delay *= 2
                     continue
                 raise FlickrCallError(method, code, str(e)) from e
             except Exception as e:  # network hiccups, 5xx
+                log.end(token, "retrying" if attempt < 4 else "error", f"{type(e).__name__}: {e}"[:300], error=True)
                 if attempt < 4:
                     time.sleep(delay)
                     delay *= 2

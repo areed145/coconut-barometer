@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 
 import requests
 
+from .. import activity
+
 IEM = "https://mesonet.agron.iastate.edu"
 GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 RADAR_STEP, RADAR_FRAMES = 300, 12                  # the last hour
@@ -68,8 +70,10 @@ class Imagery:
 
     def _radar(self) -> dict:
         try:
-            meta = self._get(f"{IEM}/data/gis/images/4326/USCOMP/n0q_0.json", timeout=10).json()["meta"]
-            valid = _epoch(meta["valid"])
+            with activity.log.call("imagery", "radar frames", "IEM NEXRAD composite") as a:
+                meta = self._get(f"{IEM}/data/gis/images/4326/USCOMP/n0q_0.json", timeout=10).json()["meta"]
+                valid = _epoch(meta["valid"])
+                a["detail"] = f"IEM NEXRAD composite · newest {meta['valid']}"
         except Exception as e:  # noqa: BLE001 - any failure just means no radar this time
             return {"frames": [], "error": str(e)[:200]}
         frames = [{"t": valid - k * RADAR_STEP, "layer": "nexrad-n0q-900913" + (f"-m{k * 5:02d}m" if k else "")}
@@ -80,11 +84,13 @@ class Imagery:
         layer, tms, zoom = SATELLITE[name]
         try:
             # Built by hand: GIBS rejects the time range with its ':' and '/' percent-encoded.
-            r = self._get(f"{GIBS}/wmts.cgi?SERVICE=WMTS&REQUEST=DescribeDomains&LAYER={layer}&TILEMATRIXSET={tms}"
-                          f"&time={_iso(now - SAT_LOOKBACK)}/{_iso(now)}", timeout=15)
-            r.raise_for_status()
-            m = re.search(r"<Domain>([^<]*)</Domain>", r.text)
-            times = expand_periods(m.group(1)) if m else []
+            with activity.log.call("imagery", f"satellite {name}", "NASA GIBS GOES-East") as a:
+                r = self._get(f"{GIBS}/wmts.cgi?SERVICE=WMTS&REQUEST=DescribeDomains&LAYER={layer}&TILEMATRIXSET={tms}"
+                              f"&time={_iso(now - SAT_LOOKBACK)}/{_iso(now)}", timeout=15)
+                r.raise_for_status()
+                m = re.search(r"<Domain>([^<]*)</Domain>", r.text)
+                times = expand_periods(m.group(1)) if m else []
+                a["detail"] = f"NASA GIBS GOES-East · {len(times)} frames"
         except Exception as e:  # noqa: BLE001
             return {"frames": [], "error": str(e)[:200]}
         return {"frames": [{"t": t, "time": _iso(t)} for t in times[-SAT_FRAMES:]], "max_zoom": zoom,

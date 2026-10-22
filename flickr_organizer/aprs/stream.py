@@ -12,6 +12,8 @@ import time
 
 import aprslib
 
+from .. import activity
+
 SERVER = ("rotate.aprs2.net", 14580)    # the APRS-IS server pool; 14580 is the port that takes a filter
 LOGIN = "user {user} pass -1 vers coconut-barometer 1.0 filter b/{calls}\r\n"
 CALLSIGN = re.compile(r"^[A-Z0-9]{1,6}(-[A-Z0-9]{1,2})?$")     # also keeps anything odd out of the login line
@@ -56,17 +58,28 @@ def handle(line: str, store, hub: Hub, tracked: list[str], now: float | None = N
     if line.startswith("#"):
         if line.startswith("# logresp"):
             hub.update(server=line.rsplit(" ", 1)[-1])
+            activity.log.record("aprs", "login", line[2:], "verified" if " verified" in line else "receive-only", kind="connect")
+        else:
+            activity.log.skip("aprs")           # the server's keepalive, every ~20 s
         return None
     hub.bump("packets")
     hub.update(last_message=int(now or time.time()))
     try:
         p = aprslib.parse(line)
-    except (aprslib.ParseError, aprslib.UnknownFormat):
+    except (aprslib.ParseError, aprslib.UnknownFormat) as e:
+        activity.log.record("aprs", "unreadable packet", line[:200], type(e).__name__, error=True)
         return None
-    if p.get("from") not in tracked or p.get("latitude") is None or p.get("longitude") is None:
+    call = p.get("from")
+    if call not in tracked or p.get("latitude") is None or p.get("longitude") is None:
+        activity.log.record("aprs", p.get("format") or "packet", f"{call} · {line.split(':', 1)[-1][:120]}",
+                            "not a tracked position")
         return None
-    if store.aprs_save(p, now):
+    stored = store.aprs_save(p, now)
+    if stored:
         hub.bump("positions")
+    speed = f" · {round(p['speed'])} km/h" if p.get("speed") else ""
+    activity.log.record("aprs", "position", f"{call} · {p['latitude']:.4f}, {p['longitude']:.4f}{speed}",
+                        "stored" if stored else "duplicate")
     return p
 
 
@@ -91,6 +104,8 @@ class AprsStream(threading.Thread):
                 delay = 5
             except Exception as e:
                 self.service.hub.update(state="reconnecting", error=f"{type(e).__name__}: {e}"[:200])
+                activity.log.record("aprs", "disconnected", f"{type(e).__name__}: {e}"[:200], "reconnecting",
+                                    error=True, kind="connect")
                 self.service.hub.bump("reconnects")
             self.stop_event.wait(delay)
             delay = min(delay * 2, 300)
@@ -102,6 +117,7 @@ class AprsStream(threading.Thread):
             conn.settimeout(QUIET)
             conn.sendall(LOGIN.format(user=calls[0].split("-")[0] + "-RO", calls="/".join(calls)).encode())
             hub.update(state="connected", since=int(time.time()), error="")
+            activity.log.record("aprs", "connected", f"{SERVER[0]} · filter b/{'/'.join(calls)}", kind="connect")
             buf = b""
             while not self.stop_event.is_set() and self.service.callsigns() == calls:
                 chunk = conn.recv(4096)      # a timeout here (no keepalive) ends the session: reconnect

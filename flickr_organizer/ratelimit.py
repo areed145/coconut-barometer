@@ -38,16 +38,31 @@ class SharedRateLimiter:
         if fcntl:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
-    def wait(self) -> float:
-        """Block until this caller may make one call. Returns how long it waited."""
+    def wait(self, on_slot=None) -> float:
+        """Block until this caller may make one call. Returns how long it waited.
+        on_slot(slot): told the time it was given, before the wait (the Queue page shows it)."""
         if self.interval <= 0:
             return 0.0
         with self._local:
             slot = self._reserve()
+        if on_slot:
+            on_slot(slot)
         delay = slot - time.time()
         if delay > 0:
             time.sleep(delay)
         return max(0.0, delay)
+
+    def next_free(self) -> float:
+        """When the next call could go, by any process using this key (without reserving it)."""
+        if self.interval <= 0:
+            return 0.0
+        if not fcntl:
+            return max(time.time(), self._last + self.interval)
+        try:
+            with open(self.path) as f:
+                return max(time.time(), float(f.read().strip() or 0))
+        except (OSError, ValueError):
+            return time.time()
 
     def _reserve(self) -> float:
         now = time.time()

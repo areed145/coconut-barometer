@@ -9,6 +9,8 @@ import threading
 import time
 from collections import deque
 
+from .. import activity
+
 FILL_EVERY = 3600      # seconds between REST gap-fills while connected
 WS_URL = "wss://ws.weatherflow.com/swd/data?token={token}"
 
@@ -37,9 +39,23 @@ class Hub:
                     "events": list(self.events)}
 
 
+def _describe(message: dict) -> str:
+    dev, kind = message.get("device_id"), message.get("type")
+    if kind == "obs_st":
+        o = (message.get("obs") or [[]])[0]
+        return f"device {dev} · {o[7]} °C, wind {o[2]} m/s" if len(o) > 7 else f"device {dev}"
+    if kind == "evt_strike":
+        return f"device {dev} · {(message.get('evt') or [None, None])[1]} km away"
+    return " ".join(str(x) for x in (f"device {dev}" if dev else "", message.get("id") or "") if x)
+
+
 def handle(message: dict, store, hub: Hub) -> str | None:
     """One message from the socket. Returns its type."""
     kind, dev = message.get("type"), message.get("device_id")
+    if kind == "rapid_wind":
+        activity.log.skip("wx-stream")        # every 3 s per device: counted, not listed
+    else:
+        activity.log.record("wx-stream", kind or "message", _describe(message))
     if kind == "obs_st":
         store.wx_save_obs(dev, message.get("obs") or [])
     elif kind == "rapid_wind":
@@ -86,6 +102,8 @@ class WeatherStream(threading.Thread):
                 delay = 5
             except Exception as e:
                 self.service.hub.update(state="reconnecting", error=f"{type(e).__name__}: {e}"[:200])
+                activity.log.record("wx-stream", "disconnected", f"{type(e).__name__}: {e}"[:200], "reconnecting",
+                                    error=True, kind="connect")
                 self.service.hub.status["reconnects"] += 1
             self.stop_event.wait(delay)
             delay = min(delay * 2, 300)
@@ -102,6 +120,7 @@ class WeatherStream(threading.Thread):
                 ws.send(json.dumps({"type": "listen_start", "device_id": dev, "id": f"obs-{dev}-{i}"}))
                 ws.send(json.dumps({"type": "listen_rapid_start", "device_id": dev, "id": f"rapid-{dev}-{i}"}))
             hub.update(state="connected", since=int(time.time()), error="")
+            activity.log.record("wx-stream", "connected", f"listening to {len(devices)} device{'s' * (len(devices) != 1)}", kind="connect")
             self.on_connect()
             filled = time.time()
             while not self.stop_event.is_set() and self.service.token() == token:

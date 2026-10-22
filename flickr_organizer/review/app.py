@@ -10,6 +10,7 @@ import threading
 import time
 from collections import deque
 
+from .. import activity
 from ..apply import apply_changes, outcomes
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..planner import photo_page
@@ -19,6 +20,7 @@ STATUSES = ("pending", "new", "applying", "failed", "applied", "rejected", "none
 TO_REVIEW = ("pending", "new")
 
 
+JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "sync": "Flickr sync", "wx": "WeatherFlow sync"}
 PHOTO_JOBS = ("apply", "process")      # the other jobs are not about a photo: "sync" and "wx" (WeatherFlow)
 
 
@@ -194,14 +196,19 @@ class ReviewApp:
                 "syncing": self.syncing, "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
     def queue_view(self) -> dict:
-        """Everything the worker has to do, for the Queue page. One worker runs every job in
-        order, so `position` is the place in that one line. Flickr: approvals (writes) and
-        syncs. Vision: processing (EXIF from Flickr, then the vision model)."""
+        """The Queue page's line: the job running now and every job waiting, in the one order the worker takes
+        them. Each gets an estimated start, from how long recent jobs of its kind took (their waits for the
+        rate limit included); none once a kind with no history is ahead. Plus each service's limits and use."""
         waiting = list(self.jobs.queue)                       # a snapshot; the worker may move on
-        ids = [pid for kind, pid in waiting[:300] if kind in PHOTO_JOBS]
+        shown = waiting[:200]
+        ids = [pid for kind, pid in shown if kind in PHOTO_JOBS]
         if self.running and self.running["kind"] in PHOTO_JOBS:
             ids.append(self.running["photo_id"])
         cards = self.store.cards(ids)
+        took: dict[str, list[float]] = {}
+        for j in self.recent:
+            took.setdefault(j["kind"], []).append(j["seconds"])
+        took = {k: sum(v) / len(v) for k, v in took.items()}
 
         def job(kind, pid, **extra):
             c = cards.get(pid) if kind in PHOTO_JOBS else None
@@ -209,22 +216,36 @@ class ReviewApp:
                     "title": {"sync": "Sync", "wx": "WeatherFlow"}.get(kind) or ((c or {}).get("title") or pid),
                     "thumb": ((c or {}).get("sizes") or {}).get("q", ""), **extra}
 
-        lanes = {"flickr": [], "vision": [], "weather": []}
-        for i, (kind, pid) in enumerate(waiting[:300], 1):
-            lanes["vision" if kind == "process" else "weather" if kind == "wx" else "flickr"].append(job(kind, pid, position=i))
+        eta: float | None = 0.0
+        running = None
+        if self.running:
+            elapsed = time.time() - self.running["started"]
+            k = self.running["kind"]
+            running = job(k, self.running["photo_id"], started=self.running["started"], typical=took.get(k))
+            eta = max(0.0, took[k] - elapsed) if k in took else None
+        line = []
+        for i, (kind, pid) in enumerate(waiting, 1):
+            if i <= len(shown):
+                line.append(job(kind, pid, position=i, starts_in=None if eta is None else round(eta)))
+            eta = None if eta is None or kind not in took else eta + took[kind]
+        by_kind: dict[str, int] = {}
+        for kind, _ in waiting:
+            by_kind[kind] = by_kind.get(kind, 0) + 1
         wx = self.weather.client if self.weather else None
-        vcfg = (self.cfg or {}).get("vision", {})
+        cfg = self.cfg or {}
+        limiter = getattr(self.client, "limiter", None)
         return {
-            "running": job(self.running["kind"], self.running["photo_id"], started=self.running["started"])
-                       if self.running else None,
-            "waiting": len(waiting),
-            "flickr": {"jobs": lanes["flickr"], "calls": getattr(self.client, "call_count", 0),
-                       "calls_per_second": (self.cfg or {}).get("flickr", {}).get("calls_per_second")},
-            "weather": {"jobs": lanes["weather"], "configured": wx is not None, "calls": wx.call_count if wx else 0,
-                        "requests": list(reversed(wx.log)) if wx else [],
-                        "stream": self.weather.hub.snapshot()["stream"] if self.weather else None},
-            "vision": {"jobs": lanes["vision"], "model": vcfg.get("model"), "provider": vcfg.get("provider"),
-                       **self.vision_usage},
+            "running": running, "waiting": len(waiting), "line": line, "by_kind": by_kind,
+            "took": {k: round(v, 1) for k, v in took.items()}, "done_in": None if eta is None else round(eta),
+            "services": {
+                "flickr": {"configured": self.client is not None, "calls": getattr(self.client, "call_count", 0),
+                           "calls_per_second": cfg.get("flickr", {}).get("calls_per_second"),
+                           "next_slot": limiter.next_free() if hasattr(limiter, "next_free") else None},
+                "weatherflow": {"configured": wx is not None, "calls": wx.call_count if wx else 0,
+                                "calls_per_second": cfg.get("weatherflow", {}).get("calls_per_second")},
+                "vision": {"model": cfg.get("vision", {}).get("model"), "provider": cfg.get("vision", {}).get("provider"),
+                           "concurrency": cfg.get("vision", {}).get("concurrency"), **self.vision_usage},
+            },
             "recent": list(reversed(self.recent)),
         }
 
@@ -238,7 +259,7 @@ class ReviewApp:
             kind, pid = self.jobs.get()
             while self.paused():            # the SQLite import is copying into the same tables
                 time.sleep(0.5)
-            started = time.time()
+            started, calls0 = time.time(), getattr(self.client, "call_count", 0)
             self.running = {"kind": kind, "photo_id": pid, "started": started}
             try:
                 if kind == "sync":
@@ -261,14 +282,33 @@ class ReviewApp:
                 self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
                                     "title": {"sync": "sync", "wx": "WeatherFlow"}.get(kind) or (photo["title"] if photo else "") or pid,
                                     "rows": out.get("rows"), "calls": out.get("calls"),
+                                    "flickr_calls": getattr(self.client, "call_count", 0) - calls0,
                                     "applied": out.get("stats", {}).get("applied", 0),
                                     "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
                                     "started": started, "seconds": round(time.time() - started, 1),
                                     "input_tokens": out.get("input_tokens", 0),
                                     "output_tokens": out.get("output_tokens", 0)})
+                self._log_job(self.recent[-1])
             finally:
                 self.running = None
                 self.jobs.task_done()
+
+    @staticmethod
+    def _log_job(j: dict) -> None:
+        """A finished job in the activity log: what it was, what came of it, the calls it made."""
+        bits = [j["title"] if j["kind"] in PHOTO_JOBS else ""]
+        if j["kind"] == "apply" and (j["applied"] or j["failed"]):
+            bits.append(f"{j['applied']} applied" + (f", {j['failed']} failed" if j["failed"] else ""))
+        if j.get("flickr_calls"):
+            bits.append(f"{j['flickr_calls']} Flickr calls")
+        if j["kind"] == "wx" and j["rows"] is not None:
+            bits.append(f"{j['rows']} rows, {j['calls']} calls")
+        if j["input_tokens"]:
+            bits.append(f"{j['input_tokens'] + j['output_tokens']} tokens")
+        if j["error"]:
+            bits.append(j["error"][:200])
+        activity.log.record("jobs", JOB_NAMES.get(j["kind"], j["kind"]), " · ".join(b for b in bits if b), j["status"],
+                            error=j["status"] == "failed", kind="job", ms=int(j["seconds"] * 1000))
 
     def _sync(self, store, mode: str | None) -> dict:
         from ..pipeline import process

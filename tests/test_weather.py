@@ -294,8 +294,7 @@ class WeatherApiTest(unittest.TestCase):
         q = self.c.get("/api/review/worker").json()
         self.assertEqual(q["recent"][0]["kind"], "wx")
         self.assertEqual(q["recent"][0]["status"], "done")
-        self.assertIn("weather", q)
-        self.assertTrue(q["weather"]["configured"])
+        self.assertTrue(q["services"]["weatherflow"]["configured"])
 
 
 if __name__ == "__main__":

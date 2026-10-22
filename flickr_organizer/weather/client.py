@@ -6,7 +6,15 @@ from collections import deque
 
 import requests
 
+from .. import activity
+
 BASE = "https://swd.weatherflow.com/swd/rest"
+
+
+def _detail(params: dict) -> str:
+    """The day asked for, if it's a day of observations."""
+    start = params.get("time_start")
+    return time.strftime("%Y-%m-%d", time.gmtime(start)) if start else ""
 
 
 class WeatherFlowError(RuntimeError):
@@ -23,29 +31,38 @@ class WeatherFlowClient:
         self._last = 0.0
 
     def get(self, path: str, **params) -> dict:
-        wait = self._last + self.interval - time.time()
+        slot = self._last + self.interval
+        token = activity.log.begin("weatherflow", path, _detail(params), until=slot)
+        wait = slot - time.time()
         if wait > 0:
             time.sleep(wait)
+        activity.log.running(token)
         self._last = time.time()
         self.call_count += 1
         entry = {"at": int(self._last), "path": path, "params": params, "status": None, "rows": None, "ms": None}
         self.log.append(entry)
         try:
-            r = self.session.get(f"{BASE}/{path}", params={**params, "token": self.token}, timeout=30)
-            entry["status"] = r.status_code
-            if r.status_code in (401, 403):
-                raise WeatherFlowError("WeatherFlow refused the token")
-            if r.status_code >= 400:
-                raise WeatherFlowError(f"WeatherFlow answered {r.status_code}")
-            data = r.json()
-        except requests.RequestException as e:
-            entry["status"] = "error"
-            raise WeatherFlowError(f"couldn't reach WeatherFlow: {type(e).__name__}") from e
-        finally:
-            entry["ms"] = int((time.time() - self._last) * 1000)
-        status = data.get("status") or {}
-        if status.get("status_code", 0) != 0:
-            raise WeatherFlowError(status.get("status_message") or "WeatherFlow reported an error")
+            try:
+                r = self.session.get(f"{BASE}/{path}", params={**params, "token": self.token}, timeout=30)
+                entry["status"] = r.status_code
+                if r.status_code in (401, 403):
+                    raise WeatherFlowError("WeatherFlow refused the token")
+                if r.status_code >= 400:
+                    raise WeatherFlowError(f"WeatherFlow answered {r.status_code}")
+                data = r.json()
+            except requests.RequestException as e:
+                entry["status"] = "error"
+                raise WeatherFlowError(f"couldn't reach WeatherFlow: {type(e).__name__}") from e
+            finally:
+                entry["ms"] = int((time.time() - self._last) * 1000)
+            status = data.get("status") or {}
+            if status.get("status_code", 0) != 0:
+                raise WeatherFlowError(status.get("status_message") or "WeatherFlow reported an error")
+        except WeatherFlowError as e:
+            activity.log.end(token, str(entry["status"] or "error"), str(e), error=True)
+            raise
+        rows = len(data.get("obs") or data.get("stations") or [])
+        activity.log.end(token, str(entry["status"]), f"{_detail(params)} · {rows} rows".lstrip(" ·"))
         return data
 
     def stations(self) -> list[dict]:
