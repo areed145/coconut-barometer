@@ -253,7 +253,7 @@ function Account() {
 
 export function Admin() {
   const [data, setData] = useState(null);
-  const [section, setSection] = useState("keys");
+  const [section, setSection] = useState("photos");
   const [edits, setEdits] = useState({});
   const [errors, setErrors] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -278,10 +278,10 @@ export function Admin() {
       ${section === "account" ? html`<${Account} />` : html`
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
-        ${section === "photos" && html`<${ThemeSetting} />`}
-        ${section === "keys" && html`<${FlickrPanel} />`}
+        ${section === "photos" && html`<${FlickrPanel} />`}
+        ${section === "ui" && html`<${ThemeSetting} />`}
         ${section === "weather" && html`<${WeatherStream} />`}
-        ${section === "sync" && html`<${SyncPanel} />`}
+        ${section === "photos" && html`<${SyncPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => html`${s.group && s.group !== shown[i - 1]?.group && html`<h2 class="group" key=${"g" + s.group}>${s.group}</h2>`}
           <${Field} key=${s.path} s=${s} albums=${data.albums}
