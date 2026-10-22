@@ -12,6 +12,7 @@ One connection, methods grouped by area:
   analytics.py   daily series, gainers, breakdowns, per-photo timelines
   settings.py    admin-page settings, encrypted API keys, the change history
   weather.py     WeatherFlow stations and observations
+  aprs.py        APRS positions heard for the tracked callsigns
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -36,11 +37,13 @@ Tables
   secrets          API keys, AES-GCM encrypted with a key kept outside the database
   settings_log     who changed which setting when (secrets masked)
   wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
+  aprs_positions   each position packet heard from a tracked callsign
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations
 
 from .analytics import AnalyticsStore
+from .aprs import AprsStore
 from .auth import AuthStore
 from .cache import CacheStore
 from .db import SCHEMA_VERSION, Database, SchemaTooNew
@@ -56,7 +59,7 @@ __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,
-            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore):
+            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, AprsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

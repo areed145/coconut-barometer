@@ -14,6 +14,7 @@ from ..review import ReviewApp
 from ..schedule import due
 from ..store.migration import Migration, find_sqlite_source
 from ..weather.service import WeatherService
+from ..aprs.service import AprsService
 from ..store import Store
 from .security import LoginThrottle
 
@@ -30,6 +31,7 @@ class Runtime:
         self.review = ReviewApp(self.store(), client, cfg=cfg, provider=provider_factory, background=background,
                                 process_kw=process_kw)
         self.weather = self.review.weather = WeatherService(cfg, self.db_path)
+        self.aprs = AprsService(cfg, self.db_path)
         # The former SQLite file, if one is beside the database: the setup page / the API can import it.
         self.migration = Migration(self.db_path, find_sqlite_source(self.db_path, os.environ.get("FLICKR_ORGANIZER_SQLITE_SOURCE")),
                                    on_done=self.reload)
@@ -98,6 +100,7 @@ class Runtime:
         self._scheduler.start()
         # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
+        self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
 
     def stop(self) -> None:
         self._stop.set()

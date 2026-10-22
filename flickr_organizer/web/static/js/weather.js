@@ -21,7 +21,7 @@ const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "sho
 
 // ---- Live -------------------------------------------------------------------------------
 // A tiny trend line (or bars) over the last few hours, scaled to its own range; gaps stay gaps.
-function Spark({ values = [], values2, bars = false, lo, hi, color = "--chart-1" }) {
+export function Spark({ values = [], values2, bars = false, lo, hi, color = "--chart-1" }) {
   const seen = [...values, ...(values2 || [])].filter((v) => v != null);
   if (seen.length < 2) return html`<svg class="spark" viewBox="0 0 100 24"></svg>`;
   const a = lo ?? Math.min(...seen), b = hi ?? Math.max(...seen), r = b - a || 1, n = values.length;

@@ -16,6 +16,7 @@ dependencies = [
     "cryptography>=50.0.2",
     "duckdb>=1.4.0",
     "websockets>=13",
+    "aprslib>=0.7",
 ]
 
 [project.optional-dependencies]

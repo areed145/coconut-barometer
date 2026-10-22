@@ -63,6 +63,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aprslib"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/2b/3c051f7bf65cb684040dfc13713d8836b72615f3b811107736aee59cab0d/aprslib-0.7.2.tar.gz", hash = "sha256:c20d2568ab8728a0526b4c95952c6022433d462674abdfb0fd86b2e50ed3c097", size = 25826, upload-time = "2022-07-10T12:45:13.214Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/b4/4b82e41dc007cfa68ee076ef905b823f841e4ce868fe7ee8b22cfe26796a/aprslib-0.7.2-py2.py3-none-any.whl", hash = "sha256:db09eac4c5f44b172e15399350147370fdafdd8f6befd69b697fbced8c83e7c6", size = 44746, upload-time = "2022-07-10T12:45:11.607Z" },
+]
+
+[[package]]
 name = "argon2-cffi"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -573,6 +582,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "aprslib" },
     { name = "argon2-cffi" },
     { name = "cryptography" },
     { name = "duckdb" },
@@ -600,6 +610,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40" },
+    { name = "aprslib", specifier = ">=0.7" },
     { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "duckdb", specifier = ">=1.4.0" },

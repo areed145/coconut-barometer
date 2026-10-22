@@ -6,6 +6,7 @@ import { Analytics } from "./analytics.js";
 import { MapPage } from "./map.js";
 import { QueuePage } from "./queue.js";
 import { Weather, WEATHER_TABS } from "./weather.js";
+import { Aprs } from "./aprs.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
@@ -98,7 +99,7 @@ function Shell({ session, onLogout }) {
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["weather", "queue", "settings"].includes(tab);
+  const inPhotos = !["weather", "aprs", "queue", "settings"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   let page;
   if (!inPhotos) page = null;
@@ -108,6 +109,7 @@ function Shell({ session, onLogout }) {
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
+  else if (tab === "aprs") page = html`<${Aprs} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
@@ -124,7 +126,7 @@ function Shell({ session, onLogout }) {
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
-        ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}
+        ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
         ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
       </nav>
       <div class="account">

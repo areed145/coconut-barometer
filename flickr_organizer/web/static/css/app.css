@@ -537,6 +537,48 @@ svg.scatter .dotlabel { fill: var(--fg); font-size: var(--text-2xs); cursor: poi
 .wxopacity { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); }
 .wxopacity input { width: 90px; }
 .jump { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: baseline; margin: 0 0 var(--s2); }
+/* APRS: a pin per callsign (heading arrow + callsign), the map a little shorter so the cards show under it */
+.aprsmap { height: min(60dvh, 560px); margin-bottom: var(--s4); }
+.aprspin { display: inline-flex; align-items: center; gap: var(--s1); height: 28px; padding: 0 var(--s2) 0 var(--s1); white-space: nowrap;
+  border-radius: var(--r-pill); background: var(--surface); color: var(--fg); border: 2px solid var(--accent); box-shadow: var(--shadow-1); font-size: var(--text-sm); }
+.aprspin i { width: 0; height: 0; margin: 0 3px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 11px solid var(--accent); }
+.aprspin i[hidden] { display: inline-block; width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--muted); }
+.aprsdot { flex: none; align-self: center; width: 10px; height: 10px; border-radius: 50%; }
+/* APRS cards: everything that can be long is either cut with an ellipsis or allowed to break, never pushed wider */
+.aprscols { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); align-items: start; }
+.aprscard { display: flex; flex-direction: column; gap: var(--s3); }
+.aprscard.quiet { opacity: .8; }
+.aprshead { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.aprscall { font-size: var(--text-lg); letter-spacing: -.01em; white-space: nowrap; }
+.aprswhat { flex: 1 1 0; min-width: 0; font-size: var(--text-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aprshead .status { flex: none; margin-left: auto; }
+.aprsbody { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.aprsdial { width: 96px; height: 96px; }
+.aprsstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(112px, 100%), 1fr)); gap: var(--s2) var(--s3); min-width: 0; }
+.aprsstat { display: flex; flex-direction: column; min-width: 0; }
+.aprsstat span, .aprssparks span { font-size: var(--text-2xs); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.aprsstat b { font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aprsstat small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aprssparks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: var(--s3); }
+.aprssparks > div { min-width: 0; }
+.aprscomment { margin: 0; padding-left: var(--s2); border-left: 2px solid var(--line); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.aprsfoot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; font-size: var(--text-xs); }
+.aprspath { display: flex; flex-wrap: wrap; gap: var(--s1); flex: 1 1 auto; min-width: 0; }
+.aprspath code { padding: 0 var(--s1); border: 1px solid var(--line); border-radius: var(--r-sm); font-size: var(--text-2xs); overflow-wrap: anywhere; }
+.aprslinks { display: inline-flex; gap: var(--s3); margin-left: auto; white-space: nowrap; }
+.aprspackets { max-height: 280px; overflow: auto; border-top: 1px solid var(--line); }
+.aprspackets table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-xs); }
+.aprspackets td { padding: 3px var(--s2) 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.aprspackets td:nth-child(1) { width: 30%; } .aprspackets td:nth-child(2) { width: 17%; } .aprspackets td:nth-child(3) { width: 23%; }
+.aprspackets .mono { font-family: var(--mono); }
+@media (max-width: 420px) {
+  .aprsbody { grid-template-columns: 72px minmax(0, 1fr); }
+  .aprsdial { width: 72px; height: 72px; }
+  .aprsstats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .aprsstat.wide { grid-column: span 2; }
+  .aprspackets td:nth-child(4) { display: none; }      /* the comment is on the card already */
+  .aprspackets td:nth-child(1) { width: 42%; } .aprspackets td:nth-child(2) { width: 22%; } .aprspackets td:nth-child(3) { width: auto; }
+}
 .rose svg { flex: 1 1 180px; min-width: 0; width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }

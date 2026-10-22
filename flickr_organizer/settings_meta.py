@@ -21,6 +21,8 @@ SECTIONS = [
                          "Analytics. Small amounts get the first color, the largest the second, on a log scale."),
     ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
                            "from their WebSocket. Both stations on the token's account are found by themselves."),
+    ("aprs", "APRS", "Callsigns to follow on the APRS page. Their positions are heard live from APRS-IS (read-only, "
+                     "nothing is transmitted) and kept, so the tracks start from when the app began listening."),
     ("vision", "Vision model", "The model that looks at each photo and writes the proposals."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
@@ -66,6 +68,10 @@ META = {
                                     "per day per station. Raise it later to fill in older days; it only fetches what's missing.",
                                     group="History"),
     "weatherflow.calls_per_second": _m("weather", "REST calls per second", group="History"),
+
+    # ---- APRS
+    "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "
+                         "within a few seconds."),
 
     # ---- Titles
     "vision.title.max_words": _m("titles", "Length (words)"),

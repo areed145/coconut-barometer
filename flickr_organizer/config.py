@@ -26,6 +26,7 @@ DEFAULTS: dict[str, Any] = {
         "calls_per_second": 2.0,
     },
     "weather": {"units": "metric"},  # how the Weather pages show values; always stored metric
+    "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
     "database": "flickr_organizer.duckdb",
     "albums": {"create_missing": False},
     "geo": {
@@ -282,6 +283,13 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             except (re.error, TypeError) as e:
                 errors.append(f"{where}: not a valid regular expression ({e})")
     checks.append(regexes)
+
+    def callsigns():
+        from .aprs.stream import CALLSIGN
+        for i, c in enumerate(get(("aprs", "callsigns"))):
+            if not isinstance(c, str) or not CALLSIGN.match(c.strip().upper()):
+                errors.append(f"aprs.callsigns[{i}]: {c!r} isn't a callsign (like KJ4TFD or KJ4TFD-10)")
+    checks.append(callsigns)
 
     def categories():
         for cat, c in get(("vision", "categories")).items():

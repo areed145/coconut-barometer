@@ -79,6 +79,7 @@ Every API route except login needs a session. It's built to be reachable from th
 | `GET /api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
 | `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/rose?device=`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket, set the token in Settings → API keys) |
+| `GET /api/aprs/stations`, `/track?callsign=&hours=`, `/packets?callsign=` | the APRS page: positions of the callsigns in Settings → APRS, heard live from APRS-IS |
 
 ## Workflow: review photo by photo
 
