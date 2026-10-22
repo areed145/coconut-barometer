@@ -38,7 +38,7 @@ export function PhotoGrid({ paged }) {
   const [open, setOpen] = useState(null);           // index into photos
   const sentinel = useRef(null);
   useEffect(() => {
-    const io = new IntersectionObserver((e) => e[0].isIntersecting && more(), { rootMargin: "800px" });
+    const io = new IntersectionObserver((e) => (e[0].isIntersecting || e[0].intersectionRatio > 0) && more(), { rootMargin: "800px" });
     if (sentinel.current) io.observe(sentinel.current);
     return () => io.disconnect();
   }, [more]);
