@@ -210,7 +210,9 @@ class ServerTest(unittest.TestCase):
         other = os.path.join(tempfile.mkdtemp(), "other.db")
         sqlite3.connect(other).execute("CREATE TABLE t (x)").connection.commit()
         with open(other, "rb") as f:
-            self.assertEqual(up(f.read()).status_code, 422)                              # a database, not ours
+            r = up(f.read())
+        self.assertEqual(r.status_code, 422)                                             # SQLite: from before DuckDB
+        self.assertIn("before the move to DuckDB", r.json()["detail"])
         self.assertFalse(any(n.startswith("restore") or n.endswith(".part") for n in os.listdir(folder)))
         r = up(backup)
         self.assertEqual((r.status_code, r.json()["staged"], restarts), (200, "restore.db.gz", [1]))
@@ -239,7 +241,7 @@ class SetupTest(unittest.TestCase):
         self.c = TestClient(self.app, base_url="https://testserver")
 
     def test_first_login_needs_the_code_and_only_works_once(self):
-        self.assertEqual(self.c.get("/api/setup").json(), {"needed": True, "sqlite_found": False})
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": True})
         user = {"username": "owner", "password": PASSWORD}
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": "0000-0000-0000"}).status_code, 403)
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code,
@@ -247,7 +249,7 @@ class SetupTest(unittest.TestCase):
         r = self.c.post("/api/setup/user", json={**user, "code": self.rt.setup_code.lower()})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.c.get("/api/auth/session").json()["username"], "owner")      # signed in
-        self.assertEqual(self.c.get("/api/setup").json(), {"needed": False, "sqlite_found": False})
+        self.assertEqual(self.c.get("/api/setup").json(), {"needed": False})
         self.assertEqual(self.c.post("/api/setup/user", json={**user, "username": "intruder", "code": "x"}).status_code, 409)
 
     def test_wrong_codes_are_throttled(self):
@@ -284,7 +286,7 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(S.decrypt("flickr.api_key", row["nonce"], row["ciphertext"]), "laptop-flickr-key")
         self.assertFalse(any(n.startswith("restore.") for n in os.listdir(self.data)))
         self.assertEqual(TestClient(create_app(self.cfg, None, scheduler=False), base_url="https://testserver")
-                         .get("/api/setup").json(), {"needed": False, "sqlite_found": False})
+                         .get("/api/setup").json(), {"needed": False})
 
 
 class FreshServerTest(unittest.TestCase):

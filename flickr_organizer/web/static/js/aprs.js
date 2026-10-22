@@ -2,7 +2,7 @@
 // its newest position), and a card per callsign with what it last sent. Positions come in live from APRS-IS;
 // nothing older than when the app started listening is known. Map markers and popups are built as elements,
 // as on the other maps, to suit the page's CSP.
-import { html, useState, useEffect, useRef, api, ago, toast } from "./lib.js";
+import { html, useState, useEffect, useRef, api, ago, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Spark } from "./weather.js";
 
@@ -10,7 +10,7 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 const COLORS = ["--chart-1", "--chart-2", "--chart-3"];
 const colorOf = (i) => `var(${COLORS[i % COLORS.length]})`;
 const WINDOWS = [["6h", 6], ["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30]];
-// Stored metric (m/s, m); shown in km/h or mph, m or ft, following Settings → Weather → Units.
+// Stored metric (m/s, m); shown in km/h or mph, m or ft, following Settings → Units.
 const UNITS = { metric: { speed: ["km/h", 3.6], height: ["m", 1] }, imperial: { speed: ["mph", 2.23694], height: ["ft", 3.28084] } };
 const show = (units, kind, v) => { const [label, k] = (UNITS[units] || UNITS.metric)[kind]; return v == null ? "–" : `${Math.round(v * k)} ${label}`; };
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -190,11 +190,10 @@ export function Aprs() {
   const [err, setErr] = useState("");
   useEffect(() => {
     let alive = true;
-    const load = () => document.visibilityState !== "hidden" && api("/api/aprs/stations")
+    const load = () => api("/api/aprs/stations")
       .then((x) => { if (alive) { setD(x); setErr(""); } }).catch((e) => alive && setErr(e.message));
-    load();
-    const t = setInterval(load, 15000);
-    return () => { alive = false; clearInterval(t); };
+    const stop = every(load, 15000);
+    return () => { alive = false; stop(); };
   }, []);
   // Tracks again whenever the window changes or someone's newest position does.
   const newest = d ? d.callsigns.map((c) => c.last?.ts || 0).join() : "";

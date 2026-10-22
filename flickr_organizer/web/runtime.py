@@ -12,7 +12,6 @@ import time
 
 from ..review import ReviewApp
 from ..schedule import due
-from ..store.migration import Migration, find_sqlite_source
 from ..weather.service import WeatherService
 from ..aprs.service import AprsService
 from ..store import Store
@@ -32,10 +31,6 @@ class Runtime:
                                 process_kw=process_kw)
         self.weather = self.review.weather = WeatherService(cfg, self.db_path)
         self.aprs = AprsService(cfg, self.db_path)
-        # The former SQLite file, if one is beside the database: the setup page / the API can import it.
-        self.migration = Migration(self.db_path, find_sqlite_source(self.db_path, os.environ.get("FLICKR_ORGANIZER_SQLITE_SOURCE")),
-                                   on_done=self.reload)
-        self.review.paused = self.migration.busy
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()
@@ -49,8 +44,6 @@ class Runtime:
         if self.needs_setup():
             self.setup_code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
             print(f"No login yet. Open the app and finish setup with this code: {self.setup_code}", flush=True)
-            if self.migration.view()["source_found"]:
-                print("A SQLite library was found; the setup page can import it.", flush=True)
 
     def needs_setup(self) -> bool:
         return not self.store().usernames()

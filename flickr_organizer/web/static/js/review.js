@@ -1,6 +1,6 @@
 // The reviewer: one photo at a time, approve each proposed change. Approvals and
 // processing run in the server's background worker; this page polls for outcomes.
-import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink } from "./lib.js";
+import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink, every } from "./lib.js";
 
 // "To review" also holds new photos, processed when you reach them ("new").
 const LABELS = { pending: "To review", applying: "Applying", failed: "Failed", applied: "Applied", rejected: "Rejected",
@@ -119,7 +119,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
         if (j.finished.length) loadSummary();
       } catch { /* offline for a moment */ }
     };
-    poll(); const t = setInterval(poll, 1500); return () => clearInterval(t);
+    return every(poll, 1500);
   }, []);
 
   const move = (d) => { if (!ids.length) return; const n = (idx + d + ids.length) % ids.length; setIdx(n); loadItem(ids[n], ids, n); };

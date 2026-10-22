@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/wx", tags=["weather"], dependencies=[Depends(ses
 
 
 def _units(rt) -> str:
-    return rt.cfg["weather"]["units"]
+    return rt.cfg["display"]["units"]
 
 
 @router.get("/stations")

@@ -1,8 +1,7 @@
 """The DuckDB connection and schema.
 
 The store classes were written for SQLite, so Connection keeps its calling style (execute with
-? or :name parameters, rows readable by name or index, `with db:` for a transaction). The one-time
-import from the former SQLite file is in migration.py."""
+? or :name parameters, rows readable by name or index, `with db:` for a transaction)."""
 from __future__ import annotations
 
 import os
@@ -167,6 +166,15 @@ class Connection:
 SCHEMA_VERSION = 6
 
 
+def is_sqlite_file(path) -> bool:
+    """A SQLite database, from before the move to DuckDB (any other file, or none: False)."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
 class SchemaTooNew(RuntimeError):
     """The database was written by a newer version of the tool than this one."""
 
@@ -178,12 +186,10 @@ class Database:
         """any_thread is accepted for the callers that used to need it (a SQLite connection
         belonged to one thread); a DuckDB connection can be handed between threads one at a time.
         migrate=False skips the schema check (the web app runs it once at startup)."""
-        from .migration import is_sqlite_file
-
         self.path = path
         if is_sqlite_file(path):
-            raise ValueError(f"{path} is a SQLite database, but this version uses DuckDB. "
-                             "Import it with `flickr-organizer migrate-sqlite` or from the app's setup page.")
+            raise ValueError(f"{path} is a SQLite database from before the move to DuckDB, which this version can't "
+                             "read. Converting one needs an older version (git history: store/migration.py).")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         try:
             self.db = Connection(path)

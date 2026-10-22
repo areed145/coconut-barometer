@@ -25,7 +25,7 @@ DEFAULTS: dict[str, Any] = {
         "backfill_days": 7,          # history fetched from REST: forward from the newest stored, back this many days
         "calls_per_second": 2.0,
     },
-    "weather": {"units": "metric"},  # how the Weather pages show values; always stored metric
+    "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
     "database": "flickr_organizer.duckdb",
     "albums": {"create_missing": False},
@@ -101,7 +101,7 @@ OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_k
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("vision", "thumbnail"): ("url_q", "url_n", "url_m", "url_z"),
-           ("schedule", "new_photos"): ("process", "queue"), ("weather", "units"): ("metric", "imperial")}
+           ("schedule", "new_photos"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
 RANGES = {("flickr", "calls_per_second"): (0.01, None), ("vision", "concurrency"): (1, 32),
           ("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
@@ -131,11 +131,12 @@ RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "i
            ("vision", "extra_tags", "enabled"), ("vision", "describe", "enabled"), ("vision", "describe", "reword"),
            ("vision", "title", "enabled"), ("vision", "title", "replace"), ("web", "process_new"),
            ("standard_tags", "place", "split_words"), ("standard_tags", "coords"), ("standard_tags", "owner"),
-           ("standard_tags", "filler")}
+           ("standard_tags", "filler"), ("weather",)}
 
 
 # Settings that moved: old path -> new path (the old one is used if the new one isn't set).
-RENAMED = {"map.color_low": "theme.color_low", "map.color_high": "theme.color_high"}
+RENAMED = {"map.color_low": "theme.color_low", "map.color_high": "theme.color_high",
+           "weather.units": "display.units"}
 
 
 def retire(raw: dict) -> dict:
@@ -366,15 +367,6 @@ def database_path(cfg_path: str | os.PathLike, raw: dict, environ=os.environ) ->
         return str(data_dir(environ) / DEFAULTS["database"])
     db = db or DEFAULTS["database"]
     path = Path(db) if os.path.isabs(db) else Path(cfg_path).resolve().parent / db
-    # A pre-DuckDB config may still point at the SQLite file. Keep that file as the
-    # migration source and direct this DuckDB-only build to a sibling database file.
-    if path.is_file():
-        try:
-            with path.open("rb") as f:
-                if f.read(16) == b"SQLite format 3\x00":
-                    return str(path.with_suffix(".duckdb"))
-        except OSError:
-            pass
     return str(path)
 
 

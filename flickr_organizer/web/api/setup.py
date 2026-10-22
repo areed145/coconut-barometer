@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import client_ip, runtime, store
 from ..security import MIN_PASSWORD, hash_password, same
-from .admin import receive_restore, start_migration
+from .admin import receive_restore
 from .auth import start_session
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -34,7 +34,7 @@ def _check(rt, request: Request, code: str) -> None:
 
 @router.get("")
 def status(rt=Depends(runtime)):
-    return {"needed": rt.needs_setup(), "sqlite_found": rt.migration.view()["source_found"]}
+    return {"needed": rt.needs_setup()}
 
 
 @router.post("/user")
@@ -43,18 +43,6 @@ def first_user(body: FirstUser, request: Request, response: Response, rt=Depends
     db.set_password_hash(body.username, hash_password(body.password))
     rt.setup_code = None
     return start_session(rt, db, request, response, body.username)
-
-
-class Code(BaseModel):
-    code: str = Field(max_length=100)
-
-
-@router.post("/migrate")
-def migrate(body: Code, request: Request, rt=Depends(runtime)):
-    """Import the former SQLite library into this new database (needs the setup code). Poll
-    /api/migration/status; when it says complete, sign in with the login you had."""
-    _check(rt, request, body.code)
-    return start_migration(rt)
 
 
 @router.post("/restore")

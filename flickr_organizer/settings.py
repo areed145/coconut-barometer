@@ -78,7 +78,9 @@ def _key_from_text(text: str) -> bytes:
     """A 32-byte key, as url-safe or standard base64 (`settings new-key`, a key file, or Render's
     generateValue). Anything else (at least 32 characters) is turned into one with SHA-256."""
     text = text.strip()
-    for decode in (base64.urlsafe_b64decode, base64.b64decode):
+    # "+" or "/" can only be standard base64: decode that first (url-safe decoding of them is going away in Python).
+    standard = "+" in text or "/" in text
+    for decode in ((base64.b64decode, base64.urlsafe_b64decode) if standard else (base64.urlsafe_b64decode, base64.b64decode)):
         try:
             key = decode(text + "=" * (-len(text) % 4))
         except (ValueError, TypeError):
@@ -113,6 +115,12 @@ def _key(create: bool) -> bytes | None:
     with os.fdopen(fd, "w") as f:
         f.write(base64.urlsafe_b64encode(AESGCM.generate_key(256)).decode())
     return _key_from_text(path.read_text())
+
+
+def export_key() -> str | None:
+    """The key in use (from the environment or the key file), as text a restore takes; None before there is one."""
+    key = _key(create=False)
+    return base64.urlsafe_b64encode(key).decode() if key else None
 
 
 def new_key() -> str:

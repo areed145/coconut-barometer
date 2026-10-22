@@ -1,7 +1,7 @@
 // The Weather section: Live (the stations now), History (charts), Stations (what's stored, sync).
-// Everything is stored metric; the unit setting (Settings → Weather) only changes how it's shown here.
+// Everything is stored metric; the unit setting (Settings → Units) only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare, every } from "./lib.js";
 import { WxMap } from "./weather_map.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -68,9 +68,8 @@ function StationCard({ s, rapid, unit, now, events }) {
   useEffect(() => {
     let live = true;
     const load = () => api(`/api/wx/history?device=${s.device_id}&hours=3`).then((x) => live && setRecent(x.devices[s.device_id])).catch(() => {});
-    load();
-    const t = setInterval(load, 60000);
-    return () => { live = false; clearInterval(t); };
+    const stop = every(load, 60000);
+    return () => { live = false; stop(); };
   }, [s.device_id]);
   if (!o) return html`<div class="card"><h2>${s.name}</h2><p class="muted">No observations stored yet. Syncing, or waiting for the first report.</p></div>`;
   const r = recent || {};
@@ -137,9 +136,8 @@ function Live() {
   useEffect(() => {
     let live = true;
     const load = () => api("/api/wx/live").then((x) => { if (live) { setD(x); setErr(""); } }).catch((e) => live && setErr(e.message));
-    load();
-    const t = setInterval(load, 3000);
-    return () => { live = false; clearInterval(t); };
+    const stop = every(load, 3000);
+    return () => { live = false; stop(); };
   }, []);
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.stations.length) return html`<${Empty} />`;
@@ -585,7 +583,7 @@ function History({ params = {} }) {
 function Stations() {
   const [info, setInfo] = useState(null);
   const load = () => api("/api/wx/stations").then(setInfo).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  useEffect(() => every(load, 5000), []);
   const sync = async () => {
     try {
       const r = await api("/api/wx/sync", { method: "POST" });

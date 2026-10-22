@@ -1,4 +1,4 @@
-"""Local SQLite state: a cache of your library plus everything the tool has decided.
+"""Local DuckDB state: a cache of your library plus everything the tool has decided.
 
 One connection, methods grouped by area:
   db.py          connection, SCHEMA and numbered upgrades (meta.schema_version), meta

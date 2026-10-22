@@ -32,8 +32,7 @@ class ReviewApp:
     cfg/provider are needed only to process photos and sync; provider is a zero-argument
     factory so the vision SDK loads on first use.
 
-    Each thread gets its own connection to the database (sqlite connections belong to the
-    thread that opened them), so this can serve a threaded web server."""
+    Each thread gets its own connection to the database, so this can serve a threaded web server."""
 
     def __init__(self, store, client, log=lambda *a: None, background: bool = True,
                  cfg: dict | None = None, provider=None, process_kw: dict | None = None):
@@ -47,7 +46,6 @@ class ReviewApp:
         self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
         self.syncing = False
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
-        self.paused = lambda: False                     # true while the SQLite import runs: nothing else may write
         self.processing: set[str] = set()
         self.tag_modes: dict[str, str] = {}             # photo -> "replace" while its processing waits
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
@@ -74,8 +72,6 @@ class ReviewApp:
             raise RuntimeError("syncing isn't available in this session")
         if self.client is None:
             return {"status": "no_flickr"}          # no API keys yet
-        if self.paused():
-            return {"status": "importing"}
         if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("sync", mode or ""))
@@ -85,8 +81,6 @@ class ReviewApp:
         """Queue a WeatherFlow sync (stations, then every Tempest's missing history). Returns at once."""
         if self.weather is None or self.weather.client is None:
             return {"status": "no_token"}
-        if self.paused():
-            return {"status": "importing"}
         if (self.running or {}).get("kind") == "wx" or any(kind == "wx" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("wx", ""))
@@ -257,8 +251,6 @@ class ReviewApp:
         store = self.store   # this thread's own connection
         while True:
             kind, pid = self.jobs.get()
-            while self.paused():            # the SQLite import is copying into the same tables
-                time.sleep(0.5)
             started, calls0 = time.time(), getattr(self.client, "call_count", 0)
             self.running = {"kind": kind, "photo_id": pid, "started": started}
             try:

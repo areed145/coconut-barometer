@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -120,36 +120,6 @@ class Confirm(BaseModel):
     password: str = Field(max_length=1000)
 
 
-class StartDatabaseMigration(BaseModel):
-    password: str = Field(max_length=1000)
-
-
-@router.get("/database/migration")
-def database_migration_status(rt=Depends(runtime)):
-    """Progress of the SQLite to DuckDB import (also public at /api/migration/status)."""
-    return rt.migration.view()
-
-
-@router.post("/database/migration")
-def start_database_migration(body: StartDatabaseMigration, request: Request, sess=Depends(session),
-                             rt=Depends(runtime), db=Depends(store)):
-    """Import the SQLite library into this database, in the background; poll the status. Only into a
-    database with no photos yet (it replaces the logins and settings made since)."""
-    _confirm_password(rt, db, request, sess["username"], body.password)
-    return start_migration(rt)
-
-
-def start_migration(rt) -> dict:
-    from ...store import Store
-    from ...store.migration import MigrationError
-
-    try:
-        return rt.migration.start(lambda: Store(rt.db_path),
-                                  idle=lambda: rt.review.running is None and rt.review.jobs.empty())
-    except MigrationError as e:
-        raise HTTPException(409, str(e))
-
-
 @router.get("/backups")
 def backups(rt=Depends(runtime), db=Depends(store)):
     return {"backups": B.list_backups(rt.cfg), "every_hours": rt.cfg["backup"]["every_hours"],
@@ -173,6 +143,18 @@ def download_backup(name: str, body: Confirm, request: Request, sess=Depends(ses
     except FileNotFoundError:
         raise HTTPException(404, "no such backup")
     return FileResponse(path, media_type="application/gzip", filename=name)
+
+
+@router.post("/encryption-key/download")
+def download_key(body: Confirm, request: Request, sess=Depends(session), rt=Depends(runtime), db=Depends(store)):
+    """The key the API keys are encrypted with (secret.key), for restoring a backup on another server. Backups
+    leave it out on purpose: with it, a backup's API keys can be read. Password needed again."""
+    _confirm_password(rt, db, request, sess["username"], body.password)
+    key = S.export_key()
+    if key is None:
+        raise HTTPException(404, "there's no encryption key yet (no API key has been saved)")
+    return Response(key + "\n", media_type="text/plain",
+                    headers={"Content-Disposition": 'attachment; filename="secret.key"', "Cache-Control": "no-store"})
 
 
 @router.get("/flickr")

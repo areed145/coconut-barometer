@@ -11,10 +11,11 @@ from __future__ import annotations
 import gzip
 import os
 import shutil
-import sqlite3
 import tempfile
 import time
 from pathlib import Path
+
+from .store.db import is_sqlite_file
 
 PREFIX, SUFFIX = "flickr_organizer-", ".db.gz"
 
@@ -71,9 +72,7 @@ def _gzipped(path: Path) -> bool:
         return f.read(2) == b"\x1f\x8b"
 
 
-def _is_sqlite(path: Path) -> bool:
-    with open(path, "rb") as f:
-        return f.read(16) == b"SQLite format 3\x00"
+OLD_SQLITE = "a backup from before the move to DuckDB (SQLite), which this version can't restore"
 
 
 def check_backup_file(path: str, key: bytes | None = None) -> dict:
@@ -87,28 +86,21 @@ def check_backup_file(path: str, key: bytes | None = None) -> dict:
         try:
             with (gzip.open if _gzipped(p) else open)(p, "rb") as fin, open(plain, "wb") as fout:
                 shutil.copyfileobj(fin, fout, 1 << 20)
-            sqlite_file = _is_sqlite(plain)
-            if sqlite_file:
-                con = sqlite3.connect(plain)
-                try:
-                    ok = con.execute("PRAGMA integrity_check").fetchone()[0]
-                    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                    rows = (con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall()
-                            if ok == "ok" and "secrets" in tables else [])
-                finally:
-                    con.close()
-            else:
-                import duckdb
-                con = duckdb.connect(str(plain), read_only=True)
-                try:
-                    ok = con.execute("SELECT 1").fetchone()[0] == 1
-                    tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
-                    rows = con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall() if "secrets" in tables else []
-                finally:
-                    con.close()
+            if is_sqlite_file(plain):
+                raise ValueError(OLD_SQLITE)
+            import duckdb
+            con = duckdb.connect(str(plain), read_only=True)
+            try:
+                ok = con.execute("SELECT 1").fetchone()[0] == 1
+                tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
+                rows = con.execute("SELECT name, nonce, ciphertext FROM secrets").fetchall() if "secrets" in tables else []
+            finally:
+                con.close()
+        except ValueError:
+            raise
         except Exception as e:
             raise ValueError(f"not a database backup ({e})")
-    if (sqlite_file and ok != "ok") or (not sqlite_file and ok is not True):
+    if ok is not True:
         raise ValueError(f"the database is damaged ({ok})")
     if "photos" not in tables:
         raise ValueError("not a Coconut Barometer library database (no photos table)")
@@ -145,8 +137,7 @@ def stage_restore(cfg: dict, upload: str, key_text: str | None = None) -> dict:
 
 
 def restore(cfg: dict, source: str) -> Path:
-    """Replace the database with a backup (.db.gz or .db; DuckDB, or SQLite from before the move,
-    which is converted). Stop the app first, and close every connection to the database. The current
+    """Replace the database with a backup (.db.gz or .db). Stop the app first, and close every connection to the database. The current
     database is kept beside it as <name>.before-restore-<time>."""
     src = Path(source)
     with tempfile.TemporaryDirectory(dir=Path(cfg["database"]).parent) as tmp:
@@ -154,26 +145,17 @@ def restore(cfg: dict, source: str) -> Path:
         opener = gzip.open if src.suffix == ".gz" else open
         with opener(src, "rb") as fin, open(plain, "wb") as fout:
             shutil.copyfileobj(fin, fout, 1 << 20)
-        sqlite_file = _is_sqlite(plain)
-        if sqlite_file:
-            check = sqlite3.connect(plain)
-            try:
-                ok = check.execute("PRAGMA integrity_check").fetchone()[0]
-                tables = {r[0] for r in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            finally:
-                check.close()
-            healthy = ok == "ok"
-        else:
-            import duckdb
-            check = duckdb.connect(str(plain), read_only=True)
-            try:
-                check.execute("SELECT 1").fetchone()
-                tables = {r[0] for r in check.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
-                healthy = True
-            finally:
-                check.close()
-        if not healthy or "photos" not in tables:
-            raise SystemExit(f"{source} isn't a usable backup ({'ok' if healthy else 'database check failed' if not sqlite_file else ok})")
+        if is_sqlite_file(plain):
+            raise SystemExit(f"{source} is {OLD_SQLITE}")
+        import duckdb
+        check = duckdb.connect(str(plain), read_only=True)
+        try:
+            check.execute("SELECT 1").fetchone()
+            tables = {r[0] for r in check.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()}
+        finally:
+            check.close()
+        if "photos" not in tables:
+            raise SystemExit(f"{source} isn't a usable backup (no photos table)")
         db = Path(cfg["database"])
         kept = db.with_name(f"{db.name}.before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
         if db.exists():
@@ -188,11 +170,5 @@ def restore(cfg: dict, source: str) -> Path:
             shutil.copy2(db, kept)
         wal = db.with_name(db.name + ".wal")
         wal.unlink(missing_ok=True)      # it belongs to the database being replaced; replaying it onto the backup would corrupt it
-        if sqlite_file:              # a backup from before DuckDB: convert it on the way in
-            from .store.migration import import_sqlite
-
-            converted = Path(tmp) / "converted.duckdb"
-            import_sqlite(plain, converted)
-            plain = converted
         os.replace(plain, db)
     return kept

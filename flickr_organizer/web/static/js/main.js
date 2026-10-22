@@ -1,5 +1,5 @@
 // The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, ago, until, photosLink, loadTheme } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, ago, until, photosLink, loadTheme, every } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
@@ -44,7 +44,7 @@ function Login({ onLogin }) {
 function SyncBox() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
+  useEffect(() => every(load, 15000), []);
   if (!s) return null;
   const err = s.last_result?.error;
   const text = s.running ? "Syncing… (open the queue)" : err ? "Last sync failed: " + err
@@ -82,12 +82,12 @@ function Shell({ session, onLogout }) {
   const [working, setWorking] = useState(0);         // jobs the background worker is applying or processing
   useEffect(() => {
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
-    load(); const t = setInterval(load, 30000); return () => clearInterval(t);
+    return every(load, 30000);
   }, []);
   useEffect(() => {
     const load = () => api("/api/review/jobs", { params: { since: 1e9 } })
       .then((j) => setWorking(j.applying + j.processing + (j.syncing ? 1 : 0))).catch(() => {});
-    load(); const t = setInterval(load, 10000); return () => clearInterval(t);
+    return every(load, 10000);
   }, []);
   const tab = route[0];
   useEffect(() => { if (tab === "review") location.replace("#/photos/review"); }, [tab]);   // the old top-level address

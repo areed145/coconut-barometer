@@ -21,7 +21,7 @@ def _tracked(rt, callsign: str) -> str:
 @router.get("/stations")
 def stations(rt=Depends(runtime), db=Depends(store)):
     """Each tracked callsign (Settings → APRS) with its newest position, and the APRS-IS connection's state."""
-    return {"units": rt.cfg["weather"]["units"], "now": int(time.time()), "stream": rt.aprs.hub.snapshot(),
+    return {"units": rt.cfg["display"]["units"], "now": int(time.time()), "stream": rt.aprs.hub.snapshot(),
             "callsigns": db.aprs_latest(rt.aprs.callsigns())}
 
 

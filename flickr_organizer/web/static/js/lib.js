@@ -132,6 +132,16 @@ export function useRoute() {
   }, []);
   return route;
 }
+// Polling: fn() now and every `ms` while the page can be seen, and at once when it's shown again. A hidden
+// tab (in the background, or a phone's screen off) makes no requests. Returns the cleanup, for useEffect.
+export function every(fn, ms) {
+  const tick = () => document.visibilityState !== "hidden" && fn();
+  const shown = () => document.visibilityState === "visible" && fn();
+  tick();
+  const t = setInterval(tick, ms);
+  document.addEventListener("visibilitychange", shown);
+  return () => { clearInterval(t); document.removeEventListener("visibilitychange", shown); };
+}
 export const go = (path) => { location.hash = "#/" + path; };
 
 // The Photos page filtered: photosLink({tag: "ramen"}) -> "#/photos/photostream?tag=ramen". Empty values drop out.

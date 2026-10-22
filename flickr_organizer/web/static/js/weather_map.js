@@ -2,12 +2,11 @@
 // hour or so, with the stations' current readings and their recent lightning. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
-import { html, useState, useEffect, useRef, api, toast } from "./lib.js";
+import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const visible = () => document.visibilityState !== "hidden";
 const SATS = [["", "No satellite"], ["geocolor", "Satellite: color"], ["infrared", "Satellite: infrared"]];
 // The NWS reflectivity colors, light rain (5 dBZ) to hail (70+).
 const DBZ = "linear-gradient(90deg, #04e9e7, #019ff4, #0300f4, #02fd02, #01c501, #008e00, #fdf802, #e5bc00, #fd9500, #fd0000, #bc0000, #f800fd, #9854c6)";
@@ -53,11 +52,10 @@ export function WxMap({ show, unitsFor, compass }) {
   // Frames every 5 minutes and readings every 30 seconds, while the tab is visible.
   useEffect(() => {
     let alive = true;
-    const frames = () => visible() && api("/api/wx/map").then((x) => alive && setInfo(x)).catch((e) => alive && toast(e.message));
-    const readings = () => visible() && api("/api/wx/live").then((x) => alive && setLive(x)).catch(() => {});
-    frames(); readings();
-    const a = setInterval(frames, 300000), b = setInterval(readings, 30000);
-    return () => { alive = false; clearInterval(a); clearInterval(b); };
+    const frames = () => api("/api/wx/map").then((x) => alive && setInfo(x)).catch((e) => alive && toast(e.message));
+    const readings = () => api("/api/wx/live").then((x) => alive && setLive(x)).catch(() => {});
+    const stopFrames = every(frames, 300000), stopReadings = every(readings, 30000);
+    return () => { alive = false; stopFrames(); stopReadings(); };
   }, []);
   useEffect(() => {
     if (!info) return;

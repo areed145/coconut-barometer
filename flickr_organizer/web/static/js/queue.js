@@ -2,7 +2,7 @@
 // use, the job running now, and the line of jobs behind it, which one worker takes in order. Inside a job each
 // call still waits for its service's rate limit, and those waits show on the service cards. Below: the activity
 // log, every call, stream message and finished job as it happens, filterable by source.
-import { html, useState, useEffect, useRef, num, api } from "./lib.js";
+import { html, useState, useEffect, useRef, num, api, every } from "./lib.js";
 
 const SOURCES = {
   flickr: ["Flickr API", "--chart-1"], cdn: ["Photo downloads", "--chart-3"], vision: ["Vision model", "--chart-2"],
@@ -125,7 +125,6 @@ export function QueuePage() {
   useEffect(() => {
     let live = true;
     const load = () => {
-      if (document.visibilityState === "hidden") return;
       api("/api/review/worker").then((d) => live && setQ(d)).catch(() => {});
       api("/api/activity", { params: { since: seq.current, limit: KEEP } }).then((d) => {
         if (!live) return;
@@ -136,9 +135,8 @@ export function QueuePage() {
         if (d.entries.length) setEntries((old) => [...d.entries.reverse(), ...old].slice(0, KEEP));
       }).catch(() => {});
     };
-    load();
-    const t = setInterval(load, 1500);
-    return () => { live = false; clearInterval(t); };
+    const stop = every(load, 1500);
+    return () => { live = false; stop(); };
   }, []);
   if (!q || !a) return html`<div class="boot">Loading…</div>`;
   const sv = q.services, pick = (s) => setSource(s), on = (s) => source === s;

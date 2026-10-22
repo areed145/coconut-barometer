@@ -10,7 +10,11 @@ import socket
 import threading
 import time
 
-import aprslib
+import warnings
+
+with warnings.catch_warnings():     # aprslib 0.7 has regexes with invalid escapes: a SyntaxWarning when first compiled
+    warnings.simplefilter("ignore", SyntaxWarning)
+    import aprslib
 
 from .. import activity
 

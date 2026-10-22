@@ -486,9 +486,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="flickr_organizer", description="Auto-tag and album-sort a Flickr library.")
     ap.add_argument("-c", "--config", default=os.environ.get("FLICKR_ORGANIZER_CONFIG", "config.yaml"))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("migrate-sqlite", help="copy an existing SQLite store into a new DuckDB file")
-    p.add_argument("source", help="SQLite database file (Render default: /var/data/flickr_organizer.db)")
-    p.add_argument("target", help="new DuckDB file (Render default: /var/data/flickr_organizer.duckdb)")
     sub.add_parser("auth", help="authorize with Flickr (write access)")
     p = sub.add_parser("sync", help="bring the database up to date with Flickr (whatever's due; cheap)")
     p.add_argument("--full", dest="mode", action="store_const", const="full",
@@ -551,13 +548,6 @@ def main(argv=None):
     p.add_argument("--list", action="store_true", help="list every change, not just the totals")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
     args = ap.parse_args(argv)
-    if args.cmd == "migrate-sqlite":
-        from .store.migration import import_sqlite
-        counts = import_sqlite(args.source, args.target)
-        print(f"Imported {sum(counts.values())} rows from {len(counts)} tables into {args.target}.")
-        for table, count in sorted(counts.items()):
-            print(f"  {table}: {count}")
-        return
     if args.cmd == "check":   # before load_config, which stops at the first config error
         sys.exit(cmd_check(args.config))
 

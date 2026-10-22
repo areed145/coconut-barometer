@@ -94,6 +94,14 @@ class LayersTest(Base):
         self.assertEqual(retire({"map": {"color_low": "#000000", "expand_at": 9}}),
                          {"map": {"expand_at": 9}, "theme": {"color_low": "#000000"}})
 
+    def test_units_moved_out_of_weather(self):
+        """Units now cover Weather and APRS: a choice saved under weather.units, on the page or in the file, carries over."""
+        self.store.save_admin_settings({"weather.units": "imperial"}, [], "old", [])
+        raw, sources, _ = S.layer(self.file_raw(), self.store)
+        self.assertEqual((raw["display"]["units"], sources["display.units"]), ("imperial", "admin"))
+        from flickr_organizer.config import retire
+        self.assertEqual(retire({"weather": {"units": "imperial"}}), {"display": {"units": "imperial"}})
+
     def test_import_file_keeps_page_changes(self):
         import argparse, contextlib, io
         from flickr_organizer.cli import cmd_settings
@@ -139,6 +147,14 @@ class SecretsTest(Base):
             S.set_secret(self.store, "flickr.api_secret", "from-the-page-9999", "owner")
             self.assertEqual(load_config(self.cfg_path)["flickr"]["api_secret"], "from-the-page-9999")
         self.assertFalse(os.path.exists(os.environ["FLICKR_ORGANIZER_KEY_FILE"]))   # no key file made
+
+    def test_both_base64_alphabets_give_the_same_key(self):
+        import base64
+        raw = bytes(range(200, 232))          # encodes with "+" and "/" in standard base64, "-" and "_" url-safe
+        std, url = base64.b64encode(raw).decode(), base64.urlsafe_b64encode(raw).decode()
+        self.assertTrue(set("+/") & set(std) and set("-_") & set(url))
+        for text in (std, url, std.rstrip("="), url.rstrip("=")):
+            self.assertEqual(S._key_from_text(text), raw, text)
 
 
 class AdminApiTest(Base):
@@ -205,6 +221,21 @@ class AdminApiTest(Base):
         self.assertEqual(self.setting(r.json(), "flickr.api_key")["hint"], "0001")
         self.assertEqual(self.clients, ["new-flickr-key-0001"])
         self.assertEqual(self.app.state.runtime.cfg["flickr"]["api_key"], "new-flickr-key-0001")
+
+    def test_the_encryption_key_downloads_and_opens_a_backup_elsewhere(self):
+        from flickr_organizer import backup as B
+        get = lambda pw: self.c.post("/api/admin/encryption-key/download", json={"password": pw}, headers=self.h)
+        self.assertEqual(get(PASSWORD).status_code, 404)                 # no API key saved yet, so no key
+        self.c.put("/api/admin/secrets/flickr.api_key", json={"value": "new-flickr-key-0001", "password": PASSWORD},
+                   headers=self.h)
+        self.assertEqual(get("nope").status_code, 403)
+        self.assertEqual(self.c.post("/api/admin/encryption-key/download", json={"password": PASSWORD}).status_code, 403)
+        r = get(PASSWORD)
+        self.assertEqual((r.status_code, r.headers["cache-control"]), (200, "no-store"))
+        self.assertIn('filename="secret.key"', r.headers["content-disposition"])
+        backup = B.make_backup(self.app.state.runtime.cfg)
+        self.assertEqual(B.check_backup_file(str(backup), S._key_from_text(r.text)), {"keys": 1, "readable": True})
+        self.assertFalse(B.check_backup_file(str(backup), S._key_from_text(S.new_key()))["readable"])
 
     def test_password_change_signs_out_and_sessions_can_be_ended(self):
         listed = self.c.get("/api/admin/sessions").json()

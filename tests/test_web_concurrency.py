@@ -1,6 +1,8 @@
 """The real server under parallel requests, as a browser sends them (the analytics page
 fires several at once). FastAPI runs a request's dependencies and handler on different
 pool threads, which once broke sqlite's same-thread rule."""
+import contextlib
+import io
 import os
 import socket
 import tempfile
@@ -76,10 +78,13 @@ class NewerDatabaseTest(unittest.TestCase):
         with httpx.Client(base_url=f"http://127.0.0.1:{port}") as c:
             c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).raise_for_status()
             store.set_meta("schema_version", 99)              # "a newer version" upgraded it
-            for _ in range(3):        # the review tool opens its connections with the version check
-                r = c.get("/api/review/summary")
-                self.assertEqual(r.status_code, 503)
-                self.assertNotIn(path, r.text)               # the details go to the log, not the client
+            log = io.StringIO()
+            with contextlib.redirect_stderr(log):
+                for _ in range(3):    # the review tool opens its connections with the version check
+                    r = c.get("/api/review/summary")
+                    self.assertEqual(r.status_code, 503)
+                    self.assertNotIn(path, r.text)           # the details go to the log, not the client
+            self.assertIn(f"ERROR /api/review/summary: {path} is from a newer version", log.getvalue())
             self.assertFalse(server.should_exit)
             self.assertEqual(c.get("/").status_code, 200)    # still serving
 

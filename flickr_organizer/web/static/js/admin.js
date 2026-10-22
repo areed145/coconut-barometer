@@ -1,5 +1,5 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice } from "./lib.js";
+import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice, every } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
@@ -150,7 +150,7 @@ function FlickrPanel() {
 function SyncPanel() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  useEffect(() => every(load, 5000), []);
   const run = async () => {
     try { const r = await api("/api/sync/run", { method: "POST", body: {} });
       toast(r.status === "busy" ? "A sync is already running." : r.status === "no_flickr"
@@ -179,6 +179,12 @@ function BackupsPanel() {
     try { await download(`/api/admin/backups/${encodeURIComponent(name)}/download`, { password }, name); }
     catch (e) { toast(e.status === 403 ? "Wrong password." : `Couldn't download (${e.message}).`); }
   };
+  const fetchKey = async () => {
+    const password = prompt("Your password (with a backup, this key reveals your API keys):");
+    if (!password) return;
+    try { await download("/api/admin/encryption-key/download", { password }, "secret.key"); }
+    catch (e) { toast(e.status === 403 ? "Wrong password." : `Couldn't download (${e.message}).`); }
+  };
   const restore = (file, key) => {
     const password = prompt(`Replace this whole database with ${file.name}? The app restarts into it. Your password:`);
     return password ? upload("/api/admin/restore", file, { "X-Confirm-Password": password, "X-Encryption-Key": key }) : null;
@@ -190,6 +196,10 @@ function BackupsPanel() {
     ${b.backups.map((x) => html`<div class="sessionrow" key=${x.name}><span>${x.name} <span class="muted">· ${(x.size / 1048576).toFixed(1)} MB · ${day(x.created_at)}</span></span>
       <button class="link" onClick=${() => fetchBackup(x.name)}>Download</button></div>`)}
     <button onClick=${now} disabled=${busy}>${busy ? "Backing up…" : "Back up now"}</button>
+    <h3>Encryption key</h3>
+    <p class="why">Backups leave out the key their API keys are encrypted with. To restore one on another server with its API keys,
+      bring <code>secret.key</code> too: drop it in with the backup. Keep it apart from the backups: together they reveal the API keys.</p>
+    <button onClick=${fetchKey}>Download encryption key</button>
     <h3>Restore a backup</h3>
     <p class="why">Replaces this database (the current one is kept beside it). Leave the key empty if the backup came from this server.</p>
     <${RestoreBackup} send=${restore} />
