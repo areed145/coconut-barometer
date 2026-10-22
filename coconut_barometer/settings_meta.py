@@ -9,13 +9,13 @@ PROPOSALS = ("Every photo gets a proposed title, description, tags and albums, a
 
 SECTIONS = [
     ("photos", "Photos", PROPOSALS + "Titles, descriptions, tags and albums are proposed for each photo, and you accept "
-                              "or decline them in the reviewer."),
+                             "or decline them in the reviewer. Flickr and vision settings, including the sync schedule, "
+                             "are here too."),
     ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
                            "from their WebSocket. Every station on the token's account is found by itself."),
     ("aprs", "APRS", "Callsigns to follow on the APRS page. Their positions are heard live from APRS-IS (read-only, "
                      "nothing is transmitted) and kept, so the tracks start from when the app began listening."),
-    ("keys", "API keys", "Stored encrypted. Changing one asks for your password."),
-    ("sync", "Sync", "How often the app syncs with Flickr, and what happens to the photos that arrive."),
+    ("ui", "UI", "Interface colors and appearance."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
     ("web", "Server", "The settings in grey protect the server itself and stay in config.yaml or the environment."),
@@ -30,27 +30,29 @@ def _m(section, label, help="", group="", options=None):
 
 
 META = {
-    # ---- API keys
-    "flickr.api_key": _m("keys", "Flickr API key", "From flickr.com/services/apps/create."),
-    "flickr.api_secret": _m("keys", "Flickr API secret"),
-    "vision.api_key": _m("keys", "Vision API key", "Anthropic (or OpenAI) key. Not needed for Ollama."),
-    "weatherflow.token": _m("keys", "WeatherFlow token", "A personal access token, from tempestwx.com → Settings → Data Authorizations."),
+    # ---- Photos: Flickr and vision
+    "flickr.api_key": _m("photos", "Flickr API key", "From flickr.com/services/apps/create."),
+    "flickr.api_secret": _m("photos", "Flickr API secret"),
+    "vision.api_key": _m("photos", "Vision API key", "Anthropic (or OpenAI) key. Not needed for Ollama."),
 
-    # ---- Sync
-    "schedule.new_photos": _m("sync", "New photos", "Either way they're under Review → To review; nothing changes "
+    # ---- Weather: API key
+    "weatherflow.token": _m("weather", "WeatherFlow token", "A personal access token, from tempestwx.com → Settings → Data Authorizations."),
+
+    # ---- Photos: sync
+    "schedule.new_photos": _m("photos", "New photos", "Either way they're under Review → To review; nothing changes "
                               "on Flickr until you approve it.", group="After a sync",
                               options={"process": "Process them right away (costs vision calls)",
                                        "queue": "Queue them; each is processed when you open it"}),
-    "web.sync_every_minutes": _m("sync", "Sync every (minutes)", "Whatever is due below. 0 turns syncing off.",
+    "web.sync_every_minutes": _m("photos", "Sync every (minutes)", "Whatever is due below. 0 turns syncing off.",
                                  group="How often"),
-    "schedule.full_every_days": _m("sync", "Full sync every (days)", "Everything, ~180 calls for 10k photos.",
+    "schedule.full_every_days": _m("photos", "Full sync every (days)", "Everything, ~180 calls for 10k photos.",
                                    group="How often"),
-    "schedule.photo_list_every_hours": _m("sync", "Re-read every photo every (hours)",
+    "schedule.photo_list_every_hours": _m("photos", "Re-read every photo every (hours)",
                                           "View counts and the daily snapshot, ~22 calls.", group="How often"),
-    "schedule.stats": _m("sync", "Per-day stats", "Needs Flickr Pro.", group="Stats"),
-    "schedule.backfill_days_per_run": _m("sync", "Past days fetched per sync", "Until Flickr has none (~a year).",
+    "schedule.stats": _m("photos", "Per-day stats", "Needs Flickr Pro.", group="Stats"),
+    "schedule.backfill_days_per_run": _m("photos", "Past days fetched per sync", "Until Flickr has none (~a year).",
                                          group="Stats"),
-    "flickr.calls_per_second": _m("sync", "Flickr calls per second",
+    "flickr.calls_per_second": _m("photos", "Flickr calls per second",
                                   "Shared by everything using the key. 1 = Flickr's 3600/hour limit.", group="Limits"),
 
     # ---- Weather
@@ -149,8 +151,8 @@ META = {
                         "holds this many photos or fewer, it opens into thumbnails instead.", group="Map"),
 
     # ---- Colors
-    "theme.color_low": _m("photos", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
-    "theme.color_high": _m("photos", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
+    "theme.color_low": _m("ui", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
+    "theme.color_high": _m("ui", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
 
     # ---- Vision model
     "vision.provider": _m("photos", "Provider", "claude / anthropic, openai, or ollama (local).", group="Vision model"),

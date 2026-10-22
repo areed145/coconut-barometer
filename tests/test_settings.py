@@ -192,15 +192,26 @@ class AdminApiTest(Base):
     def test_settings_are_grouped_by_primary_area(self):
         payload = self.c.get("/api/admin/settings").json()
         section_ids = [s["id"] for s in payload["sections"]]
-        self.assertEqual(section_ids[:3], ["photos", "weather", "aprs"])
-        self.assertTrue({"titles", "descriptions", "tags", "albums", "theme", "display", "vision"}.isdisjoint(section_ids))
+        self.assertEqual(section_ids, ["photos", "weather", "aprs", "ui", "backup", "web"])
         expected = {
+            "flickr.api_key": "photos",
+            "flickr.api_secret": "photos",
+            "vision.api_key": "photos",
             "vision.title.max_words": "photos",
             "vision.describe.max_words": "photos",
             "standard_tags.date.enabled": "photos",
             "vision.categories": "photos",
             "map.carto_key": "photos",
-            "theme.color_low": "photos",
+            "schedule.new_photos": "photos",
+            "web.sync_every_minutes": "photos",
+            "schedule.full_every_days": "photos",
+            "schedule.photo_list_every_hours": "photos",
+            "schedule.stats": "photos",
+            "schedule.backfill_days_per_run": "photos",
+            "flickr.calls_per_second": "photos",
+            "weatherflow.token": "weather",
+            "theme.color_low": "ui",
+            "theme.color_high": "ui",
             "vision.provider": "photos",
             "display.units": "weather",
             "weatherflow.backfill_days": "weather",
@@ -209,6 +220,7 @@ class AdminApiTest(Base):
         settings = {s["path"]: s["section"] for s in payload["settings"]}
         for path, section in expected.items():
             self.assertEqual(settings[path], section, path)
+        self.assertFalse({"keys", "sync"}.intersection(section_ids))
 
     def test_retired_settings_in_the_database_dont_block_saving(self):
         self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])
@@ -216,7 +228,7 @@ class AdminApiTest(Base):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(set(self.store.admin_settings()), {"schedule.new_photos"})     # stale rows gone
         choice = self.setting(r.json(), "schedule.new_photos")
-        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "After a sync", "sync"))
+        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "After a sync", "photos"))
         self.assertIn("right away", choice["option_labels"]["process"])
         self.assertEqual(self.app.state.runtime.cfg["schedule"]["new_photos"], "process")
 
