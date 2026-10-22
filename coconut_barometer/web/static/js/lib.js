@@ -70,7 +70,7 @@ export function DropZone({ onFiles, accept, disabled, children }) {
   </label>`;
 }
 
-// ---- the color gradient (Settings → Colors), for anything showing an amount -----------
+// ---- the color gradient (Settings → Photos → Colors), for anything showing an amount ---
 let gradient = [[0xf7, 0xd1, 0x25], [0x1d, 0xab, 0x45]];
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 export const loadTheme = () => api("/api/theme").then((t) => { gradient = t.colors.map(rgbOf); }).catch(() => {});

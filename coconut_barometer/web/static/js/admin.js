@@ -278,7 +278,7 @@ export function Admin() {
       ${section === "account" ? html`<${Account} />` : html`
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
-        ${section === "theme" && html`<${ThemeSetting} />`}
+        ${section === "photos" && html`<${ThemeSetting} />`}
         ${section === "keys" && html`<${FlickrPanel} />`}
         ${section === "weather" && html`<${WeatherStream} />`}
         ${section === "sync" && html`<${SyncPanel} />`}
