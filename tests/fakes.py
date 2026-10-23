@@ -18,7 +18,7 @@ from coconut_barometer.vision.base import VisionProvider  # noqa: E402
 
 def photo(pid, lat=0, lon=0, acc=16, title="", tags=""):
     return {"id": pid, "secret": "s", "server": "1", "title": title, "ispublic": 1,
-            "description": {"_content": ""}, "tags": tags, "latitude": lat, "longitude": lon,
+            "description": {"_content": ""}, "tags": tags, "latitude": lat, "longitude": lon, "geo_is_public": 1,
             "accuracy": acc, "media": "photo", "url_m": f"https://live.staticflickr.com/1/{pid}_s.jpg",
             "datetaken": "2024-01-01", "dateupload": "1700000000", "lastupdate": "1700000000"}
 

@@ -155,3 +155,13 @@ class ParseInfoThumbTest(unittest.TestCase):
         self.assertEqual(parse_info(info, "url_z")["thumb_url"], "https://live.staticflickr.com/65535/9_abc_z.jpg")
         self.assertNotIn("thumb_url", parse_info(info))                    # applying changes: thumbnail left alone
         self.assertNotIn("thumb_url", parse_info({"title": {}, "description": {}}, "url_m"))
+
+    def test_location_privacy(self):
+        from coconut_barometer.sync import normalize_photo, parse_info
+        from fakes import photo
+        self.assertEqual(normalize_photo({**photo("1", 35.6, 139.7), "geo_is_public": "0"}, "url_m")["geo_public"], 0)
+        self.assertEqual(normalize_photo(photo("1", 35.6, 139.7), "url_m")["geo_public"], 1)
+        self.assertIsNone(normalize_photo(photo("1"), "url_m")["geo_public"])           # no location
+        info = {"title": {}, "description": {}, "location": {"latitude": "1.5", "longitude": "2.5"},
+                "geoperms": {"ispublic": 0, "iscontact": 1, "isfriend": 0, "isfamily": 0}}
+        self.assertEqual(parse_info(info)["geo_public"], 0)

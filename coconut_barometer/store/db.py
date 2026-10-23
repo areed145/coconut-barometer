@@ -13,10 +13,9 @@ import duckdb
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, title TEXT, description TEXT, tags TEXT, lat DOUBLE, lon DOUBLE, accuracy INTEGER, media TEXT, thumb_url TEXT, secret TEXT, server TEXT, date_taken TEXT, date_upload BIGINT, last_update BIGINT, ispublic INTEGER, date_taken_unknown INTEGER, views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER, url_l TEXT, url_h TEXT, url_k TEXT);
+CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, title TEXT, description TEXT, tags TEXT, lat DOUBLE, lon DOUBLE, accuracy INTEGER, media TEXT, thumb_url TEXT, secret TEXT, server TEXT, date_taken TEXT, date_upload BIGINT, last_update BIGINT, ispublic INTEGER, date_taken_unknown INTEGER, views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER, url_l TEXT, url_h TEXT, url_k TEXT, geo_public INTEGER);
 CREATE TABLE IF NOT EXISTS albums (id TEXT PRIMARY KEY, title TEXT, count INTEGER, date_update BIGINT, cover_url TEXT, description TEXT);
 CREATE TABLE IF NOT EXISTS memberships (album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id));
-CREATE INDEX IF NOT EXISTS memberships_photo ON memberships(photo_id);
 CREATE TABLE IF NOT EXISTS classifications (photo_id TEXT, fingerprint TEXT, result TEXT, created_at BIGINT, PRIMARY KEY (photo_id, fingerprint));
 CREATE TABLE IF NOT EXISTS cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at BIGINT, lens TEXT, exif TEXT);
 CREATE TABLE IF NOT EXISTS decisions (photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, "at" BIGINT, PRIMARY KEY (photo_id, action, target));
@@ -25,12 +24,10 @@ CREATE TABLE IF NOT EXISTS photo_stats (photo_id TEXT, day TEXT, views INTEGER, 
 CREATE TABLE IF NOT EXISTS account_stats (day TEXT PRIMARY KEY, stats TEXT);
 CREATE TABLE IF NOT EXISTS flickr_groups (id TEXT PRIMARY KEY, name TEXT, path_alias TEXT, members INTEGER, pool_count INTEGER, privacy TEXT, info TEXT, fetched_at BIGINT);
 CREATE TABLE IF NOT EXISTS group_photos (group_id TEXT, photo_id TEXT, date_added BIGINT, PRIMARY KEY (group_id, photo_id));
-CREATE INDEX IF NOT EXISTS group_photos_photo ON group_photos(photo_id);
 CREATE TABLE IF NOT EXISTS comments (id TEXT PRIMARY KEY, photo_id TEXT, author TEXT, author_name TEXT, real_name TEXT, date_created BIGINT, permalink TEXT, text TEXT);
 CREATE TABLE IF NOT EXISTS faves (photo_id TEXT, user_id TEXT, username TEXT, real_name TEXT, date_faved BIGINT, PRIMARY KEY (photo_id, user_id));
 CREATE TABLE IF NOT EXISTS social_fetched (photo_id TEXT, kind TEXT, count INTEGER, fetched_at BIGINT, PRIMARY KEY (photo_id, kind));
 CREATE TABLE IF NOT EXISTS photo_daily (photo_id TEXT, day TEXT, views INTEGER, comments INTEGER, favorites INTEGER, PRIMARY KEY (photo_id, day));
-CREATE INDEX IF NOT EXISTS photo_daily_day ON photo_daily(day);
 CREATE TABLE IF NOT EXISTS account_daily (day TEXT PRIMARY KEY, total INTEGER, photos INTEGER, photostream INTEGER, sets INTEGER, collections INTEGER, galleries INTEGER, fetched_at BIGINT);
 CREATE TABLE IF NOT EXISTS stats_days (day TEXT PRIMARY KEY, status TEXT, photos_viewed INTEGER, fetched_at BIGINT);
 CREATE TABLE IF NOT EXISTS wx_stations (station_id BIGINT PRIMARY KEY, name TEXT, lat DOUBLE, lon DOUBLE, elevation DOUBLE, timezone TEXT, fetched_at BIGINT);
@@ -40,7 +37,6 @@ CREATE TABLE IF NOT EXISTS wx_events (device_id BIGINT, ts BIGINT, kind TEXT, va
 CREATE TABLE IF NOT EXISTS aprs_positions (callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, altitude DOUBLE, speed DOUBLE, course DOUBLE, symbol TEXT, comment TEXT, path TEXT, raw TEXT, PRIMARY KEY (callsign, ts));
 CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT, created_at BIGINT, updated_at BIGINT);
 CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, username TEXT, csrf TEXT, created_at BIGINT, expires_at BIGINT, last_seen BIGINT, ip TEXT, user_agent TEXT);
-CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS settings (path TEXT PRIMARY KEY, value TEXT, updated_at BIGINT, updated_by TEXT);
 CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, nonce BLOB, ciphertext BLOB, hint TEXT, updated_at BIGINT, updated_by TEXT);
 CREATE SEQUENCE IF NOT EXISTS settings_log_id_seq START 1;
@@ -163,7 +159,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 9
 
 
 def is_sqlite_file(path) -> bool:
@@ -214,7 +210,14 @@ class Database:
             self.db.execute("DROP INDEX IF EXISTS comments_photo")   # its table makes deleting that row fatal
         if 0 < version < 6:                     # v6: queue_status went, the same way (re-queueing a photo replaces
             self.db.execute("DROP INDEX IF EXISTS queue_status")     # its row, and status changes on every job)
+        if 0 < version < 8:                     # v8: sessions_expiry went, the same way (signing in deletes expired
+            self.db.execute("DROP INDEX IF EXISTS sessions_expiry")  # sessions; the table only holds a few rows)
+        if 0 < version < 9:                     # v9: and the last secondary indexes, before they do the same. These
+            for name in ("memberships_photo", "group_photos_photo", "photo_daily_day"):   # tables scan in well
+                self.db.execute(f"DROP INDEX IF EXISTS {name}")                          # under a millisecond
         self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
+        if 0 < version < 7:                     # v7: whether a photo's location is public on Flickr (filled by the next sync)
+            self.db.execute("ALTER TABLE photos ADD COLUMN IF NOT EXISTS geo_public INTEGER")
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
 

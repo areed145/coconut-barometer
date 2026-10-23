@@ -17,6 +17,30 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(int(store.get_meta("schema_version")), SCHEMA_VERSION)
         tables = {r[0] for r in store.db.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'")}
         self.assertTrue({"photos", "queue", "decisions", "cameras", "faves", "flickr_groups"} <= tables)
+        # No secondary indexes: a DuckDB one that falls out of step with its table makes deleting a row fatal.
+        self.assertEqual(store.db.execute("SELECT index_name FROM duckdb_indexes()").fetchall(), [])
+
+    def test_v6_database_gets_the_location_privacy_column(self):
+        store = Store(self.path)
+        store.db.execute("ALTER TABLE photos DROP COLUMN geo_public")
+        store.set_meta("schema_version", 6)
+        store.close()
+        store = Store(self.path)
+        cols = {r[0] for r in store.db.execute("SELECT column_name FROM information_schema.columns WHERE table_name='photos'")}
+        self.assertIn("geo_public", cols)
+        self.assertEqual(int(store.get_meta("schema_version")), SCHEMA_VERSION)
+
+    def test_older_database_loses_its_secondary_indexes(self):
+        store = Store(self.path)
+        for sql in ("CREATE INDEX sessions_expiry ON sessions(expires_at)",
+                    "CREATE INDEX memberships_photo ON memberships(photo_id)",
+                    "CREATE INDEX group_photos_photo ON group_photos(photo_id)",
+                    "CREATE INDEX photo_daily_day ON photo_daily(day)"):
+            store.db.execute(sql)
+        store.set_meta("schema_version", 7)
+        store.close()
+        store = Store(self.path)
+        self.assertEqual(store.db.execute("SELECT index_name FROM duckdb_indexes()").fetchall(), [])
 
     def test_refuses_a_database_from_a_newer_version(self):
         Store(self.path).set_meta("schema_version", SCHEMA_VERSION + 1)

@@ -126,8 +126,16 @@ class WebTest(unittest.TestCase):
         self.assertNotIn("1", {p[0] for p in self.c.get("/api/map/points").json()["points"]})
         for a in self.c.get("/api/albums").json():
             self.assertNotIn("1", {p["id"] for p in self.c.get(f"/api/albums/{a['id']}").json()["photos"]})
+        x("UPDATE photos SET geo_public=0 WHERE id='2'")              # public photo, location hidden on Flickr
+        x("UPDATE photos SET geo_public=NULL WHERE id='3'")           # not synced since: unknown, so hidden too
+        self.store.db.commit()
+        self.assertEqual(self.c.get("/api/photos/2").json()["lat"], None)
+        self.assertEqual(self.c.get("/api/photos/3").json()["lon"], None)
+        self.assertIsNotNone(self.c.get("/api/photos/5").json()["lat"])
+        self.assertEqual({p[0] for p in self.c.get("/api/map/points").json()["points"]}, {"5"})
         self.login()                                                     # signed in: everything
         self.assertEqual(ids(), {"1", "2", "3", "4", "5"})
+        self.assertIsNotNone(self.c.get("/api/photos/2").json()["lat"])
         self.assertEqual(self.c.get("/api/photos/1").status_code, 200)
         self.assertEqual(ids(**{"is": "to_review"}), {"2"})
 
@@ -143,6 +151,12 @@ class WebTest(unittest.TestCase):
         self.assertEqual(stored, [token_hash(token)])
         self.assertNotIn(token, stored)
         self.assertEqual(self.c.get("/api/photos").json()["total"], 5)
+
+    def test_re_read_every_photo_from_settings(self):
+        r = self.c.post("/api/sync/run", json={"mode": "photo_list"}, headers=self.csrf())
+        self.assertEqual(r.json()["status"], "queued")
+        self.wait()
+        self.assertEqual(self.c.get("/api/sync/status").json()["last_result"]["ran"], ["photo_list", "incremental"])
 
     def test_changes_need_the_csrf_token(self):
         self.login()

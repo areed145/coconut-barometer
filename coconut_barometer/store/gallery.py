@@ -9,6 +9,7 @@ SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "taken":
          "views": "p.views DESC", "faves": "p.faves DESC", "comments": "p.comments DESC", "title": "p.title COLLATE NOCASE"}
 SORTS = {k: v + ", p.id" for k, v in SORTS.items()}      # ties (a batch uploaded together) must page the same way every time
 PUBLIC = "p.ispublic = 1"   # what visitors who aren't signed in may see (public_only)
+GEO_PUBLIC = "p.geo_public = 1"   # ... and whose location they may see (Flickr's geo privacy)
 
 
 # Presets for the Photos page (?is=a,b: all must hold). Fixed SQL only, chosen by id.
@@ -95,7 +96,7 @@ class GalleryStore(Database):
                    year_to: int | None = None, public_only: bool = False) -> list[list]:
         """[id, lat, lon, server, secret] per geotagged photo (Flickr's 0,0 means none),
         compact because the map takes all of them at once."""
-        joins, where, args = "", [self.GEOTAGGED, *([PUBLIC] if public_only else [])], []
+        joins, where, args = "", [self.GEOTAGGED, *([PUBLIC, GEO_PUBLIC] if public_only else [])], []
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
@@ -113,7 +114,7 @@ class GalleryStore(Database):
     def map_years(self, public_only: bool = False) -> list[int]:
         return [r[0] for r in self.db.execute(
             f"SELECT DISTINCT CAST(substr(p.date_taken, 1, 4) AS INTEGER) AS y FROM photos p "
-            f"WHERE {self.GEOTAGGED}{' AND ' + PUBLIC if public_only else ''} AND p.date_taken IS NOT NULL "
+            f"WHERE {self.GEOTAGGED}{f' AND {PUBLIC} AND {GEO_PUBLIC}' if public_only else ''} AND p.date_taken IS NOT NULL "
             f"AND y > 1800 ORDER BY y")]
 
     def preset_counts(self, public_only: bool = False) -> list[dict]:
@@ -163,7 +164,8 @@ class GalleryStore(Database):
         cam = self.db.execute("SELECT camera, lens, exif FROM cameras WHERE photo_id=?", (photo_id,)).fetchone()
         exif = json.loads(cam["exif"] or "{}") if cam else {}
         keep = ("ExposureTime", "FNumber", "ISO", "FocalLength", "FocalLengthIn35mmFormat", "DateTimeOriginal")
+        hide_geo = public_only and p["geo_public"] != 1
         return {**photo_card(p), "description": p["description"], "tags": (p["tags"] or "").split(),
-                "lat": p["lat"], "lon": p["lon"], "license": p["license"], "albums": albums,
+                "lat": None if hide_geo else p["lat"], "lon": None if hide_geo else p["lon"], "license": p["license"], "albums": albums,
                 "camera": cam["camera"] if cam else None, "lens": cam["lens"] if cam else None,
                 "exif": {k: exif[k] for k in keep if k in exif}}

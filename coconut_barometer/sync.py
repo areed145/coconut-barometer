@@ -77,6 +77,9 @@ def normalize_photo(p: dict, thumb_key: str) -> dict:
         "width": _int(p.get("o_width")),
         "height": _int(p.get("o_height")),
         "url_l": p.get("url_l"), "url_h": p.get("url_h"), "url_k": p.get("url_k"),   # 1024 / 1600 / 2048 px
+        # Whether anyone may see the location (Flickr's geo privacy, given to the owner with extras=geo).
+        # None: no location, or Flickr didn't say; the public pages then don't show it.
+        "geo_public": _int(p.get("geo_is_public")) if lat is not None else None,
     }
 
 
@@ -98,6 +101,8 @@ def parse_info(info: dict, thumb_key: str | None = None) -> dict:
     loc = info.get("location")
     if loc and loc.get("latitude") not in (None, "", 0, "0"):
         out.update(lat=float(loc["latitude"]), lon=float(loc["longitude"]), accuracy=int(loc.get("accuracy") or 16))
+        if "geoperms" in info:                  # the owner's view: who may see the location
+            out["geo_public"] = _int(info["geoperms"].get("ispublic"))
     if thumb_key and info.get("id") and info.get("server") and info.get("secret"):  # videos start as a placeholder
         out.update(server=info["server"], secret=info["secret"], media=info.get("media") or "photo",
                    thumb_url=f"https://live.staticflickr.com/{info['server']}/{info['id']}_{info['secret']}"

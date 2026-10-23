@@ -178,8 +178,8 @@ function SyncPanel() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
   useEffect(() => every(load, 5000), []);
-  const run = async () => {
-    try { const r = await api("/api/sync/run", { method: "POST", body: {} });
+  const run = async (mode) => {           // mode: none = whatever's due; "photo_list" = re-read every photo
+    try { const r = await api("/api/sync/run", { method: "POST", body: mode ? { mode } : {} });
       toast(r.status === "busy" ? "A sync is already running." : r.status === "no_flickr"
         ? "Connect Flickr first (API keys)." : "Sync started."); load();
     } catch (e) { toast("Couldn't start a sync: " + e.message); }
@@ -190,7 +190,13 @@ function SyncPanel() {
     <p>${s.running ? html`<a href="#/queue"><span class="spin">⟳</span> Syncing…</a>`
       : err ? html`<b class="problem">Last sync failed:</b> ${err}`
       : html`Synced ${ago(s.last_sync)}${s.next_run ? html` <span class="muted">· next ${until(s.next_run)}</span>` : ""}`}</p>
-    <button class="primary" onClick=${run} disabled=${s.running}>Sync now</button>
+    <div class="actions">
+      <button class="primary" onClick=${() => run()} disabled=${s.running}>Sync now</button>
+      <button onClick=${() => run("photo_list")} disabled=${s.running}
+              title="View counts, the daily snapshot and each photo's location privacy (~22 calls)">Re-read every photo</button>
+    </div>
+    <p class="why">Sync now does whatever is due. Re-read every photo refreshes view counts, the daily snapshot and
+      which locations are public, without waiting for the daily run.</p>
   </div>`;
 }
 

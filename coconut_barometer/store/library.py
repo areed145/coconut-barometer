@@ -11,7 +11,7 @@ from .db import Database
 PHOTO_COLS = ["id", "title", "description", "tags", "lat", "lon", "accuracy", "media", "thumb_url",
               "secret", "server", "date_taken", "date_upload", "last_update", "ispublic",
               "date_taken_unknown", "views", "faves", "comments", "license", "width", "height",
-              "url_l", "url_h", "url_k"]
+              "url_l", "url_h", "url_k", "geo_public"]
 ALBUM_COLS = ["id", "title", "count", "date_update", "cover_url", "description"]
 
 
