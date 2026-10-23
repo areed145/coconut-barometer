@@ -9,6 +9,7 @@ from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
 from coconut_barometer.config import from_dict
 from coconut_barometer.pipeline import process
 from coconut_barometer.review import ReviewApp
+from coconut_barometer.review.app import JobQueue
 from coconut_barometer.store import Store
 from coconut_barometer.sync import sync
 
@@ -301,6 +302,41 @@ class QueueReviewTest(unittest.TestCase):
         sync(self.fl, self.store, log=lambda *a: None)
         rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, photo_ids={"4"})
         self.assertEqual([r for r in rows if r.action == "set_tags"], [])
+
+
+class FrontOfLineTest(unittest.TestCase):
+    def test_put_front_goes_ahead_but_in_the_order_asked(self):
+        q = JobQueue()
+        for job in [("sync", ""), ("process", "a"), ("process", "b")]:
+            q.put(job)
+        q.put_front(("process", "x"))
+        q.put_front(("process", "y"))
+        self.assertTrue(q.to_front(("process", "b")))
+        self.assertFalse(q.to_front(("process", "x")))                  # already up there
+        self.assertFalse(q.to_front(("process", "gone")))
+        self.assertEqual(list(q.queue), [("process", "x"), ("process", "y"), ("process", "b"), ("sync", ""), ("process", "a")])
+        self.assertEqual(q.get(), ("process", "x"))
+        q.put_front(("process", "z"))                                   # behind the ones still up front
+        self.assertEqual([q.get() for _ in range(5)],
+                         [("process", "y"), ("process", "b"), ("process", "z"), ("sync", ""), ("process", "a")])
+
+    def test_reprocessing_by_hand_jumps_the_line(self):
+        cfg = from_dict(CFG)
+        store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
+        sync(FakeFlickr(), store, log=lambda *a: None)
+        app = ReviewApp(store, FakeFlickr(), background=False, cfg=cfg)
+        app.background = True                     # jobs are queued, but no worker takes them: the line stays put
+        ids = [p["id"] for p in store.db.execute("SELECT id FROM photos ORDER BY id").fetchall()][:3]
+        for pid in ids:
+            store.queue_add(pid)
+        app.sync("full")
+        app.process(ids[0], if_new=True)          # waiting its turn, like a photo that just arrived
+        app.process(ids[1], if_new=True)
+        self.assertEqual(app.process(ids[2])["status"], "processing")   # by hand: first in line
+        self.assertEqual(app.process(ids[1])["status"], "processing")   # by hand, already waiting: moved up
+        self.assertEqual(list(app.jobs.queue), [("process", ids[2]), ("process", ids[1]), ("sync", "full"), ("process", ids[0])])
+        self.assertEqual(app.fresh, {ids[1], ids[2]})
+        self.assertEqual(app.process(ids[2])["status"], "busy")         # asked twice: still just the one job
 
 
 class NewPhotosTest(unittest.TestCase):

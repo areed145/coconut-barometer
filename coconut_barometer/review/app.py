@@ -27,6 +27,42 @@ JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "und
              "wx": "WeatherFlow sync", "replan": "re-plan review"}
 PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan"
 OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan"}
+
+
+class JobQueue(queue.Queue):
+    """The worker's line, in the order it takes jobs (`.queue`). put_front: ahead of everything waiting, but
+    behind any other job put there before it, so jobs you asked for go first, in the order you asked."""
+
+    def _init(self, maxsize):
+        super()._init(maxsize)
+        self.urgent = 0                     # how many at the front were put there
+
+    def _get(self):
+        self.urgent = max(0, self.urgent - 1)
+        return super()._get()
+
+    def put_front(self, item) -> None:
+        with self.not_full:
+            self.queue.insert(self.urgent, item)
+            self.urgent += 1
+            self.unfinished_tasks += 1
+            self.not_empty.notify()
+
+    def to_front(self, item) -> bool:
+        """A job already waiting, moved up as if put_front now (False if it isn't waiting, or is up there already)."""
+        with self.mutex:
+            try:
+                at = self.queue.index(item)
+            except ValueError:
+                return False
+            if at < self.urgent:
+                return False
+            del self.queue[at]
+            self.queue.insert(self.urgent, item)
+            self.urgent += 1
+            return True
+
+
 # Bulk review: the kinds of change it lists, by action.
 BULK_KINDS = {"location": "set_location", "tags": "set_tags", "title": "set_title", "description": "set_description",
               "album": "add_to_album", "group": "add_to_group"}
@@ -52,7 +88,7 @@ class ReviewApp:
         self.background = background
         self.cfg, self._provider_factory, self._provider = cfg, provider, None
         self.process_kw = process_kw or {}
-        self.jobs: queue.Queue[tuple[str, str]] = queue.Queue()   # ("apply"|"process", photo_id) or ("sync", mode)
+        self.jobs = JobQueue()   # ("apply"|"process", photo_id) or ("sync", mode); what you ask for by hand goes first
         self.syncing = False
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
@@ -322,12 +358,17 @@ class ReviewApp:
     def process(self, photo_id: str, if_new: bool = False) -> dict:
         """(Re-)process one photo or video now: EXIF, classify, plan; it stays in review. Returns at once.
         if_new: only if it's waiting to be processed (on arrival, or the reviewer asking ahead).
+        Without it (you asked for it) the job goes to the front of the worker's line, ahead of syncs and
+        photos waiting their turn; one already waiting in line is moved up, and given the fresh look.
         Its tags are proposed as one whole list, replacing the ones it has (you approve them)."""
         if not self.store.photo(photo_id):
             raise KeyError(photo_id)
         q = self.store.queue_item(photo_id)
         if if_new and not (q and q["status"] == "new"):
             return {"status": q["status"] if q else "not_queued"}
+        if not if_new and photo_id in self.processing and self.jobs.to_front(("process", photo_id)):
+            self.fresh.add(photo_id)
+            return {"status": "processing"}
         if (q and q["status"] == "applying") or photo_id in self.processing:
             return {"status": "busy"}
         if self.cfg is None:
@@ -337,7 +378,7 @@ class ReviewApp:
             self.fresh.add(photo_id)
         if not self.background:
             return self._process(self.store, photo_id)
-        self.jobs.put(("process", photo_id))
+        (self.jobs.put if if_new else self.jobs.put_front)(("process", photo_id))
         return {"status": "processing"}
 
     def jobs_status(self, since: int = 0) -> dict:

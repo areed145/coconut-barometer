@@ -98,7 +98,7 @@ A photo is in review from being sent there until you apply or ignore it. It gets
 
 - **Apply** (Enter): writes the changes you kept, and the photo leaves review. It doesn't wait for Flickr: a background worker makes the calls in order (at the usual rate limit) while you carry on. A change that fails is tried once more; if it fails again, the photo stays in review with just the changes that didn't go through and why, to apply again later (or re-process).
 - **Ignore** (I): the photo leaves review and nothing changes on Flickr.
-- **Re-process** (P): a fresh look with your current settings (re-reads the photo, asks the model again); it stays in review.
+- **Re-process** (P): a fresh look with your current settings (re-reads the photo, asks the model again); it stays in review. It goes to the front of the worker's line, ahead of syncs and photos waiting their turn (behind the job already running, and any re-process you asked for before it).
 - **Bulk** (Review → Bulk): one kind of change across every ready photo (locations by confidence, tags, titles, descriptions, albums, groups), applied or dropped many at a time; each photo's other changes stay in review. **Re-plan all in review** plans them again with your current settings (e.g. new tags to always add or remove) from what's already known, with no vision or Flickr calls.
 - **Undo** (Review → Applied): a photo's latest apply, put back: the title, description, tags, album, location or group it changed. Anything changed on Flickr since is left as it is.
 
