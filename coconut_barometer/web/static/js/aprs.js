@@ -198,7 +198,7 @@ function CallCard({ c, i, units, now, track, win }) {
 export function Aprs() {
   const [d, setD] = useState(null);
   const [hours, setHours] = useState(24);
-  const [gradientBy, setGradientBy] = useState("");
+  const [gradientBy, setGradientBy] = useState("speed");
   const [tracks, setTracks] = useState({});
   const [err, setErr] = useState("");
   useEffect(() => {
