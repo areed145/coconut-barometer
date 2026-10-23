@@ -89,10 +89,5 @@ class EngagementStore(Database):
             "comments_fetched": "comments" in fetched, "faves_fetched": "faves" in fetched,
         }
 
-    def photo_groups(self, photo_id: str) -> list[str]:
-        return [r[0] for r in self.db.execute(
-            "SELECT g.name FROM group_photos gp JOIN flickr_groups g ON g.id = gp.group_id WHERE gp.photo_id=? "
-            "ORDER BY g.name COLLATE NOCASE", (photo_id,))]
-
     def group_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM flickr_groups").fetchone()[0]

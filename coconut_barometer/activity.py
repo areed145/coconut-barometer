@@ -7,7 +7,8 @@ is stored: it starts empty with the app. Each source keeps its own newest entrie
 can't push the Flickr calls out.
 
 Sources: flickr (API), cdn (photo downloads for the vision model), vision, weatherflow (REST),
-wx-stream (WeatherFlow WebSocket), aprs (APRS-IS), imagery (radar / satellite frame lists), jobs (the worker)."""
+wx-stream (WeatherFlow WebSocket), aprs (APRS-IS), imagery (radar / satellite frame lists), geocode (the reviewer's
+place search, OpenStreetMap's Nominatim), jobs (the worker)."""
 from __future__ import annotations
 
 import itertools

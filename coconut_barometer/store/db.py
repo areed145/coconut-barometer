@@ -4,6 +4,7 @@ The store classes were written for SQLite, so Connection keeps its calling style
 ? or :name parameters, rows readable by name or index, `with db:` for a transaction)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -161,7 +162,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def is_sqlite_file(path) -> bool:
@@ -180,9 +181,8 @@ class SchemaTooNew(RuntimeError):
 class Database:
     """The connection plus meta key/values. The other store classes build on this."""
 
-    def __init__(self, path: str, migrate: bool = True, any_thread: bool = False):
-        """any_thread is accepted for the callers that used to need it (a SQLite connection
-        belonged to one thread); a DuckDB connection can be handed between threads one at a time.
+    def __init__(self, path: str, migrate: bool = True):
+        """A DuckDB connection can be handed between threads, one at a time.
         migrate=False skips the schema check (the web app runs it once at startup)."""
         self.path = path
         if is_sqlite_file(path):
@@ -224,8 +224,33 @@ class Database:
         self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
         if 0 < version < 7:                     # v7: whether a photo's location is public on Flickr (filled by the next sync)
             self.db.execute("ALTER TABLE photos ADD COLUMN IF NOT EXISTS geo_public INTEGER")
+        if 0 < version < 11:                    # v11: tags are proposed as one list: the "add these" proposals in review
+            self._whole_tag_lists()             # become the photo's whole list (its tags plus those)
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
+
+    def _whole_tag_lists(self) -> None:
+        """Each add_tags proposal of a photo waiting in review, as a set_tags of its tags plus the ones it added
+        (gone if it had them all). Photos being applied keep theirs: add_tags still applies."""
+        from ..changes import Change
+        from ..util import norm_tag
+
+        rows = self.db.execute("SELECT q.photo_id, q.changes, p.tags FROM queue q JOIN photos p ON p.id = q.photo_id "
+                               "WHERE q.status IN ('new', 'pending') AND q.changes LIKE '%add_tags%'").fetchall()
+        with self.db:
+            for pid, changes, tags in rows:
+                current = (tags or "").split()
+                have = {norm_tag(t) for t in current}
+                out = []
+                for d in json.loads(changes or "[]"):
+                    c = Change.from_dict(d)
+                    if c.action == "add_tags":
+                        added = [t for t in c.tags if norm_tag(t) not in have]
+                        if not added:
+                            continue
+                        c = Change("set_tags", pid, current + added, old=" ".join(current), source=c.source)
+                    out.append(c.to_dict())
+                self.db.execute("UPDATE queue SET changes=? WHERE photo_id=?", (json.dumps(out), pid))
 
     def get_meta(self, key: str, default=None):
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

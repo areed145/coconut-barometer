@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ..weather.parse import FIELDS, obs_st, sea_level
+from ..weather.parse import FIELDS, obs_st
 from .db import Database
 
 # Seconds per history point: the smallest that keeps a chart under ~2000 points.

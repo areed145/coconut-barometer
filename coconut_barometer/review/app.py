@@ -1,6 +1,7 @@
-"""The review tool's logic: one photo at a time from the queue, your decisions, and a
-background worker that makes the Flickr (and vision) calls. No web code here; see
-server.py for the HTTP side and static/ for the page."""
+"""The review tool's logic: the photos in review and their proposed changes, your decisions (one photo
+at a time, or one kind of change across many), undoing an apply, and a background worker that makes
+the Flickr (and vision) calls. No web code here; see web/api/review.py for the HTTP side and
+web/static/js/review*.js for the page."""
 from __future__ import annotations
 
 import json

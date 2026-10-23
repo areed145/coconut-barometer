@@ -105,7 +105,7 @@ class StatsHistoryTest(unittest.TestCase):
         self.assertNotIn(self.day(0), self.store.stats_days())          # Flickr had none yet: not where they run out
         top = self.store.top_photos(self.day(5))
         self.assertEqual((top[0]["photo_id"], top[0]["views"]), ("1", 150))
-        self.assertEqual(len(self.store.photo_history("1")), 5)
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM photo_daily WHERE photo_id='1'").fetchone()[0], 5)
 
     def test_today_so_far_then_final_once_it_ends(self):
         self.fl.daily[self.day(0)] = {"total": 7, "photos": [("1", 7, 0, 0)]}

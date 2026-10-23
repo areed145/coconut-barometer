@@ -54,6 +54,25 @@ class SchemaTest(unittest.TestCase):
         self.assertIsNone(store.queue_item("1"))
         self.assertEqual(store.queue_item("3")["status"], "pending")      # "nothing to change": still to decide
 
+    def test_v10_add_tags_in_review_become_whole_tag_lists(self):
+        store = Store(self.path)
+        sync(FakeFlickr(), store, log=lambda *a: None)
+        store.update_photo("1", tags="mine ramen")
+        store.update_photo("2", tags="food")
+        add = lambda pid, tags: {"action": "add_tags", "photo_id": pid, "new": tags, "source": "vision:tags"}
+        title = {"action": "set_title", "photo_id": "1", "new": "Ramen", "old": ""}
+        store.queue_put("1", "pending", [add("1", ["food", "ramen"]), title])
+        store.queue_put("2", "pending", [add("2", ["food"])])                 # nothing new: gone
+        store.queue_put("3", "applying", [add("3", ["x"])])                   # being applied: as it was
+        store.set_meta("schema_version", 10)
+        store.close()
+        store = Store(self.path)
+        tags, kept = store.queue_item("1")["changes"]
+        self.assertEqual((tags["action"], tags["new"], tags["old"]), ("set_tags", ["mine", "ramen", "food"], "mine ramen"))
+        self.assertEqual(kept["action"], "set_title")
+        self.assertEqual(store.queue_item("2")["changes"], [])
+        self.assertEqual(store.queue_item("3")["changes"][0]["action"], "add_tags")
+
     def test_refuses_a_database_from_a_newer_version(self):
         Store(self.path).set_meta("schema_version", SCHEMA_VERSION + 1)
         with self.assertRaises(SchemaTooNew):

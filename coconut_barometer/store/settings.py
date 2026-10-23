@@ -13,10 +13,6 @@ class SettingsStore(Database):
         """setting path ("vision.model") -> value."""
         return {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT path, value FROM settings")}
 
-    def admin_setting_meta(self) -> dict[str, dict]:
-        return {r[0]: {"updated_at": r[1], "updated_by": r[2]}
-                for r in self.db.execute("SELECT path, updated_at, updated_by FROM settings")}
-
     def save_admin_settings(self, changes: dict[str, object], removed: list[str], username: str,
                             log: list[tuple[str, str, str]]) -> None:
         """changes: path -> value; removed: paths back to config.yaml/defaults; log: (path, old, new)."""

@@ -8,7 +8,6 @@ import { ReviewViews } from "./review_bulk.js";
 // "new": waiting to be processed (processed when you reach it); "not_queued": opened by ID, not in review.
 const STATE = { new: "waiting", pending: "ready", applying: "applying", processing: "processing", not_queued: "not in review" };
 
-const TAGS = new Set(["add_tags", "set_tags"]);
 // Flickr's normalized tag form (as in util.norm_tag), to tell which existing tags a replacement drops.
 const norm = (t) => t.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9:=]+/g, "");
 
@@ -18,10 +17,10 @@ function initialChoices(item) {
       const has = c.new && c.new.lat != null;
       return { approve: has && c.confidence !== "low", value: has ? c.new : null, tags: null };
     }
-    const tags = TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null;
     if (c.action === "set_tags")                 // proposed tags on; the photo's current ones off (replaced) unless you keep them
-      return { approve: true, value: c.new, tags, keepOld: false, old: (c.old || "").split(/\s+/).filter(Boolean).map((t) => ({ t, on: true })) };
-    return { approve: true, value: c.new, tags };
+      return { approve: true, value: c.new, tags: c.new.map((t) => ({ t, on: true })), keepOld: false,
+               old: (c.old || "").split(/\s+/).filter(Boolean).map((t) => ({ t, on: true })) };
+    return { approve: true, value: c.new, tags: null };
   });
 }
 
@@ -116,15 +115,6 @@ function Change({ c, ch, i, editable, out, onChange }) {
   const status = out && out.status ? html` <span class=${"status s-" + out.status}>${out.status}</span>` : "";
   const set = (patch) => onChange(i, { ...ch, ...patch });
   if (c.action === "set_tags") return html`<${TagSections} c=${c} ch=${ch} editable=${editable} out=${out} set=${set} />`;
-  if (TAGS.has(c.action)) {                              // add_tags: proposals made before tags were one list
-    const srcs = c.source.split(",").map((s) => s.replace(/^(std|vision|geo):/, "")).join(", ");
-    return html`<div class="row"><div class="what">Add tags <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
-      <div class="chips mt-1">${ch.tags.map((ts, j) => {
-        const st = out?.tags?.[ts.t];
-        return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off"))} disabled=${!editable}
-          aria-pressed=${ts.on} onClick=${() => set({ tags: ch.tags.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
-      })}</div></div></div>`;
-  }
   if (c.action === "set_location") return html`<${Location} key=${c.photo_id} c=${c} ch=${ch} editable=${editable} status=${status} set=${set} />`;
   const box = html`<input type="checkbox" checked=${ch.approve} disabled=${!editable} aria-label="Approve"
                           onChange=${(e) => set({ approve: e.target.checked })} />`;
@@ -256,8 +246,6 @@ export function Reviewer({ onCount, targetPhotoId }) {
     if (!item || busy) return; setBusy(true);
     const payload = choices.map((ch, i) => item.changes[i].action === "set_tags"
       ? ((tags) => ({ approve: tags.length > 0 && !sameTags(tags, ch.old.map((x) => x.t)), value: tags }))(finalTags(ch))
-      : TAGS.has(item.changes[i].action)
-      ? { approve: ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
       : item.changes[i].action === "set_location" ? { approve: ch.approve && !!ch.value, value: ch.value }
       : { approve: ch.approve, value: ch.value });
     try {

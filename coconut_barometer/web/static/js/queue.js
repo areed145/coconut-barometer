@@ -7,7 +7,7 @@ import { html, useState, useEffect, useRef, num, api, every } from "./lib.js";
 const SOURCES = {
   flickr: ["Flickr API", "--chart-1"], cdn: ["Photo downloads", "--chart-3"], vision: ["Vision model", "--chart-2"],
   weatherflow: ["WeatherFlow REST", "--accent"], "wx-stream": ["WeatherFlow stream", "--warn"], aprs: ["APRS-IS", "--ok"],
-  imagery: ["Radar & satellite", "--muted"], jobs: ["Jobs", "--fg"],
+  imagery: ["Radar & satellite", "--muted"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
 };
 const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
                wx: "WeatherFlow sync", replan: "Re-plan review" };

@@ -43,7 +43,7 @@ class SocialTest(unittest.TestCase):
 
     def test_groups_comments_faves_fetched_only_when_counts_change(self):
         self.assertEqual(social.fetch_groups(self.fl, self.store, log=self.quiet)["photos_in_pools"], 3)
-        self.assertEqual(self.store.photo_groups("1"), ["Ramen Lovers"])
+        self.assertEqual([g["name"] for g in self.store.engagement("1")["groups"]], ["Ramen Lovers"])
         todo = social.plan(self.store)
         self.assertEqual(sorted(todo["comments"]), ["1", "3"])
         self.assertEqual(todo["faves"], ["1"])

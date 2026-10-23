@@ -47,7 +47,3 @@ class StatsStore(Database):
             f"SELECT d.photo_id, p.title, SUM(d.views) AS views, SUM(d.comments) AS comments, SUM(d.favorites) AS favorites "
             f"FROM photo_daily d LEFT JOIN photos p ON p.id = d.photo_id WHERE d.day BETWEEN ? AND ? "
             f"GROUP BY d.photo_id, p.title ORDER BY SUM(d.{by}) DESC, d.photo_id LIMIT ?", (since, until, limit))]
-
-    def photo_history(self, photo_id: str) -> list[dict]:
-        return [dict(r) for r in self.db.execute(
-            "SELECT day, views, comments, favorites FROM photo_daily WHERE photo_id=? ORDER BY day", (photo_id,))]

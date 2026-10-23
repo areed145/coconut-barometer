@@ -4,7 +4,7 @@ One connection, methods grouped by area:
   db.py          connection, SCHEMA and numbered upgrades (meta.schema_version), meta
   library.py     photos, albums, memberships: your library as last synced, plus local edits
   cache.py       classifications (vision results by photo + settings fingerprint), cameras (EXIF)
-  queue.py       the review queue and decisions (applied / rejected / failed)
+  queue.py       the review queue, decisions (applied / rejected / failed / undone) and applies to undo
   engagement.py  account totals, groups and pools, comments, faves
   stats.py       per-day stats from Flickr: photo_daily, account_daily, stats_days
   auth.py        the web app's users and sessions (session tokens stored hashed)
@@ -29,11 +29,12 @@ Tables
   account_daily    the account's views per day, split by photos / photostream / albums ...
   stats_days       which days have been fetched completely ('done'), so far ('partial': today), or have no stats ('none')
   users, sessions  the web app's owner login; sessions by sha256 of their token
-  queue            per-photo proposed changes for the review tool:
-                   pending | applying | none (nothing to change) | applied | rejected | failed
+  queue            the photos in review and their proposed changes: new (waiting to be processed) |
+                   pending (ready) | applying; applied or ignored photos leave it
   applied          each apply from review: what every change written replaced, so it can be undone
-  decisions        per (photo, action, target): applied / rejected / failed / undone.
-                   Rejected items are never proposed again.
+  decisions        per (photo, action, target): applied / rejected / failed / undone, for Analytics. It holds
+                   nothing back from being proposed again, except that a location you passed on (rejected)
+                   keeps the photo out of the daily sweep for photos without one
   settings         admin-page settings (path -> JSON), layered over config.yaml
   secrets          API keys, AES-GCM encrypted with a key kept outside the database
   settings_log     who changed which setting when (secrets masked)

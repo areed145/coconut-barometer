@@ -18,7 +18,7 @@ def store(rt: Runtime = Depends(runtime)):
     """One connection per request, closed when it ends. FastAPI runs a request's
     dependencies and its handler on different pool threads (one after another, never at
     once), so the connection may move between threads but is never shared by two requests."""
-    db = Store(rt.db_path, migrate=False, any_thread=True)
+    db = Store(rt.db_path, migrate=False)
     try:
         yield db
     finally:
