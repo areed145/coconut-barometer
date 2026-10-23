@@ -3,19 +3,27 @@ nothing renders raw HTML, and everything the page loads exists."""
 import glob
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
 
 STATIC = os.path.join(os.path.dirname(__file__), "..", "coconut_barometer", "web", "static")
 JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
+NODE = shutil.which("node")      # elsewhere (CI): Node checks module syntax instead
 OURS = sorted(glob.glob(os.path.join(STATIC, "js", "*.js")))
 
 
 class FrontendTest(unittest.TestCase):
-    @unittest.skipUnless(os.path.exists(JSC), "needs macOS JavaScriptCore (jsc)")
+    @unittest.skipUnless(os.path.exists(JSC) or NODE, "needs macOS JavaScriptCore (jsc) or Node")
     def test_every_module_parses(self):
         files = OURS + sorted(glob.glob(os.path.join(STATIC, "vendor", "*.js")))
+        if not os.path.exists(JSC):
+            for f in files:
+                with open(f) as src:
+                    r = subprocess.run([NODE, "--input-type=module", "--check"], stdin=src, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, f"{f}: {r.stderr}")
+            return
         script = os.path.join(tempfile.mkdtemp(), "check.js")
         with open(script, "w") as f:
             f.write("for (const f of arguments) { try { checkModuleSyntax(read(f)); print('ok ' + f); } "
