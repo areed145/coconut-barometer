@@ -73,9 +73,16 @@ def wx_packet(callsign: str, w: dict) -> str:
     return f"{callsign}>{TOCALL},TCPIP*:{body} WeatherFlow Tempest"
 
 
+def one_callsign(v) -> str:
+    """A station's callsign as Settings saves it: text, or a list of one (the key → value field's form). "" otherwise."""
+    if isinstance(v, (list, tuple)):
+        v = v[0] if len(v) == 1 else ""
+    return str(v or "").strip().upper()
+
+
 def configured(cfg: dict, stations: list[dict]) -> list[tuple[dict, str]]:
     """(station, callsign) for each station given one in Settings, matched by name (or device id), ignoring case."""
-    wanted = {str(k).strip().lower(): str(v).strip().upper() for k, v in (cfg["aprs"].get("cwop") or {}).items()}
+    wanted = {str(k).strip().lower(): one_callsign(v) for k, v in (cfg["aprs"].get("cwop") or {}).items()}
     out = []
     for s in stations:
         call = wanted.get(str(s["name"]).strip().lower()) or wanted.get(str(s["device_id"]))

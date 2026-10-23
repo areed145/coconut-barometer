@@ -49,8 +49,15 @@ class PacketTest(unittest.TestCase):
         raw = {"aprs": {"cwop": {"Coconut Barometer": "not a call"}, "passcode": "12a"}}
         errors, _ = validate(raw, from_dict({**CFG, **raw}))
         joined = "\n".join(errors)
-        self.assertIn("aprs.cwop.Coconut Barometer: 'not a call' isn't a callsign-SSID", joined)
+        self.assertIn("aprs.cwop.Coconut Barometer: 'not a call' isn't one callsign-SSID", joined)
         self.assertIn("aprs.passcode: an APRS-IS passcode is a number", joined)
+        # The Settings page's key → value field saves a value as a list of one: that's fine; two aren't.
+        ok = {"aprs": {"cwop": {"Coconut Barometer": ["KK6GPV-14"], "Hewie Barometer": "KK6GPV-13"}}}
+        self.assertEqual([e for e in validate(ok, from_dict({**CFG, **ok}))[0] if "cwop" in e], [])
+        same = {"aprs": {"cwop": {"Coconut Barometer": "KK6GPV-13", "Hewie Barometer": "kk6gpv-13"}}}
+        self.assertIn("each station needs its own SSID", "\n".join(validate(same, from_dict({**CFG, **same}))[0]))
+        two = {"aprs": {"cwop": {"Coconut Barometer": ["KK6GPV-14", "KK6GPV-15"]}}}
+        self.assertTrue([e for e in validate(two, from_dict({**CFG, **two}))[0] if "cwop" in e])
 
 
 class FakeServer:
@@ -119,7 +126,7 @@ class ReporterTest(unittest.TestCase):
 
     def test_stations_match_by_name_or_device_id(self):
         stations = [{"name": "Coconut Barometer", "device_id": 11}, {"name": "Hewie Barometer", "device_id": 22}]
-        cfg = {"aprs": {"cwop": {"COCONUT barometer ": "kk6gpv-13", "22": "KK6GPV-14", "Nowhere": "KK6GPV-15"}}}
+        cfg = {"aprs": {"cwop": {"COCONUT barometer ": ["kk6gpv-13"], "22": "KK6GPV-14", "Nowhere": "KK6GPV-15"}}}
         self.assertEqual([(s["device_id"], c) for s, c in configured(cfg, stations)], [(11, "KK6GPV-13"), (22, "KK6GPV-14")])
 
 

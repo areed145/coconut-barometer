@@ -46,6 +46,31 @@ function MapField({ value, onChange, disabled }) {
   </div>`;
 }
 
+// Settings → APRS → Stations that report: a row per Tempest the site knows, each with the callsign-SSID it
+// reports to CWOP as (blank: it doesn't). Saved as {station name: callsign}; a name no station has any more
+// (renamed or gone) is listed so it can be removed.
+function CwopField({ value, onChange, disabled }) {
+  const [stations, setStations] = useState(null);
+  useEffect(() => { api("/api/wx/stations").then((d) => setStations(d.stations.map((s) => s.name))).catch(() => setStations([])); }, []);
+  const map = Object.fromEntries(Object.entries(value || {}).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v || ""]));
+  const set = (name, call) => { const next = { ...map, [name]: call.trim().toUpperCase() }; if (!next[name]) delete next[name]; onChange(next); };
+  if (!stations) return html`<p class="muted">Loading stations…</p>`;
+  const gone = Object.keys(map).filter((k) => !stations.some((n) => n.toLowerCase() === k.toLowerCase()));
+  const callFor = (name) => map[Object.keys(map).find((k) => k.toLowerCase() === name.toLowerCase())] || "";
+  return html`<div class="maprows">
+    ${!stations.length && html`<p class="muted">No stations yet: they appear after the first WeatherFlow sync.</p>`}
+    ${stations.map((name) => html`<div class="maprow" key=${name}>
+      <span>${name}</span><span class="muted">→</span>
+      <input value=${callFor(name)} disabled=${disabled} placeholder="off" aria-label=${`Callsign for ${name}`}
+             onChange=${(e) => set(Object.keys(map).find((k) => k.toLowerCase() === name.toLowerCase()) || name, e.target.value)} />
+    </div>`)}
+    ${gone.map((name) => html`<div class="maprow" key=${"gone" + name}>
+      <span class="muted">${name} (no such station)</span><span class="muted">→</span><span>${map[name]}</span>
+      ${!disabled && html`<button class="link" onClick=${() => set(name, "")} aria-label=${`Remove ${name}`}>✕</button>`}
+    </div>`)}
+  </div>`;
+}
+
 function ItemsField({ s, value, onChange, disabled }) {
   const items = value || [];
   const set = (i, field, raw) => {
@@ -114,6 +139,7 @@ function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
   else if (s.kind === "text") input = html`<textarea rows="6" value=${value || ""} disabled=${disabled} placeholder="(the built-in brief)"
       onInput=${(e) => onChange(e.target.value.trim() ? e.target.value : null)}></textarea>`;
   else if (s.kind === "list") input = html`<${ListField} value=${value} onChange=${onChange} disabled=${disabled} />`;
+  else if (s.path === "aprs.cwop") input = html`<${CwopField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.kind === "map") input = html`<${MapField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.kind === "items") input = html`<${ItemsField} s=${s} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.kind === "categories") input = html`<${CategoriesField} value=${value} onChange=${onChange} albums=${albums} />`;

@@ -316,10 +316,16 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
     checks.append(callsigns)
 
     def cwop():
+        from .aprs.cwop import one_callsign
         from .aprs.stream import CALLSIGN
+        seen = {}
         for name, c in (get(("aprs", "cwop")) or {}).items():
-            if not isinstance(c, str) or not CALLSIGN.match(c.strip().upper()):
-                errors.append(f"aprs.cwop.{name}: {c!r} isn't a callsign-SSID (like KK6GPV-13)")
+            if not CALLSIGN.match(one_callsign(c)):
+                errors.append(f"aprs.cwop.{name}: {c!r} isn't one callsign-SSID (like KK6GPV-13)")
+            elif one_callsign(c) in seen:
+                errors.append(f"aprs.cwop.{name}: {one_callsign(c)} is {seen[one_callsign(c)]}'s too: each station needs its own SSID")
+            else:
+                seen[one_callsign(c)] = name
         code = get(("aprs", "passcode"))
         if code not in (None, "") and not str(code).strip().isdigit():
             errors.append("aprs.passcode: an APRS-IS passcode is a number")
