@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 
+from ..errors import reporter
 from ..review import ReviewApp
 from ..schedule import due
 from ..weather.service import WeatherService
@@ -112,8 +113,8 @@ class Runtime:
                 continue
             try:
                 self.review.sync()                 # whatever's due; ignored if a sync is already queued
-            except Exception:
-                pass
+            except Exception as e:
+                reporter.report(e, "scheduler")
             self.next_sync = time.time() + minutes * 60
 
     def backup_if_due(self) -> str | None:

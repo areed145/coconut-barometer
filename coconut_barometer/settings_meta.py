@@ -54,6 +54,11 @@ META = {
                         "say \"API KEY REQUIRED\". It goes in the address of every map tile, so anyone who can "
                         "open a map can see it (that's how CARTO keys work): restrict it to your sites in "
                         "CARTO's dashboard. Reload the map after changing it.", group="Maps"),
+    "github.token": _m("connections", "Token", "Set it and the app opens an issue for each unexpected error (one "
+                       "per kind; a repeat adds a comment). A fine-grained token from github.com → Settings → "
+                       "Developer settings, for the one repository, with Issues: read and write. Empty: off.",
+                       group="Error reports"),
+    "github.repo": _m("connections", "Repository", "owner/name.", group="Error reports"),
 
     # ---- Photos: Sync
     "web.sync_every_minutes": _sync("Sync every (minutes)", "Whatever is due below. 0 turns syncing off.",

@@ -20,6 +20,7 @@ import time
 from fastapi import APIRouter, Depends, Query
 
 from ... import activity
+from ...errors import reporter
 from ..deps import runtime, session, store, viewer
 from . import weather as wx_api
 
@@ -140,6 +141,17 @@ def _backups(rt, db, now) -> dict:
     return row("backups", "Backups", "bad" if overdue else "ok", f"last backup {_ago(now, last)}", None, "#/settings/backup", last)
 
 
+def _error_reports(now) -> dict:
+    r = reporter.status()
+    if not r["enabled"]:
+        return row("errors", "Error reports", "off", "no GitHub token", href="#/settings/connections")
+    if r["error"]:
+        return row("errors", "Error reports", "warn", f"{r['repo']} · last report failed", r["error"],
+                   "#/settings/connections", r["last_at"])
+    sent = f"{r['sent']} sent since the app started · last {_ago(now, r['last_at'])}" if r["sent"] else "none since the app started"
+    return row("errors", "Error reports", "ok", f"{r['repo']} · {sent}", None, "#/settings/connections", r["last_at"])
+
+
 @router.get("")
 def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     now = time.time()
@@ -148,7 +160,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
         return hit[1]
     rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now)]
     if me is not None:
-        rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now)]
+        rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _error_reports(now)]
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]

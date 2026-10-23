@@ -33,6 +33,10 @@ DEFAULTS: dict[str, Any] = {
         "cwop": {},                   # station name -> the callsign-SSID it reports to CWOP as; none: nothing sent
         "cwop_minutes": 10,           # how often each reports (CWOP asks for 5-10 minutes, no more often than 5)
     },
+    "github": {
+        "token": None,                # fine-grained, Issues: read and write; set: unexpected errors become issues
+        "repo": "areed145/coconut-barometer",   # owner/name the issues go to
+    },
     "database": "db.duckdb",
     "albums": {"create_missing": False},
     "groups": {
@@ -116,7 +120,7 @@ MAX_TAGS_PER_PHOTO = 75             # Flickr's limit
 FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("aprs", "cwop")}
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
-            ("vision", "base_url"): str, ("aprs", "passcode"): str, ("vision", "describe", "instructions"): str,
+            ("vision", "base_url"): str, ("aprs", "passcode"): str, ("github", "token"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("review", "when_queued"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
@@ -337,6 +341,12 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
         if gate and not CALLSIGN.match(gate.upper()):
             errors.append(f"aprs.igate: {gate!r} isn't a callsign (like WA5DTR-15), or leave it empty")
     checks.append(igate)
+
+    def github_repo():
+        repo = get(("github", "repo")).strip()
+        if repo and not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
+            errors.append(f"github.repo: {repo!r} should be owner/name (like areed145/coconut-barometer)")
+    checks.append(github_repo)
 
     def igate_location():
         from .aprs.igate import parse_location

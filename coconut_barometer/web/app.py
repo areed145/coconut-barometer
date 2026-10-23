@@ -19,6 +19,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..errors import reporter
 from ..store import SchemaTooNew
 from .api import admin, analytics, aprs, auth, gallery, home, maps, review, setup, status, sync, weather
 from .deps import session
@@ -83,6 +84,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     app = FastAPI(title="Coconut Barometer", lifespan=lifespan, docs_url=None, redoc_url=None,
                   openapi_url="/api/openapi.json" if web["api_docs"] else None)
     app.state.runtime = rt
+    reporter.watch(cfg)
     headers = security_headers(web["secure_cookies"])
 
     # Innermost (added first): a SystemExit raised while handling a request - the library's
@@ -111,6 +113,12 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
 
     # Outermost: refuse Host headers that aren't ours (DNS rebinding, stray vhosts).
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=web["allowed_hosts"])
+
+    @app.exception_handler(Exception)
+    async def server_error(request: Request, exc: Exception):
+        """A request that ends in a 500: reported (errors.py), then logged by the server as before."""
+        reporter.report(exc, f"{request.method} {request.url.path}")
+        return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
     for module in (auth, setup, gallery, home, status, maps, review, analytics, sync, weather, aprs, admin):
         app.include_router(module.router)

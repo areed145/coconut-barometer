@@ -15,6 +15,7 @@ from .. import activity
 from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
+from ..errors import reporter
 from ..planner import photo_page
 from ..util import norm_tag
 
@@ -487,6 +488,7 @@ class ReviewApp:
                 else:
                     out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
+                reporter.report(e, f"{kind} job")   # unless it's the network (errors.EXPECTED)
                 if kind == "apply":   # back in review, to apply again
                     store.queue_finish(pid, "pending", {"error": str(e), "failed_at": int(time.time())})
                 if kind == "sync":
