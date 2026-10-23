@@ -1,4 +1,5 @@
 """APRS: callsign settings, what the APRS-IS lines become, storage, the stream thread, and the APRS API."""
+import math
 import os
 import tempfile
 import threading
@@ -9,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer.aprs.service import AprsService
-from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle
+from coconut_barometer.aprs.igate import bin_width, gated_by, grid_center, parse_location, weibull_fit
+from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle, server_filter
 from coconut_barometer.config import from_dict, validate
 from coconut_barometer.store import Store
 from coconut_barometer.web.app import create_app
@@ -17,6 +19,7 @@ from coconut_barometer.web.security import hash_password
 
 NOW = 1_700_000_000
 CALL = "KJ4TFD-10"
+GATE = "WA5DTR-15"
 
 
 def pos(call=CALL, lat="3016.20N", lon="09744.40W", rest=">090/025/A=000650 mobile"):
@@ -110,12 +113,73 @@ class StreamThreadTest(unittest.TestCase):
         t.start()
         t.join(10)
         self.assertFalse(t.is_alive())
-        self.assertEqual(sock.sent.decode(), LOGIN.format(user="KJ4TFD-RO", calls="KJ4TFD-10/W1AW"))
-        self.assertTrue(sock.sent.endswith(b"filter b/KJ4TFD-10/W1AW\r\n"))
+        self.assertEqual(sock.sent.decode(), LOGIN.format(user="KJ4TFD-RO", filter=f"b/KJ4TFD-10/W1AW/{GATE} e/{GATE}"))
+        self.assertTrue(sock.sent.endswith(f"filter b/KJ4TFD-10/W1AW/{GATE} e/{GATE}\r\n".encode()))
         self.assertEqual(len(svc.store().aprs_packets(CALL)), 1)
         # The server closing the connection is a drop: it's retried.
         self.assertEqual((svc.hub.status["server"], svc.hub.status["state"], sock.closed), ("T2X", "reconnecting", True))
         self.assertIn("closed the connection", svc.hub.status["error"])
+
+
+def gated(call="N5XYZ-9", lat="3016.20N", lon="09744.40W", via="WIDE1-1", gate=GATE, info=None):
+    return f"{call}>APRS,{via},qAR,{gate}:" + (info or f"!{lat}/{lon}>")
+
+
+class IgateTest(unittest.TestCase):
+    def setUp(self):
+        self.store, self.hub = db(), Hub()
+
+    def handle(self, line, now=NOW):
+        return handle(line, self.store, self.hub, [CALL], now=now, gate=GATE)
+
+    def test_the_filter_asks_for_what_it_gated_and_its_beacons(self):
+        self.assertEqual(server_filter([CALL], GATE), f"b/{CALL}/{GATE} e/{GATE}")
+        self.assertEqual(server_filter([], GATE), f"b/{GATE} e/{GATE}")
+        self.assertEqual(server_filter([CALL], ""), f"b/{CALL}")
+
+    def test_the_path_says_who_gated_it_and_whether_direct(self):
+        self.assertEqual(gated_by(["WIDE1-1", "WIDE2-1", "qAR", GATE]), (GATE, True))
+        self.assertEqual(gated_by(["KJ4TFD-3*", "WIDE2-1", "qAo", GATE]), (GATE, False))
+        self.assertIsNone(gated_by(["TCPIP*", "qAC", "T2TEXAS"]))
+
+    def test_gated_packets_are_counted_with_where_they_were(self):
+        self.handle(gated())                                              # direct
+        self.handle(gated(via="KJ4TFD-3*,WIDE2-1"), now=NOW + 1)         # digipeated
+        self.handle(gated(info=">just a status"), now=NOW + 2)           # no position
+        self.handle(gated(info=";OBJ      *111111z3016.20N/09744.40W>obj"), now=NOW + 3)   # an object: placed elsewhere
+        self.handle(gated(gate="W5OTHER-10"), now=NOW + 4)               # someone else's
+        self.handle(f"{GATE}>APRS,TCPIP*,qAC,T2TEXAS:!3010.00N/09740.00W&igate", now=NOW + 5)
+        t = self.store.igate_totals(GATE, NOW, NOW + 10)
+        self.assertEqual((t["packets"], t["positions"], t["direct"], t["stations"]), (4, 2, 1, 1))
+        self.assertEqual(self.hub.status["gated"], 4)
+        at = self.store.igate_placed(GATE)
+        self.assertEqual((round(at["lat"], 4), round(at["lon"], 4), at["ts"]), (30.1667, -97.6667, NOW + 5))
+        self.assertEqual(self.store.aprs_packets(CALL), [])
+
+    def test_location_setting(self):
+        self.assertIsNone(parse_location(" "))
+        self.assertEqual(parse_location("30.27, -97.74"), (30.27, -97.74))
+        lat, lon = grid_center("EM10dg")
+        self.assertTrue(30.25 < lat < 30.29 and -97.75 < lon < -97.66)
+        self.assertEqual(parse_location("em10"), (30.5, -97.0))
+        for bad in ("91, 0", "nowhere", "EM1"):
+            self.assertRaises(ValueError, parse_location, bad)
+        errors, _ = validate({"aprs": {"igate": "no good", "igate_location": "nowhere"}},
+                             from_dict({**CFG, "aprs": {"igate": "no good", "igate_location": "nowhere"}}))
+        self.assertEqual(len([e for e in errors if e.startswith("aprs.igate")]), 2)
+
+    def test_weibull_fit_recovers_its_range(self):
+        # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
+        k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
+        cdf = lambda r: 1 - math.exp(-((r / lam) ** k))
+        counts = [round(total * (cdf((i + 1) * width) - cdf(i * width))) for i in range(int(70 / width))]
+        fit = weibull_fit(width, counts, total)
+        self.assertEqual(width, 5)
+        self.assertAlmostEqual(fit["k"], 2, delta=0.1)
+        self.assertAlmostEqual(fit["effective_km"], 45.5, delta=1.5)
+        self.assertGreater(fit["r2"], 0.99)
+        self.assertAlmostEqual(sum(fit["curve"]), sum(counts), delta=total * 0.01)
+        self.assertIsNone(weibull_fit(5, [10], 10))
 
 
 class AprsApiTest(unittest.TestCase):
@@ -127,6 +191,11 @@ class AprsApiTest(unittest.TestCase):
         for i, lat in enumerate(["3016.20N", "3016.80N"]):
             handle(pos(lat=lat), store, hub, [CALL], now=now - 600 + 60 * i)
         handle(pos(), store, hub, [CALL], now=now - 3 * 86400)
+        # The igate at 30.0N 97.0W; stations about 11, 22 and 33 km north of it, and one digipeated from 111 km.
+        for i, (lat, via) in enumerate([("3006.00N", "WIDE1-1"), ("3012.00N", "WIDE1-1"), ("3018.00N", "WIDE2-1"),
+                                        ("3100.00N", "KJ4TFD-3*")]):
+            handle(gated(call=f"N5XY{i}", lat=lat, lon="09700.00W", via=via), store, hub, [CALL], now=now - 60 + i, gate=GATE)
+        handle(f"{GATE}>APRS,TCPIP*,qAC,T2TEXAS:!3000.00N/09700.00W&igate", store, hub, [CALL], now=now, gate=GATE)
         cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]}})
         self.c = TestClient(create_app(cfg, FakeFlickr(), provider_factory=lambda: FakeVision("m"), scheduler=False),
                             base_url="https://testserver")
@@ -146,6 +215,18 @@ class AprsApiTest(unittest.TestCase):
         self.assertEqual(len(self.c.get("/api/aprs/track", params={"callsign": CALL, "hours": 24 * 7}).json()["points"]), 3)
         self.assertEqual(len(self.c.get("/api/aprs/packets", params={"callsign": CALL, "limit": 2}).json()["packets"]), 2)
         self.assertEqual(self.c.get("/api/aprs/track", params={"callsign": "W1AW"}).status_code, 404)
+
+    def test_igate(self):
+        g = self.c.get("/api/aprs/igate", params={"hours": 24, "cell": "0.1"}).json()
+        self.assertEqual((g["igate"], g["home"]["source"], g["totals"]["packets"], g["totals"]["direct"]), (GATE, "beacon", 4, 3))
+        self.assertEqual(sorted(n for *_, n, _s in g["cells"]["rows"]), [1, 1, 1])
+        d = g["distance"]
+        self.assertEqual((d["n"], round(d["max_km"])), (3, 33))
+        self.assertEqual(sum(d["counts"]) + d["beyond"], 3)
+        self.assertEqual([f["callsign"] for f in g["farthest"]], ["N5XY2", "N5XY1", "N5XY0"])
+        everything = self.c.get("/api/aprs/igate", params={"hours": 24, "direct": "false", "count": "stations"}).json()
+        self.assertEqual((everything["distance"]["n"], round(everything["distance"]["max_km"])), (4, 111))
+        self.assertEqual(self.c.get("/api/aprs/igate", params={"cell": "bogus"}).status_code, 422)
 
 
 if __name__ == "__main__":

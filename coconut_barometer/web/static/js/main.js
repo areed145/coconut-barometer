@@ -9,6 +9,7 @@ import { MapPage } from "./map.js";
 import { QueuePage } from "./queue.js";
 import { Weather, WEATHER_TABS } from "./weather.js";
 import { Aprs } from "./aprs.js";
+import { Igate } from "./igate.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
@@ -70,6 +71,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["queue", "settings"];
+const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
 
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();
@@ -109,7 +111,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
-  else if (tab === "aprs") page = html`<${Aprs} />`;
+  else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
@@ -122,7 +124,10 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.map(([t, label]) => html`<a href=${"#/weather/" + t}
-      class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>` : "";
+      class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>`
+    : tab === "aprs" ? html`
+    <nav class="subtabs" aria-label="APRS">${APRS_TABS.map(([t, label]) => html`<a href=${"#/aprs/" + t}
+      class=${t === (route[1] || "tracking") ? "on" : ""}>${label}</a>`)}</nav>` : "";
   return html`
     <header class="top">
       <a class="brand" href="#/photos" aria-label="Coconut Barometer: Photos">

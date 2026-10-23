@@ -25,7 +25,11 @@ DEFAULTS: dict[str, Any] = {
         "backfill_days": 7,          # history fetched from REST: forward from the newest stored, back this many days
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
-    "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
+    "aprs": {
+        "callsigns": ["KJ4TFD-10"],   # tracked on the APRS page, heard live from APRS-IS
+        "igate": "WA5DTR-15",         # the packets APRS-IS credits it with gating, for the Igate page ("" for none)
+        "igate_location": "",         # "lat, lon" or a grid locator; empty: where its own beacons put it
+    },
     "database": "db.duckdb",
     "albums": {"create_missing": False},
     "groups": {
@@ -309,6 +313,22 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             if not isinstance(c, str) or not CALLSIGN.match(c.strip().upper()):
                 errors.append(f"aprs.callsigns[{i}]: {c!r} isn't a callsign (like KJ4TFD or KJ4TFD-10)")
     checks.append(callsigns)
+
+    def igate():
+        from .aprs.stream import CALLSIGN
+        gate = get(("aprs", "igate")).strip()
+        if gate and not CALLSIGN.match(gate.upper()):
+            errors.append(f"aprs.igate: {gate!r} isn't a callsign (like WA5DTR-15), or leave it empty")
+    checks.append(igate)
+
+    def igate_location():
+        from .aprs.igate import parse_location
+        try:
+            parse_location(get(("aprs", "igate_location")))
+        except ValueError:
+            errors.append(f"aprs.igate_location: {get(('aprs', 'igate_location'))!r} should be \"lat, lon\" "
+                          "(like 30.27, -97.74) or a grid locator (like EM10dg), or empty")
+    checks.append(igate_location)
 
     def categories():
         for cat, c in get(("vision", "categories")).items():

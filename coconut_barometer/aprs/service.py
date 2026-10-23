@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 
 from ..store import Store
-from .stream import AprsStream, Hub, callsigns
+from .stream import AprsStream, Hub, callsigns, igate
 
 
 class AprsService:
@@ -16,6 +16,9 @@ class AprsService:
 
     def callsigns(self) -> list[str]:
         return callsigns(self.cfg)
+
+    def igate(self) -> str:
+        return igate(self.cfg)
 
     def store(self) -> Store:
         s = getattr(self._local, "store", None)

@@ -12,7 +12,7 @@ One connection, methods grouped by area:
   analytics.py   daily series, gainers, breakdowns, per-photo timelines
   settings.py    admin-page settings, encrypted API keys, the change history
   weather.py     WeatherFlow stations and observations
-  aprs.py        APRS positions heard for the tracked callsigns
+  aprs.py        APRS positions heard for the tracked callsigns, and the packets the igate gated
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -40,6 +40,7 @@ Tables
   settings_log     who changed which setting when (secrets masked)
   wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
   aprs_positions   each position packet heard from a tracked callsign
+  aprs_igate       each packet APRS-IS credits the igate with gating: who, where (if it said), heard direct or not
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations

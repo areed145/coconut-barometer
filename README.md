@@ -81,6 +81,7 @@ Every API route except login needs a session. It's built to be reachable from th
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
 | `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/rose?device=`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket, set the token in Settings → Weather) |
 | `GET /api/aprs/stations`, `/track?callsign=&hours=`, `/packets?callsign=` | the APRS page: positions of the callsigns in Settings → APRS, heard live from APRS-IS |
+| `GET /api/aprs/igate?hours=&direct=&count=packets\|stations&cell=` | APRS → Igate: the packets APRS-IS credits the igate in Settings → APRS with gating, on a lat/lon grid and by distance, with a Weibull fit whose 90% distance is the effective range |
 
 ## Workflow: review photo by photo
 

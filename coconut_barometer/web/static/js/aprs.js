@@ -105,7 +105,7 @@ const SYMBOLS = { "/>": "car", "/k": "truck", "/u": "semi", "/v": "van", "/j": "
   "/a": "ambulance", "/f": "fire truck", "/=": "train", "\\n": "node", "/I": "TCP/IP" };
 const symbolName = (sym) => SYMBOLS[sym] || (sym ? `symbol ${sym}` : "");
 // The 6-character Maidenhead grid square (e.g. EM10dg), as hams give their location.
-function grid(lat, lon) {
+export function grid(lat, lon) {
   const x = lon + 180, y = lat + 90, A = (n) => String.fromCharCode(65 + n), a = (n) => String.fromCharCode(97 + n);
   return A(Math.floor(x / 20)) + A(Math.floor(y / 10)) + Math.floor((x % 20) / 2) + Math.floor(y % 10)
     + a(Math.floor((x % 2) * 12)) + a(Math.floor((y % 1) * 24));

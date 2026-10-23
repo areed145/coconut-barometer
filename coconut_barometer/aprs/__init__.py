@@ -2,5 +2,6 @@
 builds up from when the app starts listening).
 
   stream.py   the APRS-IS connection: a read-only login filtered to the callsigns; positions are stored
+  igate.py    the igate's credited packets: which path credits it, its location, the range fit
   service.py  holds the hub and the stream for the web app
 """

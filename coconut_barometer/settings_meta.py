@@ -11,8 +11,9 @@ SECTIONS = [
                          "decline each in the reviewer. Nothing changes on Flickr until you approve it."),
     ("weather", "Weather", "WeatherFlow Tempest stations. History comes from their REST API, and the live feed "
                            "from their WebSocket. Every station on the token's account is found by itself."),
-    ("aprs", "APRS", "Callsigns to follow on the APRS page. Their positions are heard live from APRS-IS (read-only, "
-                     "nothing is transmitted) and kept, so the tracks start from when the app began listening."),
+    ("aprs", "APRS", "Callsigns to follow on the APRS page, and the igate whose packets the Igate page counts. Both are "
+                     "heard live from APRS-IS (read-only, nothing is transmitted) and kept, so tracks and counts start "
+                     "from when the app began listening."),
     ("display", "Display", "How the app looks: theme, units, colors and maps."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
@@ -154,6 +155,10 @@ META = {
     # ---- APRS
     "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "
                          "within a few seconds."),
+    "aprs.igate": _m("aprs", "Igate", "The igate whose gated packets the Igate page maps and counts, e.g. WA5DTR-15. "
+                     "Empty: none. A change reconnects; packets already counted stay under the igate that gated them."),
+    "aprs.igate_location": _m("aprs", "Igate location", "Where it is, for distances: \"lat, lon\" (30.27, -97.74) or "
+                              "a grid locator (EM10dg). Empty: wherever its own position beacons put it."),
 
     # ---- Display
     "display.units": _m("display", "Units", "How the Weather and APRS pages show values. Everything is stored metric, "
