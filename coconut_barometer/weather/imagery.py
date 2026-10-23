@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import requests
@@ -50,23 +51,53 @@ def expand_periods(domain: str) -> list[int]:
     return sorted(set(out))
 
 
-class Imagery:
-    """The current frame lists, fetched at most once per `ttl` seconds. A provider that fails gives an
-    empty list (and its error), so the map still shows whatever else is up."""
+def _in_background(fn) -> None:
+    threading.Thread(target=fn, name="imagery", daemon=True).start()
 
-    def __init__(self, get=requests.get, ttl: int = 240, clock=time.time):
-        self._get, self._ttl, self._clock = get, ttl, clock
-        self._lock = threading.Lock()
+
+class Imagery:
+    """The current frame lists, fetched at most once per `ttl` seconds. Past that, the saved lists are
+    still answered at once while a refresh runs in the background (`spawn`); only with nothing saved, or
+    lists older than `stale`, does a request wait for the providers. They're asked all at once. A
+    provider that fails gives an empty list (and its error), so the map still shows whatever else is up."""
+
+    def __init__(self, get=requests.get, ttl: int = 240, stale: int = 900, clock=time.time, spawn=_in_background):
+        self._get, self._ttl, self._stale, self._clock, self._spawn = get, ttl, stale, clock, spawn
+        self._lock = threading.Lock()          # guards _cached and _refreshing
+        self._fetching = threading.Lock()      # one round of provider calls at a time
         self._cached: tuple[float, dict] | None = None
+        self._refreshing = False
 
     def frames(self) -> dict:
         with self._lock:
+            cached, age = self._cached, self._clock() - self._cached[0] if self._cached else None
+            if cached and age < self._ttl:
+                return cached[1]
+            if cached and age < self._stale:
+                if not self._refreshing:
+                    self._refreshing = True
+                    self._spawn(self._refresh)
+                return cached[1]
+        return self._refresh()
+
+    def _refresh(self) -> dict:
+        with self._fetching:
+            with self._lock:                   # someone else may have refreshed while this waited
+                if self._cached and self._clock() - self._cached[0] < self._ttl:
+                    self._refreshing = False
+                    return self._cached[1]
             now = self._clock()
-            if self._cached and now - self._cached[0] < self._ttl:
-                return self._cached[1]
-            out = {"radar": self._radar(), "satellite": {k: self._satellite(k, now) for k in SATELLITE}}
-            self._cached = (now, out)
-            return out
+            try:
+                with ThreadPoolExecutor(max_workers=1 + len(SATELLITE)) as pool:
+                    radar = pool.submit(self._radar)
+                    sats = {k: pool.submit(self._satellite, k, now) for k in SATELLITE}
+                    out = {"radar": radar.result(), "satellite": {k: f.result() for k, f in sats.items()}}
+                with self._lock:
+                    self._cached = (now, out)
+                return out
+            finally:
+                with self._lock:
+                    self._refreshing = False
 
     def _radar(self) -> dict:
         try:

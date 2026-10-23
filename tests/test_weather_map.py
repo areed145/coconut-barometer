@@ -57,13 +57,25 @@ class ImageryTest(unittest.TestCase):
         self.assertRegex(sat, r"&time=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ/\d{4}-")
 
     def test_cached_between_refreshes(self):
-        get, now = FakeGet(), [1_792_620_000]
-        im = Imagery(get=get, ttl=240, clock=lambda: now[0])
-        im.frames(); im.frames()
+        get, now, spawned = FakeGet(), [1_792_620_000], []
+        im = Imagery(get=get, ttl=240, stale=900, clock=lambda: now[0], spawn=spawned.append)
+        first = im.frames(); im.frames()
         self.assertEqual(len(get.calls), 3)            # radar + two satellite layers, once
-        now[0] += 300
-        im.frames()
+        now[0] += 300                                  # past ttl: the saved lists at once, a refresh started
+        self.assertIs(im.frames(), first)
+        self.assertIs(im.frames(), first)
+        self.assertEqual((len(spawned), len(get.calls)), (1, 3))   # one refresh, not one per request
+        spawned[0]()
         self.assertEqual(len(get.calls), 6)
+        self.assertIsNot(im.frames(), first)           # the refreshed lists from then on
+
+    def test_waits_only_with_nothing_usable(self):
+        get, now, spawned = FakeGet(), [1_792_620_000], []
+        im = Imagery(get=get, ttl=240, stale=900, clock=lambda: now[0], spawn=spawned.append)
+        first = im.frames()
+        now[0] += 1000                                 # older than `stale`: worth waiting for fresh lists
+        self.assertIsNot(im.frames(), first)
+        self.assertEqual((spawned, len(get.calls)), ([], 6))
 
     def test_a_provider_down_leaves_the_others(self):
         f = Imagery(get=FakeGet(radar_down=True), clock=lambda: 1_792_620_000).frames()
