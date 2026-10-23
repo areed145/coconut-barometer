@@ -103,13 +103,17 @@ function Change({ c, ch, i, editable, out, onChange }) {
   if (TAGS.has(c.action)) {
     const srcs = c.source.split(",").map((s) => s.replace(/^(std|vision|geo):/, "")).join(", ");
     const kept = new Set(ch.tags.filter((x) => x.on).map((x) => norm(x.t)));
-    const dropped = c.action === "set_tags" ? (c.old || "").split(/\s+/).filter((t) => t && !kept.has(norm(t))) : [];
-    return html`<div class="row"><div class="what">${c.action === "set_tags" ? html`<b>Replace all tags</b> with` : "Add tags"} <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
+    const had = new Set((c.old || "").split(/\s+/).filter(Boolean).map(norm));
+    const whole = c.action === "set_tags";                 // the photo's whole tag list (add_tags: older proposals)
+    const dropped = whole ? [...had].filter((t) => !kept.has(t)) : [];
+    const fresh = whole ? ch.tags.filter((x) => !had.has(norm(x.t))).length : 0;
+    return html`<div class="row"><div class="what">${whole ? html`<b>Tags</b> (replace the photo's tags with these)` : "Add tags"}
+      <span class="why">· ${srcs}${whole ? ` · ${fresh} new (bold), ${ch.tags.length - fresh} kept` : ""}${editable ? " · click a tag to drop it" : ""}</span>
       ${dropped.length > 0 && html`<div class="chips removed mt-1" title="Removed from the photo on approval">
         <span class="why">removes:</span>${dropped.map((t) => html`<span class="chip gone">${t}</span>`)}</div>`}
       <div class="chips mt-1">${ch.tags.map((ts, j) => {
         const st = out?.tags?.[ts.t];
-        return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off"))} disabled=${!editable}
+        return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off")) + (whole && !had.has(norm(ts.t)) ? " fresh" : "")} disabled=${!editable}
           aria-pressed=${ts.on} onClick=${() => set({ tags: ch.tags.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
       })}</div></div></div>`;
   }
@@ -160,7 +164,6 @@ export function Reviewer({ onCount, targetPhotoId }) {
   const [busy, setBusy] = useState(false);
   const [jobs, setJobs] = useState({ applying: 0, processing: 0 });
   const [goto, setGoto] = useState("");
-  const [tagMode, setTagMode] = useState("replace");   // when (re-)processing: replace its tags, or add to them
   const seq = useRef(0);
   const current = useRef(null);
 
@@ -238,8 +241,8 @@ export function Reviewer({ onCount, targetPhotoId }) {
   const processNow = async () => {
     if (!item || busy) return; setBusy(true);
     try {
-      await api(`/api/review/items/${item.photo_id}/process`, { method: "POST", params: { tags: tagMode } });
-      toast(tagMode === "replace" ? "Processing; its tags will be proposed as a replacement…" : "Processing in the background…");
+      await api(`/api/review/items/${item.photo_id}/process`, { method: "POST" });
+      toast("Processing in the background…");
       loadItem(item.photo_id);
     }
     catch (e) { toast("Error: " + e.message); }
@@ -309,13 +312,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
         <div class="actions">
           ${editable && html`<button class="primary" onClick=${apply} disabled=${busy}>Apply</button>`}
           ${ready && html`<button onClick=${ignore} disabled=${busy} title="Out of review; nothing changes on Flickr">Ignore</button>
-            <span class="procgroup">
-            <button onClick=${processNow} disabled=${busy} title="A fresh look; it stays in review">Re-process</button>
-            <select value=${tagMode} onChange=${(e) => setTagMode(e.target.value)} aria-label="Tags when processing"
-                    title="What processing proposes for the photo's existing tags">
-              <option value="replace">Tags: overwrite existing</option>
-              <option value="add">Tags: add to existing</option>
-            </select></span>`}
+            <button onClick=${processNow} disabled=${busy} title="A fresh look; it stays in review">Re-process</button>`}
           ${item.status === "not_queued" && html`<button class="primary" onClick=${send} disabled=${busy}>Send to review</button>`}
           <button onClick=${() => move(1)}>${inReview ? "Skip" : "Next"}</button>
         </div>

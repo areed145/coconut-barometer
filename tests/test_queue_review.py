@@ -60,7 +60,7 @@ class QueueReviewTest(unittest.TestCase):
         changes = self.store.queue_item("1")["changes"]
         choices = []
         for c in changes:
-            if c["action"] == "add_tags":
+            if c["action"] == "set_tags":
                 choices.append({"approve": True, "value": ["food", "ramen"]})        # dropped "noodle soup"
             elif c["action"] == "set_description":
                 choices.append({"approve": True, "value": "Tonkotsu ramen."})
@@ -109,6 +109,13 @@ class QueueReviewTest(unittest.TestCase):
         self.assertIn("changed on Flickr since proposed", r["error"])               # ...saying why
         self.assertEqual([c["action"] for c in self.store.queue_item("5")["changes"]], ["set_description"])
         self.assertEqual([j["photo_id"] for j in self.app.jobs_status()["finished"]], ["5"])
+
+    def test_queued_counts_every_job_running_or_waiting(self):
+        app = ReviewApp(self.store, self.fl, background=False)          # no worker to take the jobs meanwhile
+        self.assertEqual(app.jobs_status()["queued"], 0)                 # the Queue tab's dot: green
+        app.jobs.put(("wx", ""))
+        app.running = {"kind": "sync", "photo_id": "", "started": 0}
+        self.assertEqual(app.jobs_status()["queued"], 2)                 # amber
 
     def test_a_failed_apply_is_retried_once(self):
         self.fl.fail_next["flickr.photosets.addPhoto"] = 1                         # a blip: the retry goes through
@@ -223,16 +230,12 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(app.vision_usage["photos"], 1)
         self.assertGreater(app.vision_usage["input_tokens"], 0)
 
-    def test_reprocess_can_overwrite_tags(self):
+    def test_tags_are_proposed_as_the_whole_list(self):
         self.fl.photos[0]["tags"] = "oldtag ramen"
         sync(self.fl, self.store, log=lambda *a: None)
         app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
                         process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
-        app.process("1", tags="add")
-        self.assertNotIn("set_tags", {c["action"] for c in self.store.queue_item("1")["changes"]})
-        with self.assertRaises(ValueError):
-            app.process("1", tags="wipe")
-        app.process("1")                                               # the default: replace
+        app.process("1")
         changes = self.store.queue_item("1")["changes"]
         tags = next(c for c in changes if c["action"] == "set_tags")
         self.assertNotIn("add_tags", {c["action"] for c in changes})
@@ -259,7 +262,7 @@ class QueueReviewTest(unittest.TestCase):
     def test_overwrite_is_skipped_if_tags_changed_on_flickr(self):
         app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
                         process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
-        app.process("1", tags="replace")
+        app.process("1")
         changes = self.store.queue_item("1")["changes"]
         self.fl.photos[0]["tags"] = "addedbyhand"                      # on Flickr, after the proposal
         out = app.decide("1", [{"approve": c["action"] == "set_tags"} for c in changes])
@@ -271,7 +274,7 @@ class QueueReviewTest(unittest.TestCase):
         from coconut_barometer.planner import build_plan
         self.fl.photos[3]["tags"] = "mine"
         sync(self.fl, self.store, log=lambda *a: None)
-        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, photo_ids={"4"}, tag_mode="replace")
+        rows = build_plan(self.cfg, self.store, None, geocoder=fake_geocoder, photo_ids={"4"})
         self.assertEqual([r for r in rows if r.action == "set_tags"], [])
 
 

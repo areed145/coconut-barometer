@@ -120,6 +120,7 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip.on .link { padding: 0 0 0 var(--s1); }
 .chip.prop { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; min-height: 0; }
 .chip.prop.off { background: none; border-color: var(--line); color: var(--muted); text-decoration: line-through; }
+.chip.prop.fresh { font-weight: 700; }
 .chip.applied { border-color: var(--ok); color: var(--ok); }
 .chip.rejected { color: var(--muted); text-decoration: line-through; }
 .chip.failed { border-color: var(--no); color: var(--no); }
@@ -234,10 +235,8 @@ header.top nav.tabs::-webkit-scrollbar { display: none; }
 .menu-pop > * { padding: var(--s2) var(--s3); text-align: left; color: inherit; text-decoration: none; font-size: var(--text-base); }
 .menu-pop > a:hover, .menu-pop > button:hover { background: var(--surface-2); }
 .menu-pop .who { font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
-.syncbox { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; }
-.syncbox .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--ok); }
-.syncbox.busy .dot { background: #e0a800; animation: pulse 1.2s ease-in-out infinite; }
-.syncbox.bad .dot { background: var(--no); }
+.qdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-left: var(--s2); vertical-align: middle; }
+.qdot.busy { background: #e0a800; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6) + var(--safe-b)) calc(var(--gutter) + var(--safe-l));
   max-width: 1600px; margin: 0 auto; }
@@ -337,7 +336,6 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .chip.prop.off.nostrike { text-decoration: none; }
 .status.conf-high { color: var(--ok); } .status.conf-low { color: var(--no); }
 .replaces { font-size: var(--text-xs); color: var(--muted); font-style: italic; margin: 3px 0; }
-.procgroup { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .kv dt { font-size: var(--text-xs); color: var(--muted); } .kv dd { margin: 0 0 var(--s2); overflow-wrap: anywhere; }
 .comment { border-top: 1px solid var(--line); padding: 6px 0; font-size: var(--text-sm); }
 .comment:first-child { border-top: 0; }

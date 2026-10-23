@@ -1,9 +1,8 @@
 """Turn what's known about each photo (geotag, vision results, EXIF, albums) into
 proposed Changes, by running the rules in coconut_barometer/rules/.
 
-Proposals only ever add, apart from titles and descriptions, and tags when you process a
-photo with "overwrite".
-Anything already true on Flickr is skipped.
+Proposals only ever add albums; titles, descriptions and the whole tag list are proposed as
+replacements (you approve each). Anything already true on Flickr is skipped.
 """
 from __future__ import annotations
 
@@ -18,11 +17,10 @@ def photo_page(nsid: str, photo_id: str) -> str:
 
 
 def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
-               photo_ids: set[str] | None = None, tag_mode: str = "add", gazetteer=None) -> list[Change]:
-    """photo_ids: plan only these photos (the per-photo queue); default is the whole library.
-    tag_mode: "add" to the photo's tags, or "replace" them (see rules.resolve)."""
+               photo_ids: set[str] | None = None, gazetteer=None) -> list[Change]:
+    """photo_ids: plan only these photos (the per-photo queue); default is the whole library."""
     ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids, gazetteer=gazetteer)
-    changes = resolve(ctx, [w for rule in WANT_RULES for w in rule.propose(ctx)], tag_mode)
+    changes = resolve(ctx, [w for rule in WANT_RULES for w in rule.propose(ctx)])
     for rule in CHANGE_RULES:
         changes += rule.propose(ctx)
     changes.sort(key=lambda c: (c.action, c.new.lower() if c.action == "add_to_album" else "", c.photo_id))

@@ -46,7 +46,7 @@ class PipelineTest(unittest.TestCase):
         self.assertNotIn(("3", "Austin"), albums)          # Houston, and too coarse for city
         self.assertFalse(any(r.photo_id == "4" for r in rows if r.source.startswith("geo")))
         self.assertFalse(any(t == "Landscapes" for _, t in albums))  # below min_confidence
-        tags = {r.photo_id: r.new for r in rows if r.action == "add_tags"}
+        tags = {r.photo_id: r.new for r in rows if r.action == "set_tags"}
         self.assertEqual(tags["1"], ["food", "ramen", "noodle soup"])
         self.assertNotIn("5", tags)                        # 'food' tag exists, low score
 
@@ -56,7 +56,7 @@ class PipelineTest(unittest.TestCase):
         for c in changes:
             if c.photo_id == "3" and c.new == "Texas":
                 c.approved = False
-            if c.action == "add_tags" and c.photo_id == "1":
+            if c.action == "set_tags" and c.photo_id == "1":
                 c.edited = ["food", "ramen"]
 
         stats = apply_changes(self.fl, self.store, changes, log=lambda *a: None)
@@ -70,7 +70,7 @@ class PipelineTest(unittest.TestCase):
         # Next run: re-sync, re-plan → what's on Flickr now isn't proposed; what you left out is, afresh.
         sync(self.fl, self.store, log=lambda *a: None)
         again = {(c.photo_id, c.action, tuple(c.new) if isinstance(c.new, list) else c.new) for c in self.plan()}
-        self.assertEqual(again, {("3", "add_to_album", "Texas"), ("1", "add_tags", ("noodle soup",))})
+        self.assertEqual(again, {("3", "add_to_album", "Texas"), ("1", "set_tags", ("food", "ramen", "noodle soup"))})
 
     def test_new_photo_is_incremental(self):
         apply_changes(self.fl, self.store, self.plan(), log=lambda *a: None)

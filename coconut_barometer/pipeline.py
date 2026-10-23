@@ -34,10 +34,9 @@ def todo_ids(store, photo_ids: list[str] | None = None, rebuild: bool = False, m
 
 def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = None, limit: int | None = None,
             rebuild: bool = False, refresh_each: bool = False, log=print, geocoder=None, downloader=None,
-            media: str | None = None, tag_mode: str = "add", reclassify: bool = False) -> dict:
+            media: str | None = None, reclassify: bool = False) -> dict:
     """Process photos (see todo_ids) into the review queue, each "pending" with its proposed changes (maybe none).
     media: only "photo" or only "video" (videos are classified from their preview frame).
-    tag_mode: "add" to existing tags, or "replace" them (you still approve each photo).
     reclassify: ask the vision model again even when a result for the current settings is cached.
     Without a vision provider, only the proposals that don't need it are made."""
     vcfg = cfg["vision"]
@@ -74,8 +73,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
             if reclassify:                      # an old result left in place isn't a new look
                 ok -= {p["id"] for p in need if (store.classified_at(p["id"], fp) or 0) < started}
         # Plan and queue
-        rows = build_plan(cfg, store, provider.key if use_vision else None, geocoder=geocoder, photo_ids=ok,
-                          tag_mode=tag_mode)
+        rows = build_plan(cfg, store, provider.key if use_vision else None, geocoder=geocoder, photo_ids=ok)
         changes: dict[str, list[dict]] = {}
         for r in rows:
             changes.setdefault(r.photo_id, []).append(r.to_dict())

@@ -1,6 +1,6 @@
-// The app shell: first-run setup, top bar (tabs, review count, sync status), and the pages. Photos, Weather
+// The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages. Photos, Weather
 // and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, ago, until, photosLink, loadTheme, every } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { Analytics } from "./analytics.js";
@@ -43,19 +43,6 @@ function Login({ onLogin, note }) {
   </form>`;
 }
 
-function SyncBox() {
-  const [s, setS] = useState(null);
-  const load = () => api("/api/sync/status").then(setS).catch(() => {});
-  useEffect(() => every(load, 15000), []);
-  if (!s) return null;
-  const err = s.last_result?.error;
-  const text = s.running ? "Syncing… (open the queue)" : err ? "Last sync failed: " + err
-    : `Synced ${ago(s.last_sync)}${s.next_run ? ` · next ${until(s.next_run)}` : ""}`;
-  const state = s.running ? "busy" : err ? "bad" : "ok";
-  return html`<a class=${"syncbox " + state} href=${s.running ? "#/queue" : "#/settings"}
-    title=${text} aria-label=${text}><span class="dot"></span></a>`;
-}
-
 function AccountMenu({ username, onLogout, onSettings }) {     // username null: a visitor
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -86,17 +73,16 @@ const PRIVATE_TABS = ["queue", "settings"];
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();
   const [pending, setPending] = useState(null);
-  const [working, setWorking] = useState(0);         // jobs the background worker is applying or processing
+  const [queued, setQueued] = useState(0);           // jobs on the background worker: running or waiting
   useEffect(() => {
     if (!session) { setPending(null); return; }
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
     return every(load, 30000);
   }, [session]);
   useEffect(() => {
-    if (!session) { setWorking(0); return; }
-    const load = () => api("/api/review/jobs", { params: { since: 1e9 } })
-      .then((j) => setWorking(j.applying + j.processing + (j.syncing ? 1 : 0))).catch(() => {});
-    return every(load, 10000);
+    if (!session) { setQueued(0); return; }
+    const load = () => api("/api/review/jobs", { params: { since: 1e9 } }).then((j) => setQueued(j.queued)).catch(() => {});
+    return every(load, 5000);
   }, [session]);
   const tab = route[0];
   useEffect(() => { if (tab === "review") location.replace("#/photos/review"); }, [tab]);   // the old top-level address
@@ -141,10 +127,11 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
-        ${session && link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
+        ${session && link("queue", "Queue", html`<span class=${"qdot" + (queued ? " busy" : "")} role="status"
+          title=${queued ? `${queued} job${queued === 1 ? "" : "s"} running or waiting` : "Nothing queued"}
+          aria-label=${queued ? `${queued} queued` : "nothing queued"}></span>`)}
       </nav>
       <div class="account">
-        ${session && html`<${SyncBox} />`}
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />
       </div>
     </header>

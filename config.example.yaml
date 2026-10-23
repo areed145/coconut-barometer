@@ -277,7 +277,7 @@ vision:
 
 # Tags you apply by convention. Each group has its own flag. They all go into the photo's
 # single tags change, so it's still one Flickr call per photo. The reviewer proposes them
-# as a replacement for the photo's tags (or, if you pick "add", only the ones it lacks).
+# in the photo's whole tag list, which replaces its tags once you approve it.
 standard_tags:
 
   # 1. Date, from the date taken. Fields: {year} {month} {day} {season}

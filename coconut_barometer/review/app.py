@@ -49,7 +49,6 @@ class ReviewApp:
         self.syncing = False
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
-        self.tag_modes: dict[str, str] = {}             # photo -> "add" while its processing waits
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
@@ -189,12 +188,10 @@ class ReviewApp:
         self.store.queue_remove(photo_id)
         return {"status": "ignored"}
 
-    def process(self, photo_id: str, if_new: bool = False, tags: str = "replace") -> dict:
+    def process(self, photo_id: str, if_new: bool = False) -> dict:
         """(Re-)process one photo or video now: EXIF, classify, plan; it stays in review. Returns at once.
         if_new: only if it's waiting to be processed (on arrival, or the reviewer asking ahead).
-        tags: "replace" its tags (default; you still approve them), or "add" to them."""
-        if tags not in ("add", "replace"):
-            raise ValueError(tags)
+        Its tags are proposed as one whole list, replacing the ones it has (you approve them)."""
         if not self.store.photo(photo_id):
             raise KeyError(photo_id)
         q = self.store.queue_item(photo_id)
@@ -205,8 +202,6 @@ class ReviewApp:
         if self.cfg is None:
             raise RuntimeError("processing isn't available in this session")
         self.processing.add(photo_id)
-        if tags == "add":
-            self.tag_modes[photo_id] = tags
         if not if_new:                                  # you asked: the latest image, and a new look at it
             self.fresh.add(photo_id)
         if not self.background:
@@ -215,8 +210,10 @@ class ReviewApp:
         return {"status": "processing"}
 
     def jobs_status(self, since: int = 0) -> dict:
+        """queued: every job on the worker, the one running and those waiting (the Queue tab's dot)."""
         return {"applying": self.store.queue_counts().get("applying", 0), "processing": len(self.processing),
-                "syncing": self.syncing, "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
+                "syncing": self.syncing, "queued": self.jobs.qsize() + (1 if self.running else 0),
+                "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
     def queue_view(self) -> dict:
         """The Queue page's line: the job running now and every job waiting, in the one order the worker takes
@@ -415,11 +412,9 @@ class ReviewApp:
         fresh = photo_id in self.fresh
         try:
             stats = process(self.cfg, store, self.client, self._vision(), photo_ids=[photo_id], rebuild=True,
-                            refresh_each=fresh, reclassify=fresh, tag_mode=self.tag_modes.get(photo_id, "replace"),
-                            log=lambda *a: None, **self.process_kw)
+                            refresh_each=fresh, reclassify=fresh, log=lambda *a: None, **self.process_kw)
         finally:
             self.processing.discard(photo_id)
-            self.tag_modes.pop(photo_id, None)
             self.fresh.discard(photo_id)
         self._count_vision(stats)
         tokens = {"input_tokens": stats["input_tokens"], "output_tokens": stats["output_tokens"]}

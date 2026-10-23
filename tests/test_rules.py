@@ -35,7 +35,7 @@ class RulesTest(unittest.TestCase):
                                     TagWant("1", "noodles", "vision:tags"), TagWant("1", "soup", "std:x")])
         album = next(c for c in changes if c.action == "add_to_album")
         self.assertEqual((album.new, album.source, album.reason), ("Food", "geo:city", "first"))
-        tags = next(c for c in changes if c.action == "add_tags")
+        tags = next(c for c in changes if c.action == "set_tags")
         self.assertEqual(tags.new, ["ramen", "noodles"])          # deduped, then capped at 2
 
 

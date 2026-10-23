@@ -83,10 +83,10 @@ def ignore(photo_id: str, rt=Depends(runtime)):
 
 
 @router.post("/items/{photo_id}/process")
-def process(photo_id: str, if_new: bool = False, tags: Literal["add", "replace"] = "replace", rt=Depends(runtime)):
-    """Re-process: a fresh look, staying in review. tags: "add" to the photo's tags, or "replace" them."""
+def process(photo_id: str, if_new: bool = False, rt=Depends(runtime)):
+    """Re-process: a fresh look, staying in review. Its tags are proposed as one whole list."""
     try:
-        return rt.review.process(photo_id, if_new=if_new, tags=tags)
+        return rt.review.process(photo_id, if_new=if_new)
     except KeyError:
         raise HTTPException(404, "not in your library")
 

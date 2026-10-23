@@ -1,8 +1,9 @@
 """What every rule gets (Context) and what album/tag rules return (wants).
 
 Album and tag rules only say what they'd like - AlbumWant, TagWant - and one shared
-step (resolve) turns those into Changes: the first rule to want something wins, things
-already on Flickr are skipped, and tags are capped at Flickr's limit.
+step (resolve) turns those into Changes: the first rule to want something wins, albums
+already on Flickr are skipped, and a photo's tags are proposed as one whole list, capped
+at Flickr's limit.
 Title and description rules return Changes themselves.
 """
 from __future__ import annotations
@@ -80,10 +81,10 @@ class Context:
         return self.store.cameras()
 
 
-def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
-    """Turn album and tag wants (in priority order) into Changes. tag_mode "replace": one
-    set_tags per photo with every tag wanted, replacing its tags; a photo nothing wants
-    tags for keeps its own."""
+def resolve(ctx: Context, wants: list) -> list[Change]:
+    """Turn album and tag wants (in priority order) into Changes. Tags: one set_tags per photo
+    with every tag wanted, the ones it has already among them, replacing its tags (any it has
+    that nothing wants go); none if that's the tags it has. A photo nothing wants tags for keeps its own."""
     albums: dict[str, dict[str, AlbumWant]] = {}   # photo -> normalized album title -> first want
     tags: dict[str, dict[str, TagWant]] = {}       # photo -> normalized tag -> first want
     for w in wants:
@@ -108,17 +109,8 @@ def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
     cap = MAX_TAGS_PER_PHOTO
     for pid, by_tag in tags.items():
         current = (ctx.photos[pid]["tags"] or "").split()
-        have = {norm_tag(t) for t in current}
-        if tag_mode == "replace":
-            keep = list(by_tag.values())[:cap]
-            if keep and {norm_tag(clean_tag(w.tag)) for w in keep} != have:
-                out.append(Change("set_tags", pid, [clean_tag(w.tag) for w in keep], old=" ".join(current),
-                                  source=",".join(sorted({w.source for w in keep}))))
-            continue
-        new = [w for key, w in by_tag.items() if key not in have]
-        # Flickr caps tags per photo; wants are in priority order, so the least useful drop off.
-        new = new[:max(0, cap - len(have))]
-        if new:
-            out.append(Change("add_tags", pid, [clean_tag(w.tag) for w in new],
-                              source=",".join(sorted({w.source for w in new}))))
+        keep = list(by_tag.values())[:cap]       # in priority order: over Flickr's limit, the least useful drop off
+        if keep and {norm_tag(clean_tag(w.tag)) for w in keep} != {norm_tag(t) for t in current}:
+            out.append(Change("set_tags", pid, [clean_tag(w.tag) for w in keep], old=" ".join(current),
+                              source=",".join(sorted({w.source for w in keep}))))
     return out

@@ -4,8 +4,10 @@ Change is the one shape a proposal has everywhere: the planner makes them, the q
 stores them, the review tool shows and edits them, and apply carries them out:
 
   add_to_album      one album
-  add_tags          tags the photo doesn't have yet
-  set_tags          (processing with "overwrite") the photo's whole tag list, replaced
+  set_tags          the photo's whole tag list: every tag proposed (the ones it has among them),
+                    replacing its tags; old: the tags it replaces
+  add_tags          tags the photo doesn't have yet (proposals made before tags were one list;
+                    still applied as they are)
   set_title         the title
   set_description   the description
   set_location      a geotag for a photo without one: {lat, lon, accuracy, place}, or {} with no

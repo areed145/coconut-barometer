@@ -8,7 +8,7 @@ Adds your Flickr photos to the right albums and tags, using:
 - **A vision LLM**: subject albums like Food, Landscapes, Animals, descriptive tags, a title and a description. Claude is the default; OpenAI or a local Ollama model also work.
 - **Your conventions**: standard tags for dates, places, camera names and optional album tags, plus camera albums.
 
-Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. Apart from titles and descriptions it only ever **adds**: it never takes a photo out of an album, and removes tags only when you re-process a photo with **Tags: overwrite existing** in the reviewer (that photo's tags are then proposed as one replacement, showing what it removes). Nothing changes on Flickr until you approve it.
+Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. It never takes a photo out of an album. Titles and descriptions are proposed as replacements, and so are tags: each photo's proposal is its whole tag list (new ones in bold, the ones it keeps among them), and the reviewer shows the tags it would remove. Untick any tag to leave it out. Nothing changes on Flickr until you approve it.
 
 ## Setup
 
@@ -97,7 +97,7 @@ A photo is in review from being sent there until you apply or ignore it. It gets
 
 - **Apply** (Enter): writes the changes you kept, and the photo leaves review. It doesn't wait for Flickr: a background worker makes the calls in order (at the usual rate limit) while you carry on. A change that fails is tried once more; if it fails again, the photo stays in review with just the changes that didn't go through and why, to apply again later (or re-process).
 - **Ignore** (I): the photo leaves review and nothing changes on Flickr.
-- **Re-process** (P): a fresh look with your current settings (re-reads the photo, asks the model again); it stays in review. Choose whether tags are proposed as a replacement or as additions.
+- **Re-process** (P): a fresh look with your current settings (re-reads the photo, asks the model again); it stays in review.
 
 **Skip** (→) moves on without deciding. A photo with nothing to change stays until you ignore or re-process it. Videos are classified from their preview frame. The **Go to** box jumps to any photo by ID or Flickr URL (one not in review can be sent there). Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if the app stops mid-way, unfinished photos are applied when it starts again. Before writing a title, description or tag replacement it re-reads the photo from Flickr, so a change you made there since the proposal isn't overwritten (that change stays in review, saying so).
 

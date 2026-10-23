@@ -37,7 +37,7 @@ class StandardTagsTest(unittest.TestCase):
         return build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
 
     def tags(self):
-        return {r.photo_id: r.new for r in self.plan() if r.action == "add_tags"}
+        return {r.photo_id: r.new for r in self.plan() if r.action == "set_tags"}
 
     def test_camera_fetch_is_cached(self):
         self.assertEqual(self.stats, {"ok": 2, "no_camera": 3, "failed": 0})
@@ -63,7 +63,8 @@ class StandardTagsTest(unittest.TestCase):
         with mock.patch("coconut_barometer.rules.base.MAX_TAGS_PER_PHOTO", 4):
             t = self.tags()
         self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan"])
-        self.assertEqual(t["3"], ["y2024", "m01"])               # its 2 existing tags leave room for 2
+        self.assertEqual(t["3"][:2], ["y2024", "m01"])           # the whole list, so its own tags don't count
+        self.assertEqual(len(t["3"]), 4)
 
     def test_disabled_by_default(self):
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "enabled": False}})
