@@ -99,7 +99,6 @@ class ReviewApp:
         self.vision_usage = {"photos": 0, "input_tokens": 0, "output_tokens": 0}   # since start
         self.licenses = self._licenses()
         if background:
-            threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
             for pid in reversed(store.queue_ids(["applying"])):   # oldest first
                 self.jobs.put(("apply", pid))
             if self._process_on_arrival():
@@ -108,6 +107,21 @@ class ReviewApp:
                         self.process(pid, if_new=True)
                     except KeyError:      # gone from the library since
                         store.queue_remove(pid)
+            self._resume_requested(store)
+            # Started once the line is rebuilt, so it takes the jobs in the line's order.
+            threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
+
+    def _resume_requested(self, store) -> None:
+        """The re-processes, undos and re-plans you asked for that hadn't finished when the app stopped, queued
+        again the way they were first (a re-process at the front), oldest first."""
+        for kind, pid in store.jobs_requested():
+            try:
+                out = (self.process(pid) if kind == "process" else self.undo(pid) if kind == "undo"
+                       else self.replan() if kind == "replan" else {"status": "unknown"})
+            except (KeyError, RuntimeError):     # gone since, or this session can't do it
+                out = {"status": "gone"}
+            if out["status"] not in ("processing", "undoing", "queued"):
+                store.job_done(kind, pid)
 
     @property
     def store(self):
@@ -322,6 +336,7 @@ class ReviewApp:
             return {"status": "busy"}
         if not self.background:
             return self._replan(self.store)
+        self.store.job_requested("replan")
         self.jobs.put(("replan", ""))
         return {"status": "queued"}
 
@@ -352,6 +367,7 @@ class ReviewApp:
             return {"status": "busy"}
         if not self.background:
             return self._undo(self.store, photo_id)
+        self.store.job_requested("undo", photo_id)
         self.jobs.put(("undo", photo_id))
         return {"status": "undoing"}
 
@@ -368,6 +384,7 @@ class ReviewApp:
             return {"status": q["status"] if q else "not_queued"}
         if not if_new and photo_id in self.processing and self.jobs.to_front(("process", photo_id)):
             self.fresh.add(photo_id)
+            self.store.job_requested("process", photo_id)
             return {"status": "processing"}
         if (q and q["status"] == "applying") or photo_id in self.processing:
             return {"status": "busy"}
@@ -378,6 +395,8 @@ class ReviewApp:
             self.fresh.add(photo_id)
         if not self.background:
             return self._process(self.store, photo_id)
+        if not if_new:
+            self.store.job_requested("process", photo_id)
         (self.jobs.put if if_new else self.jobs.put_front)(("process", photo_id))
         return {"status": "processing"}
 
@@ -484,6 +503,8 @@ class ReviewApp:
                                     "output_tokens": out.get("output_tokens", 0)})
                 self._log_job(self.recent[-1])
             finally:
+                if kind in ("process", "undo", "replan"):     # done, or failed: either way not to be redone
+                    store.job_done(kind, pid)
                 self.running = None
                 self.jobs.task_done()
 

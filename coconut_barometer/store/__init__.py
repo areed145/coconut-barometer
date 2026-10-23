@@ -31,6 +31,7 @@ Tables
   users, sessions  the web app's owner login; sessions by sha256 of their token
   queue            the photos in review and their proposed changes: new (waiting to be processed) |
                    pending (ready) | applying; applied or ignored photos leave it
+  requested_jobs   jobs you asked for (re-process, undo, re-plan) not finished yet, queued again after a restart
   applied          each apply from review: what every change written replaced, so it can be undone
   decisions        per (photo, action, target): applied / rejected / failed / undone, for Analytics. It holds
                    nothing back from being proposed again, except that a location you passed on (rejected)

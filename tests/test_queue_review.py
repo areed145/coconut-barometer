@@ -220,6 +220,22 @@ class QueueReviewTest(unittest.TestCase):
         self.assertIsNone(self.store.queue_item("1"))                  # applied: out of review
         self.assertIn("1", self.fl.sets["102"]["photos"])
 
+    def test_jobs_you_asked_for_resume_on_restart(self):
+        self.decide("1", [{"approve": True} for _ in self.store.queue_item("1")["changes"]])     # something to undo
+        quiet = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision)
+        quiet.background = True                       # queued, then the app stops before the worker gets to them
+        self.assertEqual(quiet.undo("1")["status"], "undoing")
+        self.assertEqual(quiet.process("2")["status"], "processing")
+        self.assertEqual(quiet.replan()["status"], "queued")
+        quiet.process("2")                            # asked twice: kept once
+        self.assertEqual(self.store.jobs_requested(), [("undo", "1"), ("process", "2"), ("replan", "")])
+        app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: self.vision,
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        app.wait()                                    # a new session runs them, the re-process first
+        self.assertEqual([j["kind"] for j in app.recent], ["process", "undo", "replan"])
+        self.assertEqual(self.store.jobs_requested(), [])
+        self.assertNotIn("1", self.fl.sets["102"]["photos"])                   # the undo happened
+
     def test_queue_view_lanes_and_results(self):
         view = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg)
         for job in (("apply", "1"), ("process", "2"), ("sync", "")):

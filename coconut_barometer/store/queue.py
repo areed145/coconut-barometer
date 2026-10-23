@@ -76,6 +76,20 @@ class QueueStore(Database):
         with self.db:
             self.db.execute("DELETE FROM queue WHERE photo_id=?", (photo_id,))
 
+    # ---- jobs you asked for, kept until done so a restart doesn't lose them ------------------------------
+    def job_requested(self, kind: str, photo_id: str = "") -> None:
+        """Asked again while waiting: keeps its first time, so it keeps its place."""
+        with self.db:
+            self.db.execute('INSERT OR IGNORE INTO requested_jobs (kind, photo_id, "at") VALUES (?, ?, ?)', (kind, photo_id, int(time.time())))
+
+    def job_done(self, kind: str, photo_id: str = "") -> None:
+        with self.db:
+            self.db.execute("DELETE FROM requested_jobs WHERE kind=? AND photo_id=?", (kind, photo_id))
+
+    def jobs_requested(self) -> list[tuple[str, str]]:
+        """In the order asked."""
+        return [(r["kind"], r["photo_id"]) for r in self.db.execute("SELECT kind, photo_id FROM requested_jobs ORDER BY seq")]
+
     def failures_since(self, photo_id: str, since: int) -> list[str]:
         """Why this photo's changes failed, from the decisions log, since that time."""
         return [r[0] for r in self.db.execute(
