@@ -33,6 +33,13 @@ def version() -> str:
         return _cache["version"]
 
 
+def files() -> list[str]:
+    """Every JS and CSS address at the current version, for the service worker to keep for offline use."""
+    v = version()
+    return [f"/static/v/{v}/{p.relative_to(STATIC).as_posix()}" for d in VERSIONED for p in sorted((STATIC / d).rglob("*"))
+            if p.suffix in (".js", ".css")]
+
+
 def versioned(page: str) -> str:
     """index.html with its JS and CSS addresses pointing at the current version."""
     v = version()

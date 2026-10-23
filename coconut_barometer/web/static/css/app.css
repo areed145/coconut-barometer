@@ -151,6 +151,7 @@ a.status { cursor: pointer; }
 .toast { position: fixed; left: 50%; bottom: calc(var(--s4) + var(--safe-b)); transform: translateX(-50%); z-index: 60;
   background: var(--fg); color: var(--bg); padding: var(--s2) var(--s4); border-radius: var(--r-sm); font-size: var(--text-sm);
   max-width: calc(100vw - 2 * var(--s4)); box-shadow: var(--shadow-2); }
+.offline { background: var(--warn); color: var(--bg); text-align: center; padding: var(--s2) var(--s4); font-size: var(--text-sm); }
 .spin { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

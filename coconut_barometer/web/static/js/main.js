@@ -1,6 +1,6 @@
 // The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather
 // and APRS are public; Review, Analytics, Status and Settings need a login (and their tabs only show once signed in).
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot } from "./lib.js";
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot, OfflineNote } from "./lib.js";
 import { Home } from "./home.js";
 
 // Every page but Home (the landing page, which comes with the app) loads its code the first time it's
@@ -170,6 +170,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />
       </div>
     </header>
+    <${OfflineNote} />
     <main class="page">${subtabs}${page}</main>`;
 }
 
@@ -196,7 +197,7 @@ const shared = location.pathname.match(/^\/([pa])\/(\d+)\/?$/);
 if (shared) history.replaceState(null, "", "/" + (shared[1] === "p" ? `#/photos/photo/${shared[2]}` : photosLink({ album: shared[2] })));
 render(html`<${App} />`, document.getElementById("app"));
 
-// The service worker (sw.js): alerts as notifications, and what makes the site installable (Add to Home Screen).
+// The service worker (sw.js): the app kept for offline use, alerts as notifications, and installing (Add to Home Screen).
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.open) location.href = e.data.open; });

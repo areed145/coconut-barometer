@@ -13,12 +13,26 @@ export class ApiError extends Error {
   constructor(status, detail, headers) { super(detail || `HTTP ${status}`); this.status = status; this.headers = headers; }
 }
 
+// Offline: no answer at all from the server (the app itself still opens, from sw.js's copy). OfflineNote shows it.
+let offline = !navigator.onLine;
+const setOffline = (now) => { if (now !== offline) { offline = now; window.dispatchEvent(new Event("cb:offline")); } };
+window.addEventListener("online", () => setOffline(false));
+window.addEventListener("offline", () => setOffline(true));
+export function OfflineNote() {
+  const [, tick] = useState(0);
+  useEffect(() => { const f = () => tick((n) => n + 1); window.addEventListener("cb:offline", f); return () => window.removeEventListener("cb:offline", f); }, []);
+  return offline && html`<div class="offline" role="status">You're offline. Pages open, but nothing new loads until you're back.</div>`;
+}
+
 export async function api(path, { method = "GET", body, params } = {}) {
   const url = new URL(path, location.origin);
   for (const [k, v] of Object.entries(params || {})) if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
   const headers = { Accept: "application/json" };
   if (method !== "GET") { headers["Content-Type"] = "application/json"; if (csrf) headers["X-CSRF-Token"] = csrf; }
-  const r = await fetch(url, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
+  let r;
+  try { r = await fetch(url, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) }); }
+  catch { setOffline(true); throw new ApiError(0, "You're offline."); }
+  setOffline(false);
   let data = null;
   try { data = await r.json(); } catch { /* empty body */ }
   if (r.status === 401 && csrf && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("cb:logged-out"));

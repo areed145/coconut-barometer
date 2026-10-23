@@ -129,6 +129,13 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         """At the root, so it covers the whole site (a worker only controls the pages under its own address)."""
         return FileResponse(STATIC / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/sw-precache.json", include_in_schema=False)
+    def precache():
+        """What sw.js keeps for offline use when it sees a new version: the code, the font, the icons."""
+        return JSONResponse({"version": assets.version(), "files": [*assets.files(), "/static/fonts/dm-sans-latin.woff2",
+                             "/static/img/icon-192.png", "/static/img/favicon-32.png", "/static/manifest.webmanifest"]},
+                            headers={"Cache-Control": "no-cache"})
+
     @app.get("/healthz", include_in_schema=False)
     def healthz():
         """For the platform's health checks: no login, no details."""

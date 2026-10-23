@@ -156,5 +156,14 @@ class PushApiTest(Base):
         self.assertIn('addEventListener("push"', r.text)
 
 
+    def test_everything_the_worker_keeps_for_offline_is_served(self):
+        d = self.c.get("/sw-precache.json").json()
+        self.assertIn(f"/static/v/{d['version']}/js/main.js", d["files"])
+        self.assertIn(f"/static/v/{d['version']}/css/app.css", d["files"])
+        page = self.c.get("/").text
+        self.assertIn(f"/static/v/{d['version']}/", page)             # the version sw.js reads from the page
+        for f in d["files"]:
+            self.assertEqual(self.c.get(f).status_code, 200, f)
+
 if __name__ == "__main__":
     unittest.main()
