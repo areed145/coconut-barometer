@@ -23,7 +23,7 @@ DuckDB lets one process use a database at a time, so run command-line commands (
 
 ## 1. Prepare locally (to keep your history)
 
-Bringing your current database keeps everything: the review decisions (so nothing you rejected comes back), the paid-for vision results, the stats history, comments, faves, groups, your login and your settings. Skip to step 2 to start fresh instead.
+Bringing your current database keeps everything: the photos in review, the paid-for vision results, the stats history, comments, faves, groups, your login and your settings. Skip to step 2 to start fresh instead.
 
 ```bash
 uv run coconut-barometer settings import-file config.yaml
@@ -58,7 +58,7 @@ The encryption key lives at `/var/data/secret.key` on the disk. It's made when y
 
 API keys and the encryption key can't be set from the environment: they live in Settings and on the disk.
 
-The scheduler then keeps itself up to date: an incremental sync every hour (~4 calls), every photo re-read daily, a full sync weekly, per-day stats with backfill, and a backup every 24 h. A fresh start's first sync is a full one (~180 calls, a few minutes). Photos uploaded after that land under **Review → To review** after each sync: processed when you open each one, or straight away with **Settings → Sync → New photos**. Older photos are under **Review → Not processed**.
+The scheduler then keeps itself up to date: an incremental sync every hour (~4 calls), every photo re-read daily, a full sync weekly, per-day stats with backfill, and a backup every 24 h. A fresh start's first sync is a full one (~180 calls, a few minutes). Photos uploaded after that go into **Review** after each sync: processed straight away, or when you open each one (**Settings → Photos → Review**). Older photos are under the **Not processed** preset on the Photos page: open one and **Send to Review**.
 
 ## Custom domain
 

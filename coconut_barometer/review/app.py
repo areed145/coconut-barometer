@@ -11,14 +11,14 @@ import time
 from collections import deque
 
 from .. import activity
-from ..apply import apply_changes, outcomes
+from ..apply import apply_changes, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..planner import photo_page
 
-# "new": synced in, waiting to be processed; shown under To review with the pending ones.
-STATUSES = ("pending", "new", "applying", "failed", "applied", "rejected", "none", "unprocessed")
-TO_REVIEW = ("pending", "new")
+# A photo is in review from being sent there until it's applied or ignored (see store/queue.py):
+# "new" (waiting to be processed), "pending" (ready), "applying". Shown as one list.
+STATUSES = ("new", "pending", "applying")
 
 
 JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "sync": "Flickr sync", "wx": "WeatherFlow sync"}
@@ -26,9 +26,10 @@ PHOTO_JOBS = ("apply", "process")      # the other jobs are not about a photo: "
 
 
 class ReviewApp:
-    """The review tool's logic. decide() and process() only queue a job; a single
+    """The review tool's logic. send(), decide() and process() only queue a job; a single
     background worker makes the Flickr (and vision) calls in order, so the rate limit
-    holds, and records the outcome. Photos left "applying" when the tool stopped resume.
+    holds, and records the outcome. Photos left "applying" when the tool stopped resume,
+    and with review.when_queued: process, ones still waiting to be processed are processed.
 
     cfg/provider are needed only to process photos and sync; provider is a zero-argument
     factory so the vision SDK loads on first use.
@@ -59,6 +60,12 @@ class ReviewApp:
             threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
             for pid in reversed(store.queue_ids(["applying"])):   # oldest first
                 self.jobs.put(("apply", pid))
+            if self._process_on_arrival():
+                for pid in reversed(store.queue_ids(["new"])):
+                    try:
+                        self.process(pid, if_new=True)
+                    except KeyError:      # gone from the library since
+                        store.queue_remove(pid)
 
     @property
     def store(self):
@@ -89,16 +96,17 @@ class ReviewApp:
 
     def summary(self) -> dict:
         counts = self.store.queue_counts()
-        counts["unprocessed"] = len(self.store.unqueued_ids())
         out = {s: counts.get(s, 0) for s in STATUSES}
-        out["to_review"] = out["pending"] + out["new"]
+        out["to_review"] = sum(out.values())
         return out
 
-    def queue(self, status: str = "pending", sort: str = "newest") -> list[str]:
-        """status "pending" is To review: ready ones and new ones still to be processed."""
-        if status == "unprocessed":
-            return self.store.unqueued_ids(sort)
-        return self.store.queue_ids(TO_REVIEW if status == "pending" else [status], sort)
+    def queue(self, sort: str = "newest") -> list[str]:
+        """Every photo in review."""
+        return self.store.queue_ids(STATUSES, sort)
+
+    def _process_on_arrival(self) -> bool:
+        """review.when_queued: process (and a way to): photos sent to review are processed at once."""
+        return bool(self.cfg and self.cfg["review"]["when_queued"] == "process" and self._provider_factory)
 
     def _licenses(self) -> dict[str, str]:
         """License id -> name, from Flickr once, then cached in the database."""
@@ -124,7 +132,7 @@ class ReviewApp:
         if not p:
             return None
         if not q:
-            q = {"status": "unprocessed", "changes": [], "result": None}
+            q = {"status": "not_queued", "changes": [], "result": None}
         if photo_id in self.processing:
             q = {**q, "status": "processing"}
         titles = {a["id"]: a["title"] for a in self.store.albums()}
@@ -161,9 +169,27 @@ class ReviewApp:
         self.jobs.put(("apply", photo_id))
         return {"status": "applying"}
 
+    def send(self, photo_id: str) -> dict:
+        """Into review (from the gallery): processed now or when opened, by review.when_queued."""
+        if not self.store.photo(photo_id):
+            raise KeyError(photo_id)
+        if not self.store.queue_add(photo_id):
+            return {"status": "busy" if photo_id in self.processing else self.store.queue_item(photo_id)["status"]}
+        return self.process(photo_id, if_new=True) if self._process_on_arrival() else {"status": "new"}
+
+    def ignore(self, photo_id: str) -> dict:
+        """Out of review, changing nothing (and remembering nothing: it can be sent again)."""
+        q = self.store.queue_item(photo_id)
+        if not q:
+            raise KeyError(photo_id)
+        if q["status"] == "applying" or photo_id in self.processing:
+            return {"status": "busy"}
+        self.store.queue_remove(photo_id)
+        return {"status": "ignored"}
+
     def process(self, photo_id: str, if_new: bool = False, tags: str = "replace") -> dict:
-        """(Re-)process one photo or video now: EXIF, classify, plan. Returns at once.
-        if_new: only if it's waiting to be processed (the reviewer asks ahead for the next ones).
+        """(Re-)process one photo or video now: EXIF, classify, plan; it stays in review. Returns at once.
+        if_new: only if it's waiting to be processed (on arrival, or the reviewer asking ahead).
         tags: "replace" its tags (default; you still approve them), or "add" to them."""
         if tags not in ("add", "replace"):
             raise ValueError(tags)
@@ -171,7 +197,7 @@ class ReviewApp:
             raise KeyError(photo_id)
         q = self.store.queue_item(photo_id)
         if if_new and not (q and q["status"] == "new"):
-            return {"status": q["status"] if q else "unprocessed"}
+            return {"status": q["status"] if q else "not_queued"}
         if (q and q["status"] == "applying") or photo_id in self.processing:
             return {"status": "busy"}
         if self.cfg is None:
@@ -262,8 +288,8 @@ class ReviewApp:
                 else:
                     out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
-                if kind == "apply":   # keep it under Failed to retry
-                    store.queue_finish(pid, "failed", {"error": str(e)})
+                if kind == "apply":   # back in review, to apply again
+                    store.queue_finish(pid, "pending", {"error": str(e), "failed_at": int(time.time())})
                 if kind == "sync":
                     store.set_meta("last_sync_result", json.dumps({"error": str(e), "at": int(time.time())}))
                 self.processing.discard(pid)
@@ -318,12 +344,9 @@ class ReviewApp:
         return {"status": "done", **out}
 
     def _queue_new(self, store, before: int | None) -> int:
-        """Photos uploaded since the last sync go under To review. With schedule.new_photos:
-        process, they're processed now too (up to 200; any left, or any that fail, are processed
-        when you open them). The first sync of an empty library queues nothing: that's the
-        backlog, under Not processed."""
-        from ..pipeline import process
-
+        """Photos uploaded since the last sync go into review: processed now (a job each) or when
+        opened, by review.when_queued. Any that fail to process wait to be processed when opened.
+        The first sync of an empty library queues nothing: that's the backlog (Photos → Not processed)."""
         mark = store.get_meta("new_photos_after")
         mark = int(mark) if mark is not None else before
         latest = store.latest_upload()
@@ -332,13 +355,13 @@ class ReviewApp:
         if mark is None:
             return 0
         new = store.queue_new_photos(mark)
-        if new and self.cfg["schedule"]["new_photos"] == "process" and self._provider_factory:
+        if new and self._process_on_arrival():
             try:
-                provider = self._vision()
-            except RuntimeError:          # no vision key yet: they wait under To review
+                self._vision()
+            except RuntimeError:          # no vision key yet: they wait in review
                 return len(new)
-            self._count_vision(process(self.cfg, store, self.client, provider, photo_ids=new[:200], rebuild=True,
-                                       tag_mode="replace", log=lambda *a: None, **self.process_kw))
+            for pid in reversed(new):     # oldest first
+                self.process(pid, if_new=True)
         return len(new)
 
     def _count_vision(self, stats: dict) -> dict:
@@ -373,18 +396,37 @@ class ReviewApp:
         tokens = {"input_tokens": stats["input_tokens"], "output_tokens": stats["output_tokens"]}
         if stats["retry_later"]:
             return {"status": "failed", "error": "EXIF or classification failed; try again", **tokens}
-        return {"status": store.queue_item(photo_id)["status"], **tokens}   # pending | none
+        return {"status": store.queue_item(photo_id)["status"], **tokens}   # pending
 
     def _apply(self, store, photo_id: str) -> dict:
+        """Your choices, applied; anything that fails is tried once more. Done: out of review.
+        Still failing: back in review with just those changes, and why."""
         q = store.queue_item(photo_id)
         choices = (q["result"] or {}).get("choices", [])
-        changes = [_with_choice(Change.from_dict(d), choice) for d, choice in zip(q["changes"], choices)]
-        # (apply_changes re-reads the photo from Flickr before any title/description write.)
-        stats = apply_changes(self.client, store, changes, log=self.log)
-        result = {"stats": stats, "changes": outcomes(store, changes)}
-        status = "failed" if stats["failed"] else ("applied" if stats["applied"] else "rejected")
-        store.queue_finish(photo_id, status, result)
-        return {"status": status, **result}
+        proposals = q["changes"][:len(choices)]
+        changes = [_with_choice(Change.from_dict(d), choice) for d, choice in zip(proposals, choices)]
+        started, todo, errors = int(time.time()), changes, []
+        stats = {"applied": 0, "failed": 0}
+        for _attempt in range(2):
+            since = int(time.time())
+            try:   # (apply_changes re-reads the photo from Flickr before any title/description write.)
+                stats["applied"] += apply_changes(self.client, store, todo, log=self.log)["applied"]
+            except Exception as e:      # network trouble: whatever it didn't reach is retried
+                errors.append(str(e))
+            todo = unfinished(store, todo, since)
+            if not todo:
+                break
+        if not todo:
+            store.queue_remove(photo_id)
+            return {"status": "applied", "stats": stats}
+        stats["failed"] = len(todo)
+        at = {id(c): i for i, c in enumerate(changes)}
+        left = [proposals[at[id(c)]] for c in todo]
+        why = "; ".join(dict.fromkeys(errors + store.failures_since(photo_id, started))) or "failed twice"
+        store.queue_put(photo_id, "pending", left)
+        result = {"error": why, "failed_at": int(time.time()), "changes": outcomes(store, todo)}
+        store.queue_finish(photo_id, "pending", result)
+        return {"status": "failed", "error": why, "stats": stats}
 
 
 def _with_choice(c: Change, choice: dict) -> Change:

@@ -52,7 +52,7 @@ class PipelineTest(unittest.TestCase):
 
     def test_apply_and_incremental(self):
         changes = self.plan()
-        # Reviewer rejects photo 3 → Texas, and drops the "noodle soup" tag.
+        # Reviewer unticks photo 3 → Texas, and drops the "noodle soup" tag.
         for c in changes:
             if c.photo_id == "3" and c.new == "Texas":
                 c.approved = False
@@ -63,14 +63,14 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(stats["failed"], 0)
         self.assertIn("1", self.fl.sets["102"]["photos"])      # Food
         self.assertIn("2", self.fl.sets["103"]["photos"])      # Austin
-        self.assertNotIn("3", self.fl.sets["101"]["photos"])   # rejected
+        self.assertNotIn("3", self.fl.sets["101"]["photos"])   # unticked
         self.assertIn("ramen", self.fl.photos[0]["tags"])
         self.assertNotIn("noodle", self.fl.photos[0]["tags"])
 
-        # Next run: re-sync, re-plan → nothing applied or rejected comes back.
+        # Next run: re-sync, re-plan → what's on Flickr now isn't proposed; what you left out is, afresh.
         sync(self.fl, self.store, log=lambda *a: None)
-        again = self.plan()
-        self.assertEqual(again, [], f"unexpected: {[(c.photo_id, c.new) for c in again]}")
+        again = {(c.photo_id, c.action, tuple(c.new) if isinstance(c.new, list) else c.new) for c in self.plan()}
+        self.assertEqual(again, {("3", "add_to_album", "Texas"), ("1", "add_tags", ("noodle soup",))})
 
     def test_new_photo_is_incremental(self):
         apply_changes(self.fl, self.store, self.plan(), log=lambda *a: None)

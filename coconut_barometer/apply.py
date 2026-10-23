@@ -1,4 +1,4 @@
-"""Carry out reviewed Changes on Flickr and record what happened (see changes.py)."""
+"""Carry out reviewed Changes on Flickr and log what was applied or failed (see changes.py)."""
 from __future__ import annotations
 
 from .changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
@@ -13,28 +13,27 @@ ALREADY_IN_SET = 3
 def apply_changes(client, store, changes: list[Change], dry_run: bool = False, log=print) -> dict:
     """Albums and tags one call each; a photo's title and description share one setMeta."""
     stats = {"applied": 0, "rejected": 0, "failed": 0, "albums_created": 0, "skipped": 0}
-    decisions = store.decisions()
     created: dict[str, str] = {}  # norm title -> new album id
     meta: dict[str, dict[str, Change]] = {}
     for c in changes:
         if c.action in META_ACTIONS:
             meta.setdefault(c.photo_id, {})[c.action] = c
         elif c.action == "add_tags":
-            _apply_tags(client, store, c, decisions, dry_run, stats, log)
+            _apply_tags(client, store, c, dry_run, stats, log)
         elif c.action == "set_tags":
             _apply_set_tags(client, store, c, dry_run, stats, log)
         elif c.action == "add_to_album":
-            _apply_album(client, store, c, decisions, created, dry_run, stats, log)
+            _apply_album(client, store, c, created, dry_run, stats, log)
         else:
             log(f"  ? unknown action '{c.action}' for {c.photo_id}, skipping")
             stats["skipped"] += 1
     for pid, by_action in meta.items():
-        _apply_meta(client, store, pid, by_action, decisions, dry_run, stats, log)
+        _apply_meta(client, store, pid, by_action, dry_run, stats, log)
     return stats
 
 
 def outcomes(store, changes: list[Change]) -> list[dict]:
-    """What happened to each change, read back from the decisions table."""
+    """What happened to each change, read back from the decisions log ("rejected": not applied, as you chose)."""
     decided = store.decisions()
     out = []
     for c in changes:
@@ -48,16 +47,32 @@ def outcomes(store, changes: list[Change]) -> list[dict]:
     return out
 
 
-def _apply_tags(client, store, c: Change, decisions, dry_run, stats, log) -> None:
+def unfinished(store, changes: list[Change], since: int) -> list[Change]:
+    """The approved changes not applied at or after `since`: they failed, or an error stopped the
+    run before them. (The decisions log keeps each one's latest outcome.)"""
+    done = set(store.applied_since(since))
+    out = []
+    for c in changes:
+        if not c.approved:
+            continue
+        if c.action in TAG_ACTIONS:
+            keys = [(c.photo_id, "add_tag", t) for t in split_tags(c.value)]
+        elif c.action in META_ACTIONS:
+            if not str(c.value).strip():       # blanked: never written (counts as rejected)
+                continue
+            keys = [(c.photo_id, c.action, str(c.value).strip())]
+        else:
+            keys = [(c.photo_id, c.action, c.new)]
+        if not all(k in done for k in keys):
+            out.append(c)
+    return out
+
+
+def _apply_tags(client, store, c: Change, dry_run, stats, log) -> None:
     pid = c.photo_id
     kept = split_tags(c.value) if c.approved else []
-    if not dry_run:
-        for t in c.tags:
-            if t not in kept:
-                store.record(pid, "add_tag", t, "rejected")
     if not c.approved:
         stats["rejected"] += 1
-    kept = [t for t in kept if decisions.get((pid, "add_tag", t)) != "applied"]
     if not kept:
         return
     if dry_run:
@@ -84,10 +99,6 @@ def _apply_set_tags(client, store, c: Change, dry_run, stats, log) -> None:
     and writes only if its tags on Flickr are still the ones the proposal replaces."""
     pid = c.photo_id
     kept = split_tags(c.value) if c.approved else []
-    if not dry_run:
-        for t in c.tags:
-            if t not in kept:
-                store.record(pid, "add_tag", t, "rejected")
     if not kept:             # rejected (an empty list would wipe every tag: never)
         stats["rejected"] += 1
         return
@@ -106,9 +117,9 @@ def _apply_set_tags(client, store, c: Change, dry_run, stats, log) -> None:
     photo = store.photo(pid)
     now = {norm_tag(t) for t in (photo["tags"] or "").split()} if photo is not None else None
     if now != {norm_tag(t) for t in c.old.split()}:
-        for t in kept:      # failed, not rejected: proposed again next time, against the new tags
-            store.record(pid, "add_tag", t, "failed", "tags changed on Flickr since proposed")
-        stats["skipped"] += 1
+        for t in kept:      # not written: re-process to propose against the new tags
+            store.record(pid, "add_tag", t, "failed", "tags changed on Flickr since proposed; re-process it")
+        stats["failed"] += 1
         log(f"  ! {pid}: tags changed on Flickr since proposed; left alone")
         return
     try:
@@ -127,15 +138,10 @@ def _apply_set_tags(client, store, c: Change, dry_run, stats, log) -> None:
     stats["applied"] += 1
 
 
-def _apply_album(client, store, c: Change, decisions, created, dry_run, stats, log) -> None:
+def _apply_album(client, store, c: Change, created, dry_run, stats, log) -> None:
     pid, title = c.photo_id, c.new
     if not c.approved:
-        if not dry_run:
-            store.record(pid, "add_to_album", title, "rejected")
         stats["rejected"] += 1
-        return
-    if decisions.get((pid, "add_to_album", title)) == "applied":
-        stats["skipped"] += 1
         return
     album_id = c.album_id or created.get(norm_title(title), "")
     if dry_run:
@@ -168,7 +174,7 @@ def _apply_album(client, store, c: Change, decisions, created, dry_run, stats, l
     stats["applied"] += 1
 
 
-def _apply_meta(client, store, pid: str, by_action: dict[str, Change], decisions, dry_run, stats, log) -> None:
+def _apply_meta(client, store, pid: str, by_action: dict[str, Change], dry_run, stats, log) -> None:
     """A photo's set_title and/or set_description, sent as a single setMeta call."""
     if not dry_run and any(c.approved for c in by_action.values()):
         # setMeta writes title AND description, so re-read both from Flickr first: the local
@@ -186,12 +192,7 @@ def _apply_meta(client, store, pid: str, by_action: dict[str, Change], decisions
     for action, c in by_action.items():
         value = str(c.value).strip()
         if not c.approved or not value:
-            if not dry_run:
-                store.record(pid, action, c.new, "rejected")
             stats["rejected"] += 1
-            continue
-        if decisions.get((pid, action, value)) == "applied":
-            stats["skipped"] += 1
             continue
         if not dry_run:
             current = (photo[action.removeprefix("set_")] or "").strip() if photo is not None else None
@@ -199,8 +200,9 @@ def _apply_meta(client, store, pid: str, by_action: dict[str, Change], decisions
             stale = (current is None or (action == "set_title" and not same_text(current, c.old))
                      or (action == "set_description" and current and not same_text(current, c.old)))
             if stale:
-                store.record(pid, action, c.new, "rejected", f"{action.removeprefix('set_')} changed since proposed")
-                stats["skipped"] += 1
+                store.record(pid, action, value, "failed",
+                             f"{action.removeprefix('set_')} changed on Flickr since proposed; re-process it")
+                stats["failed"] += 1
                 continue
         writes[action] = value
     if not writes:
@@ -227,6 +229,4 @@ def _apply_meta(client, store, pid: str, by_action: dict[str, Change], decisions
         store.set_description_local(pid, description)
     for action, value in writes.items():
         store.record(pid, action, value, "applied")
-        if value != by_action[action].new:   # you edited it: the proposal itself is settled too
-            store.record(pid, action, by_action[action].new, "edited", f"applied as edited: {value[:200]}")
     stats["applied"] += len(writes)

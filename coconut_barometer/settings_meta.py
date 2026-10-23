@@ -32,8 +32,8 @@ def _p(part):
     return lambda label, help="", group="", options=None: _m("photos", label, help, group, options, part)
 
 
-_sync, _writing, _subjects, _location, _cameras, _albums = (
-    _p("Sync"), _p("Writing"), _p("Subjects"), _p("Location"), _p("Cameras & dates"), _p("Albums"))
+_sync, _review, _writing, _subjects, _location, _cameras, _albums = (
+    _p("Sync"), _p("Review"), _p("Writing"), _p("Subjects"), _p("Location"), _p("Cameras & dates"), _p("Albums"))
 
 META = {
     # ---- Connections
@@ -63,10 +63,13 @@ META = {
     "schedule.stats": _sync("Per-day stats", "Needs Flickr Pro.", group="Stats"),
     "schedule.backfill_days_per_run": _sync("Past days fetched per sync", "Until Flickr has none (~a year).",
                                             group="Stats"),
-    "schedule.new_photos": _sync("New photos", "Either way they're under Review → To review; nothing changes "
-                                 "on Flickr until you approve it.", group="New photos",
-                                 options={"process": "Process them right away (costs vision calls)",
-                                          "queue": "Queue them; each is processed when you open it"}),
+
+    # ---- Photos: Review
+    "review.when_queued": _review("When a photo is sent to review",
+                                  "New photos from a sync, and photos sent from the gallery. Either way nothing "
+                                  "changes on Flickr until you apply it.",
+                                  options={"process": "Process it right away (costs vision calls)",
+                                           "queue": "Wait; process it when I open it"}),
 
     # ---- Photos: Writing
     "vision.title.max_words": _writing("Length (words)", group="Titles"),

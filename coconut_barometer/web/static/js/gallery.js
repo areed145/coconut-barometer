@@ -165,8 +165,9 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   const sendToReview = async () => {
     if (sending) return; setSending(true);
     try {
-      await api(`/api/review/items/${p.id}/process`, { method: "POST" });
-      toast("Sent to review");
+      const r = await api(`/api/review/items/${p.id}/send`, { method: "POST" });
+      toast(r.status === "processing" ? "Sent to review; processing it now" : r.status === "new" ? "Sent to review"
+        : "Already in review");
       onClose();
       location.hash = `#/photos/review?photo_id=${encodeURIComponent(p.id)}`;
     } catch (e) { toast("Error: " + e.message); }

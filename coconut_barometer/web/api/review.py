@@ -1,4 +1,5 @@
-"""The review queue: proposed changes per photo, your decisions, processing, jobs."""
+"""The review queue: photos sent to review, their proposed changes, and what you do with each:
+apply, ignore or re-process. Plus the jobs behind them."""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -6,11 +7,9 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from ...review import STATUSES
 from ..deps import runtime, session
 
 router = APIRouter(prefix="/api/review", tags=["review"], dependencies=[Depends(session)])
-Status = Literal[STATUSES]  # type: ignore[valid-type]
 Sort = Literal["newest", "oldest", "views", "faves", "comments"]
 
 
@@ -29,8 +28,9 @@ def summary(rt=Depends(runtime)):
 
 
 @router.get("/queue")
-def queue(status: Status = "pending", sort: Sort = "newest", rt=Depends(runtime)):
-    return rt.review.queue(status, sort)
+def queue(sort: Sort = "newest", rt=Depends(runtime)):
+    """Every photo in review."""
+    return rt.review.queue(sort)
 
 
 @router.get("/find")
@@ -49,17 +49,36 @@ def item(photo_id: str, rt=Depends(runtime)):
     return it
 
 
+@router.post("/items/{photo_id}/send")
+def send(photo_id: str, rt=Depends(runtime)):
+    """Into review (from the gallery): processed now or when opened, by Settings → Photos → Review."""
+    try:
+        return rt.review.send(photo_id)
+    except KeyError:
+        raise HTTPException(404, "not in your library")
+
+
 @router.post("/items/{photo_id}/decide")
 def decide(photo_id: str, body: Decision, rt=Depends(runtime)):
+    """Apply: the changes you approved (as edited). Out of review once they're on Flickr."""
     try:
         return rt.review.decide(photo_id, [c.model_dump(exclude_none=True) for c in body.choices])
     except KeyError:
-        raise HTTPException(404, "not in the queue")
+        raise HTTPException(404, "not in review")
+
+
+@router.post("/items/{photo_id}/ignore")
+def ignore(photo_id: str, rt=Depends(runtime)):
+    """Out of review, changing nothing."""
+    try:
+        return rt.review.ignore(photo_id)
+    except KeyError:
+        raise HTTPException(404, "not in review")
 
 
 @router.post("/items/{photo_id}/process")
 def process(photo_id: str, if_new: bool = False, tags: Literal["add", "replace"] = "replace", rt=Depends(runtime)):
-    """tags: "add" to the photo's tags, or "replace" them (shown for approval as one change)."""
+    """Re-process: a fresh look, staying in review. tags: "add" to the photo's tags, or "replace" them."""
     try:
         return rt.review.process(photo_id, if_new=if_new, tags=tags)
     except KeyError:

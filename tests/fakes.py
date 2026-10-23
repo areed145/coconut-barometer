@@ -43,6 +43,7 @@ class FakeFlickr:
         self.clock = 1700000000                  # Flickr's "now", moved on by every write
         self.activity = []                       # activity.userPhotos items
         self.daily = {}                          # stats day -> {"total": n, "photos": [(id, views, comments, faves)]}
+        self.fail_next: dict[str, int] = {}      # method -> how many of its next calls fail (a Flickr outage)
 
     @property
     def call_count(self):
@@ -61,6 +62,9 @@ class FakeFlickr:
 
     def call(self, method, **p):
         self.calls.append((method, p))
+        if self.fail_next.get(method):
+            self.fail_next[method] -= 1
+            raise FlickrCallError(method, 105, "Service currently unavailable")
         page, per = int(p.get("page", 1)), 2   # tiny pages to exercise pagination
         def paged(items):
             chunk = items[(page - 1) * per: page * per]

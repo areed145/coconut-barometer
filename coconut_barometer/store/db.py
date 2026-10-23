@@ -159,7 +159,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def is_sqlite_file(path) -> bool:
@@ -215,6 +215,10 @@ class Database:
         if 0 < version < 9:                     # v9: and the last secondary indexes, before they do the same. These
             for name in ("memberships_photo", "group_photos_photo", "photo_daily_day"):   # tables scan in well
                 self.db.execute(f"DROP INDEX IF EXISTS {name}")                          # under a millisecond
+        if 0 < version < 10:                    # v10: the queue holds only photos in review (new, pending, applying):
+            with self.db:                       # applied and rejected leave it; failed and "nothing to change" wait in it
+                self.db.execute("DELETE FROM queue WHERE status IN ('applied', 'rejected')")
+                self.db.execute("UPDATE queue SET status='pending' WHERE status IN ('none', 'failed')")
         self.db.executescript(SCHEMA)           # every statement is IF NOT EXISTS: nothing changes once it's there
         if 0 < version < 7:                     # v7: whether a photo's location is public on Flickr (filled by the next sync)
             self.db.execute("ALTER TABLE photos ADD COLUMN IF NOT EXISTS geo_public INTEGER")

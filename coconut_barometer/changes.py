@@ -1,24 +1,18 @@
-"""What a proposed change is, and when one counts as settled.
+"""What a proposed change is.
 
 Change is the one shape a proposal has everywhere: the planner makes them, the queue
-stores them, the review tool shows and edits them, and apply carries them out.
+stores them, the review tool shows and edits them, and apply carries them out:
 
-Settled is the one place that decides whether a change was already dealt with, so it
-isn't proposed again. Failed changes never count: they're proposed again next time.
+  add_to_album      one album
+  add_tags          tags the photo doesn't have yet
+  set_tags          (processing with "overwrite") the photo's whole tag list, replaced
+  set_title         the title
+  set_description   the description
 
-  add_to_album      settled per (photo, album) once applied or rejected
-  add_tags          settled per (photo, tag) once applied or rejected; dropping a tag
-                    in review rejects just that tag
-  set_tags          (processing with "overwrite") the photo's whole tag list, replaced:
-                    each kept tag is recorded like add_tags, each removed one as remove_tag
-  set_title         settled per (photo, proposed title): a different proposal (after you
-                    change the title brief) can still come
-  set_description   settled per (photo, proposed text), the same way
-
-Statuses in the decisions table: applied (written to Flickr, recorded against the text
-written), rejected, failed, and edited - the proposal you changed before approving it
-(the text actually written is recorded as applied). A rejection is recorded against the
-proposal even if you'd edited it. applied/rejected/edited all count as settled.
+Every processing proposes afresh: nothing you applied or ignored before holds a proposal
+back (only what's already true on Flickr does). The decisions table is a log of what
+apply did, for Analytics: applied (recorded against the text written, and per tag as
+add_tag / remove_tag) or failed.
 """
 from __future__ import annotations
 
@@ -29,7 +23,6 @@ from .util import clean_tag, same_text
 ACTIONS = ("add_to_album", "add_tags", "set_tags", "set_title", "set_description")
 TAG_ACTIONS = ("add_tags", "set_tags")
 META_ACTIONS = ("set_title", "set_description")   # both written by one flickr.photos.setMeta
-SETTLED = ("applied", "rejected", "edited")
 
 
 @dataclass
@@ -84,25 +77,3 @@ def split_tags(text: str | list[str]) -> list[str]:
         return [clean_tag(t) for t in text if clean_tag(t)]
     return [clean_tag(t) for t in (text or "").split("|") if clean_tag(t)]
 
-
-class Settled:
-    """Answers "was this already dealt with?" from the decisions table. Build one per plan."""
-
-    def __init__(self, store):
-        self.store = store
-        self.done = {k: s for k, s in store.decisions().items() if s in SETTLED}
-
-    def album(self, photo_id: str, title: str) -> bool:
-        return (photo_id, "add_to_album", title) in self.done
-
-    def tag(self, photo_id: str, tag: str) -> bool:
-        return (photo_id, "add_tag", tag) in self.done
-
-    def tag_rejected(self, photo_id: str, tag: str) -> bool:
-        return self.done.get((photo_id, "add_tag", tag)) == "rejected"
-
-    def title(self, photo_id: str, title: str) -> bool:
-        return (photo_id, "set_title", title) in self.done
-
-    def description(self, photo_id: str, text: str) -> bool:
-        return (photo_id, "set_description", text) in self.done

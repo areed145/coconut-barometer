@@ -1,4 +1,5 @@
-"""The per-photo queue (process) and the review tool."""
+"""The review queue (process) and the review tool: a photo is in review from being sent there
+until it's applied or ignored; re-processing keeps it there."""
 import os
 import tempfile
 import time
@@ -24,11 +25,12 @@ class QueueReviewTest(unittest.TestCase):
         self.app = ReviewApp(self.store, self.fl)
 
     def decide(self, pid, choices):
-        """Approve/reject returns at once; the worker applies in the background."""
+        """Apply returns at once; the worker applies in the background. Applied: out of review.
+        Still failing after the retry: back in review, with why."""
         self.assertEqual(self.app.decide(pid, choices), {"status": "applying"})
         self.app.wait()
         item = self.store.queue_item(pid)
-        return {"status": item["status"], **item["result"]}
+        return {"status": "applied"} if item is None else {"status": item["status"], **item["result"]}
 
     def process(self, **kw):
         return process(self.cfg, self.store, self.fl, self.vision, geocoder=fake_geocoder, log=lambda *a: None,
@@ -37,6 +39,12 @@ class QueueReviewTest(unittest.TestCase):
     def changes(self, pid):
         return {(c["action"], tuple(c["new"]) if isinstance(c["new"], list) else c["new"])
                 for c in self.store.queue_item(pid)["changes"]}
+
+    def test_processing_skips_photos_already_processed_even_once_out_of_review(self):
+        self.app.ignore("1")
+        self.decide("2", [{"approve": True} for _ in self.store.queue_item("2")["changes"]])
+        self.assertEqual(self.process()["queued"] + self.process()["nothing_to_change"], 0)   # not back in review
+        self.assertEqual(self.process(photo_ids=["1"])["queued"], 1)                         # unless asked for
 
     def test_queue_is_built_per_photo_and_resumable(self):
         self.assertEqual(self.stats["queued"] + self.stats["nothing_to_change"], 5)
@@ -48,7 +56,7 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(item["photo"]["title"], "Ramen in Tokyo")
         self.assertTrue(item["photo"]["image"].endswith("1_s_b.jpg"))
 
-    def test_approve_one_by_one_applies_and_records(self):
+    def test_apply_writes_what_you_keep_and_leaves_review(self):
         changes = self.store.queue_item("1")["changes"]
         choices = []
         for c in changes:
@@ -60,30 +68,63 @@ class QueueReviewTest(unittest.TestCase):
                 choices.append({"approve": False})
             else:
                 choices.append({"approve": True})
-        r = self.decide("1", choices)
-        self.assertEqual(r["status"], "applied")
+        before = self.app.summary()["to_review"]
+        self.assertEqual(self.decide("1", choices)["status"], "applied")
+        self.assertIsNone(self.store.queue_item("1"))                              # out of review
+        self.assertEqual(self.app.summary()["to_review"], before - 1)
         self.assertIn("1", self.fl.sets["102"]["photos"])                          # Food
-        self.assertNotIn("1", self.fl.sets["100"]["photos"])                       # Japan rejected
+        self.assertNotIn("1", self.fl.sets["100"]["photos"])                       # Japan: unticked
         self.assertIn("ramen", self.fl.photos[0]["tags"])
         self.assertNotIn("noodle", self.fl.photos[0]["tags"])
         self.assertEqual(self.fl.photos[0]["description"]["_content"], "Tonkotsu ramen.")
-        tags = next(o for o in r["changes"] if o["action"] == "add_tags")["tags"]
-        self.assertEqual(tags, {"food": "applied", "ramen": "applied", "noodle soup": "rejected"})
-        self.assertEqual(self.app.summary()["applied"], 1)
-        # Re-planning later doesn't bring back anything applied or rejected.
-        self.process(rebuild=True, photo_ids=["1"])
-        self.assertEqual(self.store.queue_item("1")["status"], "none")
+        log = self.store.decisions()                                               # for Analytics
+        self.assertEqual((log[("1", "add_tag", "ramen")], log[("1", "add_to_album", "Food")]), ("applied", "applied"))
+        self.assertNotIn(("1", "add_tag", "noodle soup"), log)                     # unticked: nothing recorded
+        # No memory: sent again, it's proposed afresh: Japan again, but not what's on Flickr now (Food).
+        self.process(photo_ids=["1"])
+        again = self.changes("1")
+        self.assertIn(("add_to_album", "Japan"), again)
+        self.assertNotIn(("add_to_album", "Food"), again)
 
-    def test_reject_all_and_no_overwrite_of_flickr_edits(self):
-        self.decide("3", [{"approve": False} for _ in self.store.queue_item("3")["changes"]])
-        self.assertEqual(self.store.queue_item("3")["status"], "rejected")
-        # Photo 5's description gets written on Flickr after the queue was built.
+    def test_ignore_takes_it_out_of_review_and_changes_nothing(self):
+        calls = len(self.fl.calls)
+        self.assertEqual(self.app.ignore("3"), {"status": "ignored"})
+        self.assertIsNone(self.store.queue_item("3"))
+        self.assertEqual(len(self.fl.calls), calls)                                # nothing sent to Flickr
+        self.assertEqual(self.app.item("3")["status"], "not_queued")
+        with self.assertRaises(KeyError):
+            self.app.ignore("3")
+        self.store.queue_finish("2", "applying", {"choices": []})
+        self.assertEqual(self.app.ignore("2"), {"status": "busy"})                 # mid-apply: left alone
+        # Nothing remembered: sent again, the same proposals.
+        self.process(photo_ids=["3"])
+        self.assertEqual(self.store.queue_item("3")["status"], "pending")
+
+    def test_flickr_edits_are_never_overwritten_and_the_photo_stays_in_review(self):
+        # Photo 5's description gets written on Flickr after it was proposed.
         self.fl.photos[4]["description"] = {"_content": "Mine"}
         r = self.decide("5", [{"approve": True} for _ in self.store.queue_item("5")["changes"]])
         self.assertEqual(self.fl.photos[4]["description"]["_content"], "Mine")      # re-read before setMeta
-        desc = next(o for o in r["changes"] if o["action"] == "set_description")
-        self.assertEqual(desc["status"], "rejected")
-        self.assertEqual([j["photo_id"] for j in self.app.jobs_status()["finished"]], ["3", "5"])
+        self.assertEqual(r["status"], "pending")                                    # still in review...
+        self.assertIn("changed on Flickr since proposed", r["error"])               # ...saying why
+        self.assertEqual([c["action"] for c in self.store.queue_item("5")["changes"]], ["set_description"])
+        self.assertEqual([j["photo_id"] for j in self.app.jobs_status()["finished"]], ["5"])
+
+    def test_a_failed_apply_is_retried_once(self):
+        self.fl.fail_next["flickr.photosets.addPhoto"] = 1                         # a blip: the retry goes through
+        self.assertEqual(self.decide("1", [{"approve": True} for _ in self.store.queue_item("1")["changes"]])["status"],
+                         "applied")
+        self.assertIn("1", self.fl.sets["102"]["photos"])
+        self.fl.fail_next["flickr.photosets.addPhoto"] = 99                        # down: fails twice, stays in review
+        r = self.decide("2", [{"approve": True} for _ in self.store.queue_item("2")["changes"]])
+        self.assertEqual(r["status"], "pending")
+        self.assertIn("Service currently unavailable", r["error"])
+        left = self.store.queue_item("2")["changes"]
+        self.assertEqual({c["action"] for c in left}, {"add_to_album"})              # only what didn't go through
+        self.assertEqual(self.app.jobs_status()["finished"][-1]["status"], "failed")
+        # Applying again later (Flickr back up) finishes it.
+        self.fl.fail_next.clear()
+        self.assertEqual(self.decide("2", [{"approve": True} for _ in left])["status"], "applied")
 
     def test_process_unprocessed_video_from_viewer(self):
         video = photo("6", 35.0, 135.7, title="Ramen in Kyoto")
@@ -92,18 +133,19 @@ class QueueReviewTest(unittest.TestCase):
         sync(self.fl, self.store, log=lambda *a: None)
         app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: self.vision,
                         process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
-        self.assertEqual(app.queue("unprocessed"), ["6"])
-        self.assertEqual(app.item("6")["status"], "unprocessed")
+        self.assertNotIn("6", app.queue())
+        self.assertEqual(app.item("6")["status"], "not_queued")
         self.assertEqual(app.find("https://www.flickr.com/photos/someone/6/in/album-1"), "6")
         self.assertIsNone(app.find("https://www.flickr.com/photos/someone/999"))
-        self.assertEqual(app.process("6"), {"status": "processing"})
+        self.assertEqual(app.send("6"), {"status": "processing"})                   # sent: processed at once
         app.wait()
         item = app.item("6")
         self.assertEqual(item["status"], "pending")                     # classified despite include_videos: false
         self.assertIn(("add_to_album", "Food"), {(c["action"], c["new"]) for c in item["changes"] if c["action"] not in ("add_tags", "set_tags")})
         self.assertEqual(app.recent[-1]["kind"], "process")
-        self.assertEqual(app.summary()["unprocessed"], 0)
-        # Re-processing an already-queued photo works too, and changes nothing that's settled.
+        self.assertIn("6", app.queue())
+        self.assertEqual(app.send("6"), {"status": "pending"})                      # already in review
+        # Re-processing keeps it in review.
         app.process("6"); app.wait()
         self.assertEqual(app.item("6")["status"], "pending")
 
@@ -142,7 +184,7 @@ class QueueReviewTest(unittest.TestCase):
         self.store.queue_finish("1", "applying", {"choices": [{"approve": True}] * len(self.store.queue_item("1")["changes"])})
         self.assertEqual(quiet.summary()["applying"], 1)
         ReviewApp(self.store, self.fl).wait()                          # a new session picks it up
-        self.assertEqual(self.store.queue_item("1")["status"], "applied")
+        self.assertIsNone(self.store.queue_item("1"))                  # applied: out of review
         self.assertIn("1", self.fl.sets["102"]["photos"])
 
     def test_queue_view_lanes_and_results(self):
@@ -211,7 +253,7 @@ class QueueReviewTest(unittest.TestCase):
         self.assertNotIn("noodlesoup", on_flickr)                     # dropped in review
         d = self.store.decisions()
         self.assertEqual(d[("1", "remove_tag", "oldtag")], "applied")
-        self.assertEqual(d[("1", "add_tag", "noodle soup")], "rejected")
+        self.assertNotIn(("1", "add_tag", "noodle soup"), d)
         self.assertEqual(self.store.photo("1")["tags"].split(), on_flickr)
 
     def test_overwrite_is_skipped_if_tags_changed_on_flickr(self):
@@ -222,7 +264,8 @@ class QueueReviewTest(unittest.TestCase):
         self.fl.photos[0]["tags"] = "addedbyhand"                      # on Flickr, after the proposal
         out = app.decide("1", [{"approve": c["action"] == "set_tags"} for c in changes])
         self.assertEqual(self.fl.photos[0]["tags"], "addedbyhand")     # left alone
-        self.assertEqual(out["stats"]["skipped"], 1)
+        self.assertEqual(out["status"], "failed")                      # and it stays in review, saying why
+        self.assertIn("tags changed on Flickr", self.store.queue_item("1")["result"]["error"])
 
     def test_overwrite_never_wipes_a_photo_with_no_wanted_tags(self):
         from coconut_barometer.planner import build_plan
@@ -233,7 +276,7 @@ class QueueReviewTest(unittest.TestCase):
 
 
 class NewPhotosTest(unittest.TestCase):
-    """After a sync, photos uploaded since go under To review: processed now, or when opened."""
+    """After a sync, photos uploaded since go into review: processed now, or when opened (review.when_queued)."""
 
     def setUp(self):
         self.cfg = from_dict(CFG)
@@ -248,28 +291,37 @@ class NewPhotosTest(unittest.TestCase):
         return self.app._sync(self.store, "full")
 
     def test_the_first_sync_queues_nothing(self):
-        self.assertEqual(self.store.queue_counts(), {})
-        self.assertEqual(self.app.summary()["unprocessed"], 5)          # the backlog stays under Not processed
+        self.assertEqual(self.store.queue_counts(), {})                 # the backlog: Photos → Not processed
+        self.assertEqual(self.app.summary()["to_review"], 0)
 
     def test_queue_mode_processes_each_when_opened(self):
+        self.cfg["review"]["when_queued"] = "queue"
         self.assertEqual(self.upload("9", 1700000500)["new_photos"], 1)
         self.assertEqual(self.store.queue_item("9")["status"], "new")
         self.assertEqual(self.app.summary()["to_review"], 1)
-        self.assertEqual(self.app.queue("pending"), ["9"])
-        self.assertEqual(self.app.process("1", if_new=True), {"status": "unprocessed"})   # not new: left alone
+        self.assertEqual(self.app.queue(), ["9"])
+        self.assertEqual(self.app.process("1", if_new=True), {"status": "not_queued"})   # not in review: left alone
+        self.assertEqual(self.app.send("1"), {"status": "new"})        # from the gallery: waits too
         self.assertEqual(self.app.process("9", if_new=True)["status"], "pending")
         actions = {c["action"] for c in self.store.queue_item("9")["changes"]}
         self.assertTrue({"set_title", "set_description"} <= actions)
         self.assertEqual(self.upload("10", 1700000400)["new_photos"], 0)  # older than the last new one
 
     def test_process_mode_processes_them_after_the_sync(self):
-        self.cfg["schedule"]["new_photos"] = "process"
+        self.assertEqual(self.cfg["review"]["when_queued"], "process")   # the default
         self.upload("9", 1700000500)
         self.assertEqual(self.store.queue_item("9")["status"], "pending")
-        self.assertEqual(self.app.queue("pending"), ["9"])
+        self.assertEqual(self.app.queue(), ["9"])
+        self.assertEqual(self.app.send("1")["status"], "pending")      # from the gallery: processed too
+
+    def test_waiting_photos_are_processed_on_startup(self):
+        self.store.queue_add("2")                                      # left waiting (say, queue mode until now)
+        app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: FakeVision("m1"),
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        app.wait()
+        self.assertEqual(self.store.queue_item("2")["status"], "pending")
 
     def test_without_a_vision_key_they_wait(self):
-        self.cfg["schedule"]["new_photos"] = "process"
 
         def no_key():
             raise SystemExit("Missing the vision API key (vision.api_key), needed for provider 'claude'.")

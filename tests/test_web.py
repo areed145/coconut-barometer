@@ -198,9 +198,9 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/photos/nope").status_code, 404)
         self.assertEqual(self.c.get("/api/photos", params={"sort": "drop table"}).status_code, 422)
 
-    def test_review_process_and_approve_through_the_worker(self):
+    def test_review_send_apply_and_ignore_through_the_worker(self):
         headers = self.csrf()
-        self.assertEqual(self.c.post("/api/review/items/1/process", headers=headers).json()["status"], "processing")
+        self.assertEqual(self.c.post("/api/review/items/1/send", headers=headers).json()["status"], "processing")
         self.wait()
         item = self.c.get("/api/review/items/1").json()
         self.assertEqual(item["status"], "pending")
@@ -210,7 +210,14 @@ class WebTest(unittest.TestCase):
         self.assertEqual(r.json()["status"], "applying")
         self.wait()
         self.assertIn("1", self.fl.sets["102"]["photos"])                    # Food, on (fake) Flickr
-        self.assertEqual(self.c.get("/api/review/items/1").json()["status"], "applied")
+        self.assertEqual(self.c.get("/api/review/items/1").json()["status"], "not_queued")   # out of review
+        self.c.post("/api/review/items/2/send", headers=headers)
+        self.wait()
+        self.assertEqual(self.c.get("/api/review/queue").json(), ["2"])
+        self.assertEqual(self.c.post("/api/review/items/2/ignore", headers=headers).json(), {"status": "ignored"})
+        self.assertEqual(self.c.get("/api/review/queue").json(), [])
+        self.assertEqual(self.c.get("/api/review/summary").json()["to_review"], 0)
+        self.assertEqual(self.c.post("/api/review/items/2/ignore", headers=headers).status_code, 404)
 
     def test_send_to_review_again_uses_the_latest_image_and_asks_the_model_again(self):
         headers = self.csrf()

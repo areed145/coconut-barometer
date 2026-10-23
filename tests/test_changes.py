@@ -1,10 +1,7 @@
-"""Change (the shape of a proposal) and Settled (when one counts as dealt with)."""
-import os
-import tempfile
+"""Change: the shape of a proposal."""
 import unittest
 
-from coconut_barometer.changes import Change, Settled
-from coconut_barometer.store import Store
+from coconut_barometer.changes import Change
 
 
 class ChangeTest(unittest.TestCase):
@@ -26,25 +23,6 @@ class ChangeTest(unittest.TestCase):
                                   "original_target": "IMG_1234"})
         self.assertEqual((title.new, title.old), ("Low Tide", "IMG_1234"))
 
-
-class SettledTest(unittest.TestCase):
-    def setUp(self):
-        self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
-
-    def test_applied_rejected_and_edited_settle_but_failed_does_not(self):
-        for target, status in [("A", "applied"), ("B", "rejected"), ("C", "failed")]:
-            self.store.record("1", "add_to_album", target, status)
-        self.store.record("1", "set_title", "Proposed", "edited")
-        s = Settled(self.store)
-        self.assertTrue(s.album("1", "A") and s.album("1", "B"))
-        self.assertFalse(s.album("1", "C"))
-        self.assertTrue(s.title("1", "Proposed"))
-
-    def test_descriptions_are_settled_per_proposal(self):
-        self.store.record("1", "set_description", "Some text", "rejected")
-        self.assertTrue(Settled(self.store).description("1", "Some text"))
-        self.assertFalse(Settled(self.store).description("1", "Other text"))   # a new brief's text: proposed
-        self.assertFalse(Settled(self.store).description("2", "Some text"))
 
 if __name__ == "__main__":
     unittest.main()

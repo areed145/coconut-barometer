@@ -28,11 +28,9 @@ PRESETS = {
     "faved": ("Faved", "Engagement", "p.faves > 0"),
     "commented": ("Commented", "Engagement", "p.comments > 0"),
     "unseen": ("Barely seen (under 10 views)", "Engagement", "COALESCE(p.views, 0) < 10"),
-    "to_review": ("Waiting in To review", "Status",
-                  "EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id AND q.status IN ('pending', 'new'))"),
-    "not_processed": ("Not processed", "Status", "NOT EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id)"),
-    "changed_here": ("Changed by this app", "Status",
-                     "EXISTS (SELECT 1 FROM decisions dd WHERE dd.photo_id = p.id AND dd.status = 'applied')"),
+    "to_review": ("In review", "Status", "EXISTS (SELECT 1 FROM queue q WHERE q.photo_id = p.id)"),
+    # Processed = looked at by the vision model at least once (with any settings).
+    "not_processed": ("Not processed", "Status", "NOT EXISTS (SELECT 1 FROM classifications cl WHERE cl.photo_id = p.id)"),
     "recent": ("Uploaded in the last 30 days", "Status", "p.date_upload > epoch(current_timestamp)::BIGINT - 30 * 86400"),
     "private": ("Private", "Status", "p.ispublic = 0"),
 }

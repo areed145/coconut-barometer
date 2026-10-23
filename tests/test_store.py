@@ -42,6 +42,18 @@ class SchemaTest(unittest.TestCase):
         store = Store(self.path)
         self.assertEqual(store.db.execute("SELECT index_name FROM duckdb_indexes()").fetchall(), [])
 
+    def test_v9_queue_keeps_only_photos_in_review(self):
+        store = Store(self.path)
+        for pid, status in [("1", "applied"), ("2", "rejected"), ("3", "none"), ("4", "failed"), ("5", "pending"),
+                            ("6", "new"), ("7", "applying")]:
+            store.queue_put(pid, status, [])
+        store.set_meta("schema_version", 9)
+        store.close()
+        store = Store(self.path)
+        self.assertEqual(store.queue_counts(), {"pending": 3, "new": 1, "applying": 1})
+        self.assertIsNone(store.queue_item("1"))
+        self.assertEqual(store.queue_item("3")["status"], "pending")      # "nothing to change": still to decide
+
     def test_refuses_a_database_from_a_newer_version(self):
         Store(self.path).set_meta("schema_version", SCHEMA_VERSION + 1)
         with self.assertRaises(SchemaTooNew):

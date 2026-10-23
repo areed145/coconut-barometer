@@ -1,5 +1,10 @@
-"""The review queue (per-photo proposed changes) and decisions (what was applied,
-rejected or failed, so nothing settled is proposed again)."""
+"""The review queue (per-photo proposed changes) and decisions (a log of what was applied or
+failed, for Analytics; it doesn't stop anything being proposed again).
+
+A photo is in the queue from being sent to review until it's applied or ignored:
+  new       waiting to be processed (review.when_queued: queue, or processing failed)
+  pending   ready: its proposed changes (maybe none), or the ones whose apply failed twice
+  applying  your choices saved, the worker applying them (resumed after a restart)"""
 from __future__ import annotations
 
 import json
@@ -23,17 +28,16 @@ class QueueStore(Database):
             f"SELECT q.photo_id FROM queue q JOIN photos p ON p.id = q.photo_id "
             f"WHERE q.status IN ({marks}) ORDER BY {self.SORTS.get(sort, self.SORTS['newest'])}", statuses)]
 
-    def unqueued_ids(self, sort: str = "newest") -> list[str]:
-        return [r[0] for r in self.db.execute(
-            "SELECT p.id FROM photos p WHERE p.id NOT IN (SELECT photo_id FROM queue) "
-            f"ORDER BY {self.SORTS.get(sort, self.SORTS['newest'])}")]
+    def processed_ids(self) -> set[str]:
+        """Photos the vision model has looked at, with any settings: processed at least once."""
+        return {r[0] for r in self.db.execute("SELECT DISTINCT photo_id FROM classifications")}
 
     def latest_upload(self) -> int | None:
         return self.db.execute("SELECT MAX(date_upload) FROM photos").fetchone()[0]
 
     def queue_new_photos(self, uploaded_after: int) -> list[str]:
-        """Photos uploaded after that time and not in the queue yet go in as "new" (To review,
-        processed when opened). Returns their ids, newest first."""
+        """Photos uploaded after that time and not in the queue yet go in as "new" (to be processed:
+        now or when opened, by review.when_queued). Returns their ids, newest first."""
         ids = [r[0] for r in self.db.execute(
             "SELECT id FROM photos WHERE date_upload > ? AND id NOT IN (SELECT photo_id FROM queue) "
             "ORDER BY date_upload DESC, id", (uploaded_after,))]
@@ -51,6 +55,24 @@ class QueueStore(Database):
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO queue (photo_id, status, changes, built_at) VALUES (?, ?, ?, ?)",
                             (photo_id, status, json.dumps(changes), int(time.time())))
+
+    def queue_add(self, photo_id: str) -> bool:
+        """Into the queue as "new", unless it's there already. True if it was added."""
+        if self.db.execute("SELECT 1 FROM queue WHERE photo_id=?", (photo_id,)).fetchone():
+            return False
+        self.queue_put(photo_id, "new", [])
+        return True
+
+    def queue_remove(self, photo_id: str) -> None:
+        """Out of the queue: applied, or ignored."""
+        with self.db:
+            self.db.execute("DELETE FROM queue WHERE photo_id=?", (photo_id,))
+
+    def failures_since(self, photo_id: str, since: int) -> list[str]:
+        """Why this photo's changes failed, from the decisions log, since that time."""
+        return [r[0] for r in self.db.execute(
+            'SELECT DISTINCT detail FROM decisions WHERE photo_id=? AND status=\'failed\' AND "at" >= ? AND detail <> \'\'',
+            (photo_id, since))]
 
     def queue_finish(self, photo_id: str, status: str, result) -> None:
         with self.db:

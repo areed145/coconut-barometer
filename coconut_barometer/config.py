@@ -52,8 +52,10 @@ DEFAULTS: dict[str, Any] = {
         "photo_list_every_hours": 24,  # every photo re-read: view counts + the daily snapshot (~22 calls)
         "stats": True,               # per-day stats (Flickr Pro): yesterday, plus backfill
         "backfill_days_per_run": 7,  # older days fetched per run until Flickr has none (~6 calls/day)
-        "new_photos": "queue",       # after a sync, new photos: "process" now (vision costs), or "queue" for
-                                     # To review, processed when you open them
+    },
+    "review": {
+        "when_queued": "process",    # a photo sent to review (new from a sync, or from the gallery): "process" it
+                                     # right away (vision costs), or "queue" it, processed when you open it
     },
     "backup": {
         "every_hours": 24,            # the web app's scheduler makes one this often; 0 = off
@@ -99,7 +101,7 @@ OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_k
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
-           ("schedule", "new_photos"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
+           ("review", "when_queued"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
 RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("schedule", "full_every_days"): (1, 365),
@@ -137,12 +139,12 @@ RETIRED = {("geo", "enabled"), ("rename",), ("vision", "enabled"), ("vision", "i
 
 # Settings that moved: old path -> new path (the old one is used if the new one isn't set).
 RENAMED = {"map.color_low": "theme.color_low", "map.color_high": "theme.color_high",
-           "weather.units": "display.units"}
+           "weather.units": "display.units", "schedule.new_photos": "review.when_queued"}
 
 
 def retire(raw: dict) -> dict:
     """raw without RETIRED settings (a copy), with RENAMED ones moved. web.process_new: true
-    becomes schedule.new_photos: process."""
+    becomes review.when_queued: process."""
     import copy
 
     raw = copy.deepcopy(raw)
@@ -151,8 +153,8 @@ def retire(raw: dict) -> dict:
         value = (raw.get(o[0]) or {}).pop(o[1], None) if isinstance(raw.get(o[0]), dict) else None
         if value is not None and n[1] not in (raw.get(n[0]) or {}):
             raw.setdefault(n[0], {})[n[1]] = value
-    if (raw.get("web") or {}).get("process_new") is True and "new_photos" not in (raw.get("schedule") or {}):
-        raw.setdefault("schedule", {})["new_photos"] = "process"
+    if (raw.get("web") or {}).get("process_new") is True and "when_queued" not in (raw.get("review") or {}):
+        raw.setdefault("review", {})["when_queued"] = "process"
     for path in RETIRED:
         node = raw
         for k in path[:-1]:

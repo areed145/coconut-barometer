@@ -1,10 +1,10 @@
-// The reviewer: one photo at a time, approve each proposed change. Approvals and
-// processing run in the server's background worker; this page polls for outcomes.
+// The reviewer: every photo sent to review, one at a time. For each: Apply (the changes you keep,
+// as edited), Ignore (out of review, nothing changed) or Re-process (a fresh look; it stays).
+// Applying and processing run in the server's background worker; this page polls for outcomes.
 import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink, every } from "./lib.js";
 
-// "To review" also holds new photos, processed when you reach them ("new").
-const LABELS = { pending: "To review", applying: "Applying", failed: "Failed", applied: "Applied", rejected: "Rejected",
-                 none: "Nothing to change", unprocessed: "Not processed" };
+// "new": waiting to be processed (processed when you reach it); "not_queued": opened by ID, not in review.
+const STATE = { new: "waiting", pending: "ready", applying: "applying", processing: "processing", not_queued: "not in review" };
 
 const TAGS = new Set(["add_tags", "set_tags"]);
 // Flickr's normalized tag form (as in util.norm_tag), to tell which existing tags a replacement drops.
@@ -70,7 +70,6 @@ function Engagement({ s }) {
 
 export function Reviewer({ onCount, targetPhotoId }) {
   const [summary, setSummary] = useState(null);
-  const [status, setStatus] = useState("pending");
   const [sort, setSort] = useState("newest");
   const [ids, setIds] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -96,13 +95,13 @@ export function Reviewer({ onCount, targetPhotoId }) {
   };
   useEffect(() => { loadSummary(); }, []);
   useEffect(() => {
-    api("/api/review/queue", { params: { status, sort } }).then((list) => {
+    api("/api/review/queue", { params: { sort } }).then((list) => {
       const targetAt = targetPhotoId ? list.indexOf(targetPhotoId) : -1;
       const queue = targetPhotoId && targetAt < 0 ? [targetPhotoId, ...list] : list;
       const at = targetPhotoId ? (targetAt < 0 ? 0 : targetAt) : 0;
       setIds(queue); setIdx(at); loadItem(queue[at], queue, at);
     });
-  }, [status, sort, targetPhotoId]);
+  }, [sort, targetPhotoId]);
 
   // Background work: outcomes of approvals and processing.
   useEffect(() => {
@@ -112,8 +111,8 @@ export function Reviewer({ onCount, targetPhotoId }) {
         seq.current = j.seq; setJobs(j);
         for (const f of j.finished) {
           if (f.kind === "sync") continue;
-          if (f.status === "failed") toast(`⚠ ${f.title}: ${f.error || f.failed + " change(s) failed"}`);
-          else if (f.kind === "process" && f.photo_id === current.current) toast(`Processed ${f.title}: ${f.status === "pending" ? "changes ready" : "nothing to change"}`);
+          if (f.status === "failed") toast(`⚠ ${f.title}: ${f.error || f.failed + " change(s) failed"}${f.kind === "apply" ? " (still in review)" : ""}`);
+          else if (f.kind === "process" && f.photo_id === current.current) toast(`Processed ${f.title}`);
           if (f.photo_id === current.current) loadItem(f.photo_id);
         }
         if (j.finished.length) loadSummary();
@@ -127,16 +126,30 @@ export function Reviewer({ onCount, targetPhotoId }) {
     const rest = ids.filter((_, i) => i !== idx); const n = Math.min(idx, Math.max(0, rest.length - 1));
     setIds(rest); setIdx(n); loadItem(rest[n], rest, n);
   };
-  const decide = async (approve) => {
+  const apply = async () => {
     if (!item || busy) return; setBusy(true);
     const payload = choices.map((ch, i) => TAGS.has(item.changes[i].action)
-      ? { approve: approve && ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
-      : { approve: approve && ch.approve, value: ch.value });
+      ? { approve: ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
+      : { approve: ch.approve, value: ch.value });
     try {
       await api(`/api/review/items/${item.photo_id}/decide`, { method: "POST", body: { choices: payload } });
-      if (!approve) toast("Rejected — won't be proposed again");
       removeCurrent(); loadSummary();
     } catch (e) { toast("Error: " + e.message); }
+    setBusy(false);
+  };
+  const ignore = async () => {
+    if (!item || busy) return; setBusy(true);
+    try {
+      const r = await api(`/api/review/items/${item.photo_id}/ignore`, { method: "POST" });
+      if (r.status === "busy") toast("It's being applied or processed; try again in a moment.");
+      else { toast("Ignored: out of review, nothing changed"); removeCurrent(); loadSummary(); }
+    } catch (e) { toast("Error: " + e.message); }
+    setBusy(false);
+  };
+  const send = async () => {
+    if (!item || busy) return; setBusy(true);
+    try { await api(`/api/review/items/${item.photo_id}/send`, { method: "POST" }); loadItem(item.photo_id); loadSummary(); }
+    catch (e) { toast("Error: " + e.message); }
     setBusy(false);
   };
   const processNow = async () => {
@@ -159,14 +172,16 @@ export function Reviewer({ onCount, targetPhotoId }) {
     } catch (err) { toast(err.message); }
   };
 
-  const editable = item && (item.status === "pending" || item.status === "failed") && item.changes.length > 0;
+  const inReview = item && ["new", "pending", "processing", "applying"].includes(item.status);
+  const ready = item && item.status === "pending";
+  const editable = ready && item.changes.length > 0;
   useEffect(() => {
     const key = (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
-      if (e.key === "Enter" && (!typing || e.metaKey || e.ctrlKey) && editable) { e.preventDefault(); decide(true); }
+      if (e.key === "Enter" && (!typing || e.metaKey || e.ctrlKey) && editable) { e.preventDefault(); apply(); }
       else if (typing) return;
-      else if (e.key === "r" && editable) decide(false);
-      else if (e.key === "p" && item && !["processing", "applying"].includes(item.status)) processNow();
+      else if (e.key === "i" && ready) ignore();
+      else if (e.key === "p" && ready) processNow();
       else if (e.key === "ArrowRight" || e.key === "s") move(1);
       else if (e.key === "ArrowLeft") move(-1);
     };
@@ -175,13 +190,10 @@ export function Reviewer({ onCount, targetPhotoId }) {
   });
 
   const p = item?.photo;
-  const busyNow = item && ["processing", "applying"].includes(item.status);
   const working = jobs.applying + jobs.processing;
   return html`
     <div class="toolbar">
-      <select value=${status} onChange=${(e) => setStatus(e.target.value)} aria-label="Show">
-        ${Object.entries(LABELS).map(([k, label]) => html`<option value=${k}>${label}${summary ? ` (${num(k === "pending" ? summary.to_review : summary[k])})` : ""}</option>`)}
-      </select>
+      <b>${summary ? `${num(summary.to_review)} in review` : "In review"}</b>
       <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Sort">
         <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
         <option value="views">Most viewed</option><option value="faves">Most faved</option><option value="comments">Most commented</option>
@@ -190,34 +202,39 @@ export function Reviewer({ onCount, targetPhotoId }) {
       <span class="muted">${ids.length ? `${idx + 1} of ${num(ids.length)}` : ""}</span>
       <span class="spacer"></span>
       ${working > 0 && html`<a class="status s-applying" href="#/queue" title="Open the queue"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</a>`}
-      <span class="muted small hint-keys"><kbd>Enter</kbd> approve · <kbd>R</kbd> reject · <kbd>P</kbd> process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
+      <span class="muted small hint-keys"><kbd>Enter</kbd> apply · <kbd>I</kbd> ignore · <kbd>P</kbd> re-process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
     </div>
-    ${!item ? html`<div class="empty">Nothing here.</div>` : html`<div class="review">
+    ${!item ? html`<div class="empty">Nothing in review. Send photos from <a href="#/photos">Photos</a> (open one, then Send to Review);
+      new uploads arrive here after each sync.</div>` : html`<div class="review">
       <div class="pic">
         <img src=${p.image} alt="" onError=${(e) => { if (e.target.src !== p.thumb) e.target.src = p.thumb; }} />
         <div class="cap"><a href=${p.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a>
           <span>${(p.date_taken || "").slice(0, 10)}</span><span>${p.camera}</span>${p.media === "video" && html`<span class="status">video</span>`}</div>
       </div>
       <div class="panel">
-        <div class="card"><h2>Proposed changes <span class=${"status s-" + item.status}>${item.status}</span></h2>
+        <div class="card"><h2>Proposed changes <span class=${"status s-" + item.status}>${STATE[item.status] || item.status}</span></h2>
+          ${ready && item.result?.error && html`<p class="problem">⚠ Applying failed twice, so it's still here: ${item.result.error}.
+            Apply to try again, or Re-process for a fresh proposal.</p>`}
           ${item.changes.map((c, i) => html`<${Change} key=${i} c=${c} ch=${choices[i]} i=${i} editable=${editable}
               out=${item.result?.changes?.[i]} onChange=${(k, v) => setChoices(choices.map((x, j) => (j === k ? v : x)))} />`)}
-          ${item.status === "unprocessed" && html`<p class="why">Not processed yet. Process it to fetch EXIF, classify and plan its changes.</p>`}
-          ${item.status === "new" && html`<p class="why">New from the last sync; processing it now…</p>`}
+          ${item.status === "not_queued" && html`<p class="why">Not in review. Send it to review to propose its changes.</p>`}
+          ${item.status === "new" && html`<p class="why">Waiting to be processed; processing it now…</p>`}
           ${item.status === "processing" && html`<p class="why"><span class="spin">⟳</span> Processing in the background…</p>`}
-          ${!item.changes.length && !["unprocessed", "processing"].includes(item.status) && html`<p class="why">Nothing to change.</p>`}
+          ${item.status === "applying" && html`<p class="why"><span class="spin">⟳</span> Applying in the background…</p>`}
+          ${ready && !item.changes.length && html`<p class="why">Nothing to change. Ignore it, or Re-process it.</p>`}
         </div>
         <div class="actions">
-          ${editable && html`<button class="primary" onClick=${() => decide(true)} disabled=${busy}>Approve selected</button>
-            <button class="danger" onClick=${() => decide(false)} disabled=${busy}>Reject all</button>`}
-          <button onClick=${() => move(1)}>${editable ? "Skip" : "Next"}</button>
-          ${!busyNow && item.status !== "new" && html`<span class="procgroup">
-            <button onClick=${processNow} disabled=${busy}>${item.status === "unprocessed" ? "Process now" : "Re-process"}</button>
+          ${editable && html`<button class="primary" onClick=${apply} disabled=${busy}>Apply</button>`}
+          ${ready && html`<button onClick=${ignore} disabled=${busy} title="Out of review; nothing changes on Flickr">Ignore</button>
+            <span class="procgroup">
+            <button onClick=${processNow} disabled=${busy} title="A fresh look; it stays in review">Re-process</button>
             <select value=${tagMode} onChange=${(e) => setTagMode(e.target.value)} aria-label="Tags when processing"
                     title="What processing proposes for the photo's existing tags">
               <option value="replace">Tags: overwrite existing</option>
               <option value="add">Tags: add to existing</option>
             </select></span>`}
+          ${item.status === "not_queued" && html`<button class="primary" onClick=${send} disabled=${busy}>Send to review</button>`}
+          <button onClick=${() => move(1)}>${inReview ? "Skip" : "Next"}</button>
         </div>
         <div class="card"><h2>On Flickr now</h2><dl class="kv">
           <dt>Title</dt><dd>${p.title || html`<span class="muted">(blank)</span>`}</dd>

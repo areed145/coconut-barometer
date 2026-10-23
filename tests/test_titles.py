@@ -48,7 +48,7 @@ class TitleTest(unittest.TestCase):
                          [r for r in build_plan(self.cfg, self.store, None, geocoder=fake_geocoder)
                           if r.action == "set_title"], [])                  # no model result, no title
 
-    def test_apply_reject_and_manual_edit(self):
+    def test_apply_untick_and_manual_edit(self):
         changes = {c.photo_id: c for c in self.plan()}
         changes["3"].approved = False
         changes["4"].edited = "Corner café"                                 # tweaked in review
@@ -56,19 +56,16 @@ class TitleTest(unittest.TestCase):
         apply_changes(self.fl, self.store, [c for pid, c in changes.items() if pid != "5"], log=lambda *a: None)
         titles = {p["id"]: p["title"] for p in self.fl.photos}
         self.assertEqual(titles["4"], "Corner café")
-        self.assertEqual(titles["3"], "")                                   # rejected
-        self.assertEqual(titles["2"], "My street")                          # changed since plan: left alone
+        self.assertEqual(titles["3"], "")                                   # unticked
+        self.assertEqual(titles["2"], "My street")                          # changed since proposed: left alone
         d = self.store.decisions()
         self.assertEqual(d[("4", "set_title", "Corner café")], "applied")   # what was written
-        self.assertEqual(d[("4", "set_title", "Quiet Corner")], "edited")   # what was proposed
-        self.assertEqual(d[("3", "set_title", "Quiet Corner")], "rejected")
+        self.assertEqual(d[("2", "set_title", "Quiet Corner")], "failed")   # not written (stays in review)
+        self.assertNotIn(("3", "set_title", "Quiet Corner"), d)             # unticked: nothing recorded
         sync(self.fl, self.store, log=lambda *a: None)
         again = self.titles()
-        self.assertNotIn("3", again)                                        # rejection remembered
-        self.assertNotIn("4", again)                                        # edit counts as dealt with
-        self.assertNotIn("1", again)                                        # applied
-        self.assertNotIn("2", again)                                        # you retitled it yourself: declined
-        self.assertIn("5", again)                                           # not decided yet: still proposed
+        self.assertNotIn("1", again)                                        # the title now: nothing to propose
+        self.assertEqual({"2", "3", "4", "5"}, set(again))                  # no memory: every other one afresh
 
     def test_editing_a_brief_reruns_only_the_writing(self):
         vcfg = self.cfg["vision"]

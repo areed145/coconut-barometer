@@ -3,7 +3,7 @@ proposed Changes, by running the rules in coconut_barometer/rules/.
 
 Proposals only ever add, apart from titles and descriptions, and tags when you process a
 photo with "overwrite".
-Anything already true on Flickr, or settled before (see changes.Settled), is skipped.
+Anything already true on Flickr is skipped.
 """
 from __future__ import annotations
 

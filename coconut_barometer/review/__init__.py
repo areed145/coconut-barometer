@@ -1,12 +1,6 @@
-"""The review tool: approve each photo's proposed changes; they're applied in the background.
-
-    python -m coconut_barometer review      # opens http://127.0.0.1:8765
-
-  app.py      ReviewApp: the queue, your decisions, the background worker
-  server.py   serve(): local web server and JSON API
-  static/     the page (index.html, style.css, app.js)
-"""
+"""The review queue's logic: ReviewApp (app.py) holds the photos in review, what you do with each
+(apply, ignore, re-process), and the background worker that makes the Flickr and vision calls.
+The web app (coconut_barometer.web) serves it as the Review page and /api/review."""
 from .app import STATUSES, ReviewApp
-from .server import serve
 
-__all__ = ["ReviewApp", "serve", "STATUSES"]
+__all__ = ["ReviewApp", "STATUSES"]

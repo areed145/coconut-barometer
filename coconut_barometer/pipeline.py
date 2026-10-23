@@ -15,22 +15,35 @@ from .planner import build_plan
 from .sync import refresh_photo
 
 
+def todo_ids(store, photo_ids: list[str] | None = None, rebuild: bool = False, media: str | None = None,
+             limit: int | None = None) -> list[str]:
+    """Which photos to process: the ones asked for; else with rebuild, the ones in review (re-planned
+    with the current settings); else the ones never processed and not in review. Never one being applied."""
+    applying = set(store.queue_ids(["applying"]))
+    if photo_ids:
+        wanted = set(photo_ids)
+    elif rebuild:
+        wanted = set(store.queue_ids())
+    else:
+        done = store.processed_ids() | set(store.queue_ids())
+        wanted = {p["id"] for p in store.photos()} - done
+    todo = [p["id"] for p in store.photos() if p["id"] in wanted and p["id"] not in applying
+            and (not media or p["media"] == media)]
+    return todo[:limit] if limit else todo
+
+
 def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = None, limit: int | None = None,
             rebuild: bool = False, refresh_each: bool = False, log=print, geocoder=None, downloader=None,
             media: str | None = None, tag_mode: str = "add", reclassify: bool = False) -> dict:
-    """media: only "photo" or only "video" (videos are classified from their preview frame).
+    """Process photos (see todo_ids) into the review queue, each "pending" with its proposed changes (maybe none).
+    media: only "photo" or only "video" (videos are classified from their preview frame).
     tag_mode: "add" to existing tags, or "replace" them (you still approve each photo).
     reclassify: ask the vision model again even when a result for the current settings is cached.
     Without a vision provider, only the proposals that don't need it are made."""
     vcfg = cfg["vision"]
     use_vision = provider is not None
     fp = fingerprint(vcfg, provider.key) if use_vision else None
-    # Never touch a photo the review tool is applying right now; otherwise skip queued ones unless rebuilding.
-    # ("new" photos are queued only to be processed: always fair game.)
-    skip = set(store.queue_ids(["applying"])) | (set() if rebuild else set(store.queue_ids()) - set(store.queue_ids(["new"])))
-    todo = [p["id"] for p in store.photos() if p["id"] not in skip and (not photo_ids or p["id"] in photo_ids)
-            and (not media or p["media"] == media)]
-    todo = todo[:limit] if limit else todo
+    todo = todo_ids(store, photo_ids, rebuild, media, limit)
     stats = {"queued": 0, "nothing_to_change": 0, "retry_later": 0, "input_tokens": 0, "output_tokens": 0}
     batch = max(8, VISION_CONCURRENCY * 4)
     quiet = lambda *a: None
@@ -70,7 +83,7 @@ def process(cfg: dict, store, client, provider, photo_ids: list[str] | None = No
             if pid not in ok:
                 stats["retry_later"] += 1
                 continue
-            store.queue_put(pid, "pending" if pid in changes else "none", changes.get(pid, []))
+            store.queue_put(pid, "pending", changes.get(pid, []))
             stats["queued" if pid in changes else "nothing_to_change"] += 1
         log(f"  {min(start + batch, len(todo))}/{len(todo)} photos · {stats['queued']} to review")
     return stats

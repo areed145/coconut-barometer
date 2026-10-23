@@ -2,7 +2,7 @@
 
 Album and tag rules only say what they'd like - AlbumWant, TagWant - and one shared
 step (resolve) turns those into Changes: the first rule to want something wins, things
-already on Flickr or settled are skipped, and tags are capped at Flickr's limit.
+already on Flickr are skipped, and tags are capped at Flickr's limit.
 Title and description rules return Changes themselves.
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 
-from ..changes import Change, Settled
+from ..changes import Change
 from ..classify import fingerprint
 from ..config import MAX_TAGS_PER_PHOTO
 from ..geo import GeoMatcher
@@ -45,7 +45,6 @@ class Context:
         self.album_ids = {norm_title(a["title"]): a["id"] for a in self.albums}      # normalized title -> id
         self.album_titles = {norm_title(a["title"]): a["title"] for a in self.albums}
         self.members = store.memberships()
-        self.settled = Settled(store)
         self.create_missing = cfg["albums"]["create_missing"]
 
     @cached_property
@@ -75,8 +74,8 @@ class Context:
 
 def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
     """Turn album and tag wants (in priority order) into Changes. tag_mode "replace": one
-    set_tags per photo with every tag wanted (not ones you rejected), replacing its tags;
-    a photo nothing wants tags for keeps its own."""
+    set_tags per photo with every tag wanted, replacing its tags; a photo nothing wants
+    tags for keeps its own."""
     albums: dict[str, dict[str, AlbumWant]] = {}   # photo -> normalized album title -> first want
     tags: dict[str, dict[str, TagWant]] = {}       # photo -> normalized tag -> first want
     for w in wants:
@@ -93,7 +92,7 @@ def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
             if not album_id and not ctx.create_missing:
                 continue
             title = ctx.album_titles.get(key, w.album)
-            if (album_id and album_id in have) or ctx.settled.album(pid, title):
+            if album_id and album_id in have:
                 continue
             out.append(Change("add_to_album", pid, title, album_id=album_id, source=w.source, confidence=w.confidence,
                               reason=w.reason if album_id else f"{w.reason} (NEW ALBUM)"))
@@ -103,12 +102,12 @@ def resolve(ctx: Context, wants: list, tag_mode: str = "add") -> list[Change]:
         current = (ctx.photos[pid]["tags"] or "").split()
         have = {norm_tag(t) for t in current}
         if tag_mode == "replace":
-            keep = [w for w in by_tag.values() if not ctx.settled.tag_rejected(pid, clean_tag(w.tag))][:cap]
+            keep = list(by_tag.values())[:cap]
             if keep and {norm_tag(clean_tag(w.tag)) for w in keep} != have:
                 out.append(Change("set_tags", pid, [clean_tag(w.tag) for w in keep], old=" ".join(current),
                                   source=",".join(sorted({w.source for w in keep}))))
             continue
-        new = [w for key, w in by_tag.items() if key not in have and not ctx.settled.tag(pid, clean_tag(w.tag))]
+        new = [w for key, w in by_tag.items() if key not in have]
         # Flickr caps tags per photo; wants are in priority order, so the least useful drop off.
         new = new[:max(0, cap - len(have))]
         if new:

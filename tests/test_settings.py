@@ -200,7 +200,7 @@ class AdminApiTest(Base):
             "weatherflow.token": ("connections", ""),
             "map.carto_key": ("connections", ""),
             "web.sync_every_minutes": ("photos", "Sync"),
-            "schedule.new_photos": ("photos", "Sync"),
+            "review.when_queued": ("photos", "Review"),
             "vision.title.max_words": ("photos", "Writing"),
             "vision.use_location": ("photos", "Writing"),
             "vision.categories": ("photos", "Subjects"),
@@ -221,17 +221,22 @@ class AdminApiTest(Base):
         # Each Photos heading appears once: its settings are listed together.
         parts = [s["part"] for s in payload["settings"] if s["section"] == "photos"]
         self.assertEqual([p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]],
-                         ["Sync", "Writing", "Subjects", "Location", "Cameras & dates", "Albums"])
+                         ["Sync", "Review", "Writing", "Subjects", "Location", "Cameras & dates", "Albums"])
 
     def test_retired_settings_in_the_database_dont_block_saving(self):
         self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])
-        r = self.c.put("/api/admin/settings", json={"changes": {"schedule.new_photos": "process"}}, headers=self.h)
+        r = self.c.put("/api/admin/settings", json={"changes": {"review.when_queued": "queue"}}, headers=self.h)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(set(self.store.admin_settings()), {"schedule.new_photos"})     # stale rows gone
-        choice = self.setting(r.json(), "schedule.new_photos")
-        self.assertEqual((choice["kind"], choice["group"], choice["section"]), ("choice", "New photos", "photos"))
+        self.assertEqual(set(self.store.admin_settings()), {"review.when_queued"})     # stale rows gone
+        choice = self.setting(r.json(), "review.when_queued")
+        self.assertEqual((choice["kind"], choice["part"], choice["section"]), ("choice", "Review", "photos"))
         self.assertIn("right away", choice["option_labels"]["process"])
-        self.assertEqual(self.app.state.runtime.cfg["schedule"]["new_photos"], "process")
+        self.assertEqual(self.app.state.runtime.cfg["review"]["when_queued"], "queue")
+
+    def test_the_old_new_photos_setting_carries_over(self):
+        self.store.save_admin_settings({"schedule.new_photos": "queue"}, [], "old", [])
+        raw, sources, _ = S.layer({}, self.store)
+        self.assertEqual((raw["review"]["when_queued"], sources["review.when_queued"]), ("queue", "admin"))
 
     def test_no_switches_for_the_proposals(self):
         paths = {s["path"] for s in self.c.get("/api/admin/settings").json()["settings"]}

@@ -378,7 +378,7 @@ def cmd_classify(cfg, store, args):
 
 def cmd_plan(cfg, store, args):
     """Preview what the rules would propose right now, from what's stored. Read-only:
-    nothing is queued and nothing changes on Flickr. Use `process` and `review` to act."""
+    nothing is queued and nothing changes on Flickr. Use `process`, then Photos → Review in the web app, to act."""
     from .planner import build_plan, summarize
 
     if not store.get_meta("last_sync"):
@@ -395,7 +395,7 @@ def cmd_plan(cfg, store, args):
         for c in changes:
             new = " | ".join(c.new) if isinstance(c.new, list) else c.new
             print(f"{c.photo_id}  {c.action:<15} {new[:100]}  [{c.source}]")
-    print("\nThis is a preview. `process` queues changes; `review` approves and applies them.")
+    print("\nThis is a preview. `process` sends photos to review; apply them under Photos → Review in the web app.")
 
 
 def _provider_name(cfg) -> str:
@@ -410,19 +410,16 @@ def _provider_name(cfg) -> str:
 
 def cmd_process(cfg, store, args):
     """Per photo: (refresh) -> EXIF -> classify -> plan, into the review queue."""
-    from .pipeline import process
+    from .pipeline import process, todo_ids
 
     client = _client(cfg)
     if not args.no_sync:
         _quick_sync(cfg, store, client)
     provider = _provider(cfg)
-    skip = set(store.queue_ids(["applying"])) | (
-        set() if args.rebuild else set(store.queue_ids()) - set(store.queue_ids(["new"])))
-    todo = [p["id"] for p in store.photos() if p["id"] not in skip and (not args.photo or p["id"] in args.photo)
-            and (not args.media or p["media"] == args.media)]
-    todo = todo[:args.limit] if args.limit else todo
+    todo = todo_ids(store, args.photo, args.rebuild, args.media, args.limit)
     if not todo:
-        print("Every photo is already in the review queue. Run `review`, or `process --rebuild` after changing settings.")
+        print("Nothing to process: every photo has been processed or is in review (Photos → Review in the "
+              "web app). After changing settings, `process --rebuild` re-plans the photos in review.")
         return
     exif_calls = len(set(todo) - store.camera_ids())
     calls = exif_calls + (2 * len(todo) if args.refresh_each else 0)
@@ -434,7 +431,7 @@ def cmd_process(cfg, store, args):
         return
     stats = process(cfg, store, client, provider, photo_ids=args.photo, limit=args.limit,
                     rebuild=args.rebuild, refresh_each=args.refresh_each, media=args.media)
-    print(f"Done: {stats}\nReview them with:  python -m coconut_barometer review")
+    print(f"Done: {stats}\nReview them under Photos → Review in the web app (coconut-barometer serve).")
 
 
 def cmd_social(cfg, store, args):
@@ -467,13 +464,6 @@ def cmd_social(cfg, store, args):
         print(f"  {social.fetch_faves(client, store, faves)}")
 
 
-def cmd_review(cfg, store, args):
-    from .review import ReviewApp, serve
-
-    serve(ReviewApp(store, _client(cfg), cfg=cfg, provider=lambda: _provider(cfg)),
-          port=args.port, open_browser=not args.no_browser)
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coconut_barometer", description="Auto-tag and album-sort a Flickr library.")
     ap.add_argument("-c", "--config", default=os.environ.get("CONFIG_PATH", "config.yaml"))
@@ -503,7 +493,7 @@ def main(argv=None):
     p = sub.add_parser("process", help="per photo: EXIF, classify and plan into the review queue")
     p.add_argument("--limit", type=int, help="only process this many photos")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
-    p.add_argument("--rebuild", action="store_true", help="re-plan photos already queued (after changing settings)")
+    p.add_argument("--rebuild", action="store_true", help="re-plan the photos in review (after changing settings)")
     p.add_argument("--media", choices=["photo", "video"], help="only photos or only videos")
     p.add_argument("--refresh-each", action="store_true",
                    help="also re-read each photo and its albums from Flickr (+2 calls per photo)")
@@ -533,9 +523,6 @@ def main(argv=None):
     p = sub.add_parser("serve", help="run the web app (API, frontend, review worker, sync scheduler)")
     p.add_argument("--host")
     p.add_argument("--port", type=int)
-    p = sub.add_parser("review", help="open the review tool: approve each photo's changes and apply them")
-    p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--no-browser", action="store_true", help="don't open a browser window")
     p = sub.add_parser("plan", help="preview what would be proposed (read-only; queues nothing)")
     p.add_argument("--list", action="store_true", help="list every change, not just the totals")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
@@ -551,7 +538,7 @@ def main(argv=None):
     except SchemaTooNew as e:
         sys.exit(f"{e}\n(If the web app or another command is running older code, restart it on this version.)")
     {"auth": cmd_auth, "sync": cmd_sync, "stats": cmd_stats, "albums": cmd_albums, "status": cmd_status,
-     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "backup": cmd_backup, "restore": cmd_restore, "review": cmd_review, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
+     "camera": cmd_camera, "process": cmd_process, "social": cmd_social, "user": cmd_user, "serve": cmd_serve, "settings": cmd_settings, "backup": cmd_backup, "restore": cmd_restore, "classify": cmd_classify, "plan": cmd_plan}[args.cmd](cfg, store, args)
 
 
 if __name__ == "__main__":

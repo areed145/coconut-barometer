@@ -62,11 +62,12 @@ class DescribeTest(unittest.TestCase):
         by_id = {p["id"]: p for p in self.fl.photos}
         self.assertEqual(by_id["1"]["description"]["_content"], "Tonkotsu ramen.")
         self.assertEqual(by_id["1"]["title"], "Ramen in Tokyo")      # title sent back unchanged
-        self.assertEqual(by_id["2"]["description"]["_content"], "Written by me")   # rejected
+        self.assertEqual(by_id["2"]["description"]["_content"], "Written by me")   # unticked
         self.assertEqual(by_id["4"]["description"]["_content"], "Wrote my own meanwhile")  # not overwritten
         self.assertEqual(by_id["5"]["description"]["_content"], "Something else.")
         sync(self.fl, self.store, log=lambda *a: None)
-        self.assertEqual(self.descriptions(), {})   # applied, rejected, or you wrote your own meanwhile (= declined)
+        # No memory: re-planned, every one whose text differs from the model's is proposed again.
+        self.assertEqual(set(self.descriptions()), {"1", "2", "4"})
 
     def test_a_new_brief_proposes_again(self):
         apply_changes(self.fl, self.store, [c for c in build_plan(self.cfg, self.store, self.vision.key)

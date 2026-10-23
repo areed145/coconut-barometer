@@ -64,7 +64,7 @@ class ValidateTest(unittest.TestCase):
         from coconut_barometer.config import read_raw
         raw = read_raw(path)
         self.assertEqual(problems(raw)[0], [])
-        self.assertEqual(raw["schedule"], {"new_photos": "process"})            # process_new: true carried over
+        self.assertEqual(raw["review"], {"when_queued": "process"})             # process_new: true carried over
         self.assertNotIn("rename", raw)
         self.assertEqual(raw["vision"], {"describe": {}, "title": {}})
 

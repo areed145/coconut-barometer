@@ -39,5 +39,4 @@ build-backend = "setuptools.build_meta"
 include = ["coconut_barometer*"]
 
 [tool.setuptools.package-data]
-"coconut_barometer.review" = ["static/*"]
 "coconut_barometer.web" = ["static/*", "static/**/*"]

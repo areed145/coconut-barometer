@@ -49,7 +49,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 - **Albums**: covers and counts; open one for its photos.
 - **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
-- **Review**: the reviewer, as in `review`, with the count of photos waiting in the tab.
+- **Review**: the photos in review, one at a time (see "Workflow" below), with how many are waiting in the tab.
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
 - The top bar shows when the last sync ran and the next is due, with **Sync now**.
 
@@ -59,7 +59,7 @@ API keys set there are stored AES-256-GCM encrypted, each bound to its setting; 
 
 The page's Account section changes your password (which signs out every session), lists signed-in sessions so you can end one, and shows the change history.
 
-A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (approvals and processing, as in `review`) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
+A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (applying and processing) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
 
 Every API route except login needs a session. It's built to be reachable from the internet (behind HTTPS):
 
@@ -76,7 +76,7 @@ Every API route except login needs a session. It's built to be reachable from th
 | `GET /api/photos?q=&sort=&media=&album=&limit=&offset=`, `/api/photos/{id}`, `/api/albums`, `/api/albums/{id}` | gallery: image sizes up to 2048 px, EXIF, albums, engagement |
 | `GET /api/analytics/overview`, `/photos?kind=`, `/tags`, `/tags/{tag}`, `/places`, `/gear`, `/audience`, `/groups`, `/impact` | the Analytics tabs (all from the local database) |
 | `GET /api/map/config`, `GET /api/map/points?album=&year_from=&year_to=`, `POST /api/map/cards` | Map tile settings, geotagged photos (gzipped when supported), then cards for an opened cluster |
-| `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/decide`, `POST /items/{id}/process`, `/jobs`, `/find` | the review queue |
+| `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/send`, `/decide` (apply), `/ignore`, `/process` (re-process), `/jobs`, `/find` | the review queue |
 | `GET /api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
 | `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/rose?device=`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket, set the token in Settings → Weather) |
@@ -85,13 +85,21 @@ Every API route except login needs a session. It's built to be reachable from th
 ## Workflow: review photo by photo
 
 ```bash
-python -m coconut_barometer process --limit 50   # sync, then per photo: EXIF -> classify -> plan, into a queue
-python -m coconut_barometer review               # opens http://127.0.0.1:8765
+python -m coconut_barometer process --limit 50   # sync, then per photo: EXIF -> classify -> plan, into review
+coconut-barometer serve                          # then Photos → Review at http://127.0.0.1:8000
 ```
 
-`process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through photos in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into the queue. It can be stopped and resumed; queued photos are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans everything (`--media video` or `--media photo` to limit it; photos the review tool is applying are never touched); applied and rejected changes still never come back.
+`process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through the photos never processed, in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into review. It can be stopped and resumed; photos already processed (or in review) are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans the photos in review (`--media video` or `--media photo` to limit it; photos being applied are never touched).
 
-`review` shows one photo at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then **Approve** (Enter), **Reject all** (R), or **Skip** (→). Approving doesn't wait for Flickr: the photo goes to a background worker that makes the calls in order (at the usual rate limit) while you carry on, and the header shows how many are still applying. Failures pop up and land under "Failed" to retry. Photos and videos that `process` hasn't reached yet are under "Not processed": press **Process now** (P) to fetch EXIF, classify and plan that one in the background, then review it right there. Videos are classified from their preview frame. **Re-process** re-plans a queued photo with your current settings, and the **Go to** box jumps to any photo by ID or Flickr URL. Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if you stop the tool mid-way, unfinished photos are applied the next time you run `review`. Before writing a title or description it re-reads the photo from Flickr, so a change you made there since the queue was built isn't overwritten. Failed changes stay under "Failed" to retry. The server only listens on 127.0.0.1 and needs a per-run token, so other web pages can't use it.
+A photo is in review from being sent there until you apply or ignore it. It gets there three ways: `process`, a sync bringing a new upload, or **Send to Review** on a photo in the gallery. **Settings → Photos → Review** decides what happens then, whichever way it came: processed right away (the default), or when you open it. There's no memory between visits: every processing proposes afresh, skipping only what's already true on Flickr.
+
+**Photos → Review** shows the photos in review one at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then:
+
+- **Apply** (Enter): writes the changes you kept, and the photo leaves review. It doesn't wait for Flickr: a background worker makes the calls in order (at the usual rate limit) while you carry on. A change that fails is tried once more; if it fails again, the photo stays in review with just the changes that didn't go through and why, to apply again later (or re-process).
+- **Ignore** (I): the photo leaves review and nothing changes on Flickr.
+- **Re-process** (P): a fresh look with your current settings (re-reads the photo, asks the model again); it stays in review. Choose whether tags are proposed as a replacement or as additions.
+
+**Skip** (→) moves on without deciding. A photo with nothing to change stays until you ignore or re-process it. Videos are classified from their preview frame. The **Go to** box jumps to any photo by ID or Flickr URL (one not in review can be sent there). Each photo also shows its engagement: views, faves, comments and groups, views gained since the first snapshot, license and size, the groups it's in, and (after `social`) who faved it recently and the latest comments. Sort the queue by newest, oldest, most viewed, most faved or most commented. Your choices are saved first, so if the app stops mid-way, unfinished photos are applied when it starts again. Before writing a title, description or tag replacement it re-reads the photo from Flickr, so a change you made there since the proposal isn't overwritten (that change stays in review, saying so).
 
 ## Useful commands
 
@@ -135,9 +143,9 @@ Everything lives in a local DuckDB file (`db.duckdb`, beside config.yaml or in t
 ### Titles and descriptions
 
 - Both come from the same model call as the categories, so they add only a few output tokens per photo.
-- Every photo gets a proposal, including ones you titled or described yourself: the reviewer shows what it would replace, and you decide. Once you apply, edit or decline a proposal, it isn't proposed again.
+- Every photo gets a proposal, including ones you titled or described yourself: the reviewer shows what it would replace, and you decide.
 - The briefs are `vision.title.instructions` and `vision.describe.instructions` (Settings → Photos → Writing): plain English, edit them freely. Whatever they say, the model is also told never to guess a location or name a person. Editing one re-runs the model once for the photos it applies to, and the new text is proposed; other settings keep their cached results.
-- Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there. If you changed the title or description on Flickr since the proposal, it's left alone (and counts as declined).
+- Flickr's `setMeta` call writes title and description together, so before writing either the tool re-reads the photo from Flickr and sends the other field back exactly as it is there. If you changed the title or description on Flickr since the proposal, it's left alone, and the photo stays in review saying so.
 
 ### Standard tags
 
@@ -170,7 +178,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 ## Costs and limits
 
 - Each photo sends one ~500px thumbnail plus a short prompt, roughly 1k input tokens. Run `--limit 50` and look at the token counts it prints before doing the whole library. Check current API pricing.
-- Flickr allows 3600 API calls per hour per API key. The app makes at most 0.9 calls a second, shared by every command using the key: `review`, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
+- Flickr allows 3600 API calls per hour per API key. The app makes at most 0.9 calls a second, shared by everything using the key: the web app, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
 - Reverse geocoding runs offline and returns the nearest town, so a photo taken right at a border can occasionally land in the neighbouring country. That's one reason to review before applying.
 
 ## Adding a vision provider
