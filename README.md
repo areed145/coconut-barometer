@@ -1,12 +1,12 @@
 # Coconut Barometer
 
-Coconut Barometer is a personal website for browsing and organizing your Flickr library. It includes a private photo gallery, map, analytics, and a review workflow for proposed titles, descriptions, tags and albums. The Python package is `coconut_barometer` and the command is `coconut-barometer` (both were `flickr_organizer` / `flickr-organizer` before the rename).
+Coconut Barometer is a personal website for browsing and organizing your Flickr library. It includes a photo gallery (public photos for visitors, everything once you sign in), map, analytics, and a review workflow for proposed titles, descriptions, tags and albums, plus pages for a WeatherFlow Tempest weather station and APRS tracking. The Python package is `coconut_barometer` and the command is `coconut-barometer` (both were `flickr_organizer` / `flickr-organizer` before the rename).
 
 Adds your Flickr photos to the right albums and tags, using:
 
 - **Geotags**: country albums, US state albums, and a few city albums (matched by distance from the city center)
 - **A vision LLM**: subject albums like Food, Landscapes, Animals, descriptive tags, a title and a description. Claude is the default; OpenAI or a local Ollama model also work.
-- **Your conventions**: standard tags for dates, places, camera names and optional album tags, plus camera albums.
+- **Your conventions**: standard tags for dates, places and camera names, plus camera albums.
 
 Every photo (and video, from its preview frame) gets all four kinds of proposal: a title, a description, tags and albums. You accept, edit or decline each one in the reviewer; nothing is switched off in settings. It never takes a photo out of an album. Titles and descriptions are proposed as replacements, and so are tags: each photo's proposal is its whole tag list (new ones in bold, the ones it keeps among them), and the reviewer shows the tags it would remove. Untick any tag to leave it out. Nothing changes on Flickr until you approve it.
 
@@ -19,20 +19,21 @@ cd coconut-barometer
 uv sync                     # add --extra openai for OpenAI/Ollama; --no-dev on a server
 source .venv/bin/activate
 
-# config.yaml is optional. To start from the example categories, briefs and rules, either
-cp config.example.yaml config.yaml    # ... and edit it (flickr.api_key, flickr.api_secret, vision.api_key), or
-python -m coconut_barometer settings import-file config.example.yaml   # load it into Settings instead
+# Settings live in the database and are edited on the web app's Settings page. To start from
+# the example categories, briefs and rules, load them in (API keys in the file are stored encrypted):
+python -m coconut_barometer settings import-file config.example.yaml
+#   API keys: Settings → Connections, or flickr.api_key / flickr.api_secret / vision.api_key in the file before importing
 #   Flickr key: https://www.flickr.com/services/apps/create/
 #   Anthropic key: https://console.anthropic.com/
-python -m coconut_barometer auth      # opens the browser; paste the code back. Token is cached in ~/.flickr/
+python -m coconut_barometer auth      # opens the browser; paste the code back (or Settings → Connections → Connect Flickr)
 python -m coconut_barometer sync      # caches your photo list + album membership locally
-python -m coconut_barometer albums    # lists your album titles, so you can match them in config.yaml
-python -m coconut_barometer check     # validates config.yaml and checks album names against your library
+python -m coconut_barometer albums    # lists your album titles, so you can match them in Settings
+python -m coconut_barometer check     # validates the settings and checks album names against your library
 ```
 
-Every command checks the settings (config.yaml, if there is one, and Settings) when it starts and stops with a list of problems (a misspelled setting, a wrong type, a value out of range, an unknown `{placeholder}`, a broken regex) rather than failing partway through a run. `check` also shows warnings, such as album names that match no album, a call rate over Flickr's limit, or missing keys.
+Every command checks the settings when it starts and stops with a list of problems (a misspelled setting, a wrong type, a value out of range, an unknown `{placeholder}`, a broken regex) rather than failing partway through a run. `check` also shows warnings, such as album names that match no album, or missing keys.
 
-Edit `config.yaml` so that the category `album:` names, US state `title:` format, and `cities:` match the albums you already have. Albums are matched by title, ignoring case, accents and punctuation. If a title doesn't match, that album is skipped. Nothing gets created unless you set `albums.create_missing: true`.
+In **Settings → Photos**, make the category album names (Subjects), the US state album title and the city albums (Location) match the albums you already have. Albums are matched by title, ignoring case, accents and punctuation. If a title doesn't match, that album is skipped. Nothing gets created unless you turn on **Albums → Create missing albums**.
 
 ## Web app
 
@@ -45,24 +46,28 @@ coconut-barometer serve               # http://127.0.0.1:8000
 
 Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and uPlot, stored in `coconut_barometer/web/static/vendor`), so there's no build step:
 
+Photos, Weather and APRS are public: visitors see public photos only, and the rest (Analytics, Review, Queue, Settings) needs the login.
+
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
 - **Albums**: covers and counts; open one for its photos.
-- **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
+- **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps. The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
 - **Share** (in the lightbox, and on an album): a link of its own, `/p/<photo id>` or `/a/<album id>`, that shows a preview (title, description, image) wherever it's pasted, then opens the photo or album. Public photos and albums only: a private one gets the plain page, as if it weren't there. `/sitemap.xml` lists them all for search engines (`/robots.txt` points to it).
 - **Review**: the photos in review, one at a time (see "Workflow" below), with how many are waiting in the tab.
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
-- The top bar shows when the last sync ran and the next is due, with **Sync now**.
+- **Weather**: WeatherFlow Tempest stations (set the token in Settings → Connections). **Live** shows each station now, with the last three hours as sparklines; each reading links to its chart in History. **History** charts temperature, pressure, wind, rain and lightning, sun and sky, by day and as a calendar, over 24 hours to a year or a custom range. **Map** shows the stations with weather layers. The stations themselves, the live stream's status and **Sync now** are under Settings → Weather.
+- **APRS**: **Tracking** follows the callsigns in Settings → APRS, heard live from APRS-IS; **Igate** maps what APRS-IS credits your igate with gating, and its effective range.
+- **Queue**: everything the app asks of the outside world: each service's rate limit and use, the job running now and the ones waiting (syncs, applies, re-processing), and a log of every call, stream message and finished job. The dot by it in the top bar shows when the worker is busy. **Sync now** for Flickr is in Settings → Photos → Sync.
 
-**Settings** (the admin page) holds what would otherwise be in config.yaml: API keys, the vision model and briefs, categories, location rules, standard tags, map tiles and colors, backups, and the sync schedule. Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < config.yaml < the admin page < environment variables (the database path and the platform's port and host names only). The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) stay in config.yaml or the environment.
+**Settings** (the admin page) holds everything: API keys, the vision model and briefs, categories, location rules, standard tags, map tiles and colors, weather and APRS, backups, and the sync schedule. Each section has its own address (`#/settings/weather`). Each setting shows where its value comes from; changes are validated like `check`, applied straight away (no restart) and logged. Layers, lowest to highest: built-in defaults < the admin page < environment variables (the database path and the platform's port and host names only). The settings that protect the server itself (database path, host, port, allowed hosts, trusted proxies, secure cookies) can't be changed on the page: they come from the defaults, the environment (`DATABASE_PATH`, `DATA_DIR`, `PORT`, `ALLOWED_HOSTS`, and Render's own variables).
 
-API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database and the backups, in a key file (`~/.config/coconut-barometer/secret.key`, readable only by you, or the `flickr-organizer` one from before the rename; on a server, `secret.key` in the data directory). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. API keys can't come from environment variables. `coconut-barometer settings import-secrets --blank` moves the keys from config.yaml into the encrypted store; `settings show` lists what the page or the environment overrides. Keep the key safe and separate from database backups (Settings → Backups → **Download encryption key**): without it, stored keys can't be read (set them again).
+API keys set there are stored AES-256-GCM encrypted, each bound to its setting; the encryption key is kept outside the database and the backups, in a key file (`~/.config/coconut-barometer/secret.key`, readable only by you, or the `flickr-organizer` one from before the rename; on a server, `secret.key` in the data directory). They're never sent to the browser (only "set, ends …1234"), and changing one needs your password again. API keys can't come from environment variables. `settings show` lists what the page or the environment sets. Keep the key safe and separate from database backups (Settings → Backups → **Download encryption key**): without it, stored keys can't be read (set them again).
 
 The page's Account section changes your password (which signs out every session), lists signed-in sessions so you can end one, and shows the change history.
 
 A FastAPI backend serving a JSON API under `/api` and the frontend under `/`. It also runs the review worker (applying and processing) and a scheduler that runs `sync` every `web.sync_every_minutes`, so the database keeps itself up to date (see "Keeping in sync"). All Flickr calls go through that one worker, in order, under the shared rate limit.
 
-Every API route except login needs a session. It's built to be reachable from the internet (behind HTTPS):
+The API behind the public pages (photos, albums, map, weather, APRS, share links) answers visitors with public data only, and reads only; everything else, and every change, needs a session. It's built to be reachable from the internet (behind HTTPS):
 
 - one owner login, password hashed with argon2id; failed logins are throttled per IP and per username
 - the session cookie is HttpOnly, SameSite=Strict and Secure; only a hash of its token is stored, so a copy of the database can't be used to log in; a new password signs out every session
@@ -77,10 +82,12 @@ Every API route except login needs a session. It's built to be reachable from th
 | `GET /api/photos?q=&sort=&media=&album=&limit=&offset=`, `/api/photos/{id}`, `/api/albums`, `/api/albums/{id}` | gallery: image sizes up to 2048 px, EXIF, albums, engagement |
 | `GET /api/analytics/overview`, `/photos?kind=`, `/tags`, `/tags/{tag}`, `/places`, `/gear`, `/audience`, `/groups`, `/impact` | the Analytics tabs (all from the local database) |
 | `GET /api/map/config`, `GET /api/map/points?album=&year_from=&year_to=`, `POST /api/map/cards` | Map tile settings, geotagged photos (gzipped when supported), then cards for an opened cluster |
-| `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/send`, `/decide` (apply), `/ignore`, `/process` (re-process), `/jobs`, `/find` | the review queue |
-| `GET /api/analytics/overview?days=`, `/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
+| `/api/review/summary`, `/queue`, `/items/{id}`, `POST /items/{id}/send`, `/decide` (apply), `/ignore`, `/process` (re-process), `/undo`, `/bulk`, `POST /replan`, `/applied`, `/jobs`, `/worker`, `/find` | the review queue, Bulk, Applied and the Queue page |
+| `GET /api/analytics/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
+| `GET/PUT /api/admin/settings`, `PUT /secrets/{name}`, `/sessions`, `/backups`, `POST /restore`, `/flickr/connect` | Settings |
+| `GET /api/setup`, `POST /api/setup/user`, `/restore` | the first-run setup page (with the code from the server's log) |
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
-| `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/rose?device=`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket, set the token in Settings → Weather) |
+| `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/days?device=`, `/rose?device=`, `/lightning?device=`, `/map`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket; the token is in Settings → Connections) |
 | `GET /api/aprs/stations`, `/track?callsign=&hours=`, `/packets?callsign=` | the APRS page: positions of the callsigns in Settings → APRS, heard live from APRS-IS |
 | `GET /api/aprs/igate?hours=&direct=&count=packets\|stations&cell=` | APRS → Igate: the packets APRS-IS credits the igate in Settings → APRS with gating, on a lat/lon grid and by distance, with a Weibull fit whose 90% distance is the effective range |
 
@@ -114,12 +121,12 @@ A photo is in review from being sent there until you apply or ignore it. It gets
 coconut-barometer status
 coconut-barometer check
 coconut-barometer settings show
-coconut-barometer settings import-file config.yaml
+coconut-barometer settings import-file config.example.yaml
 coconut-barometer backup --list
 coconut-barometer user list
 ```
 
-`settings import-file` copies settings and encrypted API keys from a YAML file into the database; settings already changed in the admin page take precedence unless `--overwrite` is supplied. `settings import-secrets --blank` stores just the API keys encrypted and clears them from the config file. `restore <file>` replaces the database and should be run with the web app stopped. On a server, stage a backup as `restore.db.gz` (or `restore.db`) in the data directory and restart the app to restore it during startup.
+`settings import-file` copies settings and encrypted API keys from a YAML file into the database; settings already changed in the admin page take precedence unless `--overwrite` is supplied. `restore <file>` replaces the database and should be run with the web app stopped. On a server, stage a backup as `restore.db.gz` (or `restore.db`) in the data directory and restart the app to restore it during startup.
 
 ## Preview without queueing
 
@@ -132,18 +139,20 @@ python -m coconut_barometer plan --list     # every change, e.g. after editing a
 
 ## What's remembered
 
-Everything lives in a local DuckDB file (`db.duckdb`, beside config.yaml or in the current folder). DuckDB lets one process use a database at a time, so stop `serve` before running a command-line command such as `sync` or `backup` against the same file (or use the app's own pages):
+Everything lives in a local DuckDB file: `db.duckdb` in the current folder, `DATABASE_PATH` if set, or in `DATA_DIR` on a server. DuckDB lets one process use a database at a time, so stop `serve` before running a command-line command such as `sync` or `backup` against the same file (or use the app's own pages):
 
 - Vision results are cached, so a photo is classified once. It's classified again only if you change the model, the categories, the prompt, or the description/title briefs.
 - Applied, rejected and edited changes are never proposed again (dropping a tag rejects just that tag). Failed ones are proposed again. The full rules are at the top of `coconut_barometer/changes.py`.
 
 ## Tuning
 
+These are in Settings → Photos (the model is in Connections).
+
 - `vision.min_confidence` (default 0.75): raise it if the plan has too many false positives, lower it if it misses photos.
 - Category `description`s are what the model actually reads. Spell out edge cases ("a person eating where the food is incidental doesn't count").
 - Changing a category's description re-classifies the whole library on the next `classify` (the cache key includes the categories). Adding a new category does the same.
 - `vision.model`: the default is a small, cheap Claude model. Swap in a larger one if its judgement isn't good enough.
-- `geo.min_accuracy`: Flickr's geo accuracy runs 1 (world) to 16 (street). States need 6+ and cities need 11+ by default.
+- `geo.min_accuracy` (Location → Geotag precision): Flickr's geo accuracy runs 1 (world) to 16 (street). States need 6+ and cities need 11+ by default.
 
 ### Titles and descriptions
 
@@ -154,15 +163,15 @@ Everything lives in a local DuckDB file (`db.duckdb`, beside config.yaml or in t
 
 ### Standard tags
 
-Tags you add by convention, each group with its own flag under `standard_tags`: date (`y2019 m07 d17`), place (`unitedstates americas california ca bakersfield`) and camera (`nikon d90`).
+Tags you add by convention, each group switched on in Settings → Photos: date (`y2019 m07 d17`) and camera (`nikon d90`) under Cameras & dates, place (`unitedstates americas california ca bakersfield`) under Location.
 
 - They share the photo's single tags row with the model's tags, so it's still one call per photo. Flickr allows 75 tags per photo; if a photo would go over, the later groups drop off first.
 - Date tags skip photos where Flickr doesn't know the date taken. That flag comes from `sync`, so run `sync` once after upgrading.
-- Camera tags need each photo's EXIF: `python -m coconut_barometer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. `standard_tags.camera.albums` also adds photos to your camera albums.
+- Camera tags need each photo's EXIF: `python -m coconut_barometer camera` fetches it once (one call per photo, cached, safe to stop and resume) and `process` keeps it up to date. Camera albums (regex on the camera name → album) also add photos to your camera albums.
 
 ### Keeping in sync, and stats history
 
-`sync` does whatever is due, so it's cheap to run often (the web app will run it hourly):
+`sync` does whatever is due, so it's cheap to run often (the web app runs it every `web.sync_every_minutes`, 60 by default; Settings → Photos → Sync):
 
 | | when | Flickr calls (10k photos) |
 |---|---|---|
@@ -183,7 +192,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 ## Costs and limits
 
 - Each photo sends one ~500px thumbnail plus a short prompt, roughly 1k input tokens. Run `--limit 50` and look at the token counts it prints before doing the whole library. Check current API pricing.
-- Flickr allows 3600 API calls per hour per API key. The app makes at most 0.9 calls a second, shared by everything using the key: the web app, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
+- Flickr allows 3600 API calls per hour per API key. The app makes at most 1.1 calls a second (about 3960 an hour, deliberately a little over the stated limit), shared by everything using the key: the web app, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
 - Reverse geocoding runs offline and returns the nearest town, so a photo taken right at a border can occasionally land in the neighbouring country. That's one reason to review before applying.
 
 ## Adding a vision provider

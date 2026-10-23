@@ -23,15 +23,14 @@ DuckDB lets one process use a database at a time, so run command-line commands (
 
 ## 1. Prepare locally (to keep your history)
 
-Bringing your current database keeps everything: the photos in review, the paid-for vision results, the stats history, comments, faves, groups, your login and your settings. Skip to step 2 to start fresh instead.
+Bringing your current database keeps everything: the photos in review, the paid-for vision results, the stats history, comments, faves, groups, your login, your settings and the API keys (encrypted). Skip to step 2 to start fresh instead.
 
 ```bash
-uv run coconut-barometer settings import-file config.yaml
 uv run coconut-barometer backup
 ls -lh backups/
 ```
 
-`import-file` copies every setting, and the API keys (encrypted), into the database, so the server needs no config.yaml. The settings that protect the server itself (host, port, allowed hosts and so on) aren't copied; the server works them out. Keep two files at hand: the newest `backups/coconut_barometer-….db.gz`, and `~/.config/coconut-barometer/secret.key` (the key the API keys are encrypted with).
+The settings that protect the server itself (host, port, allowed hosts and so on) aren't in the database; the server works them out. Keep two files at hand: the newest `backups/coconut_barometer-….db.gz`, and `~/.config/coconut-barometer/secret.key` (the key the API keys are encrypted with).
 
 ## 2. Create the service
 
@@ -77,7 +76,7 @@ Push to `main`; Render rebuilds and redeploys (`autoDeployTrigger: commit`). Dat
 
 ## Security checklist
 
-- [ ] Repository private; no `config.yaml`, database, backups or keys in it (`.gitignore` and `.dockerignore` keep them out).
+- [ ] Repository private; no database, backups or keys in it (`.gitignore` and `.dockerignore` keep them out).
 - [ ] A long, unique password.
 - [ ] A copy of `secret.key` somewhere safe, not next to the downloaded backups.
 - [ ] API keys in one place (Settings, encrypted, or Render's environment), not both.

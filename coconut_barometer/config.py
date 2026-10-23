@@ -103,7 +103,7 @@ DEFAULTS: dict[str, Any] = {
 }
 
 # Fixed: not settings any more (see RETIRED).
-FLICKR_CALLS_PER_SECOND = 1.1       # Flickr allows 3600 calls/hour per key; a little under, shared by everything
+FLICKR_CALLS_PER_SECOND = 1.1       # ~3960/hour, over Flickr's stated 3600/hour per key, on purpose; shared by everything
 WEATHERFLOW_CALLS_PER_SECOND = 2.0
 VISION_THUMBNAIL = "url_m"          # 500 px: plenty for the model
 VISION_CONCURRENCY = 4
