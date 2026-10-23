@@ -70,6 +70,12 @@ META = {
                                   "changes on Flickr until you apply it.",
                                   options={"process": "Process it right away (costs vision calls)",
                                            "queue": "Wait; process it when I open it"}),
+    "review.missing_location": _review("Review photos without a location",
+                                       "Each daily re-read of every photo sends the ones with no geotag that "
+                                       "aren't in review yet, with a guessed location: from photos taken around "
+                                       "the same time, place names in the title and tags, and the vision model. "
+                                       "With no clue, you pick the place on the map. Off: locations are never "
+                                       "proposed."),
 
     # ---- Photos: Writing
     "vision.title.max_words": _writing("Length (words)", group="Titles"),

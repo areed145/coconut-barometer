@@ -140,10 +140,20 @@ class FakeFlickr:
             return {"photo": {"person": people[(pg - 1) * per: pg * per], "page": pg, "pages": 2}}
         if method == "flickr.photos.getInfo":
             ph = next(x for x in self.photos if x["id"] == p["photo_id"])
-            return {"photo": {"id": ph["id"], "server": ph["server"], "secret": ph["secret"], "media": ph["media"],
-                              "title": {"_content": ph["title"]}, "description": ph["description"],
-                              "tags": {"tag": [{"_content": t} for t in ph["tags"].split()]},
-                              "dates": {"taken": ph["datetaken"], "takenunknown": "0", "lastupdate": "1"}}}
+            info = {"id": ph["id"], "server": ph["server"], "secret": ph["secret"], "media": ph["media"],
+                    "title": {"_content": ph["title"]}, "description": ph["description"],
+                    "tags": {"tag": [{"_content": t} for t in ph["tags"].split()]},
+                    "dates": {"taken": ph["datetaken"], "takenunknown": "0", "lastupdate": "1"}}
+            if ph["latitude"]:
+                info["location"] = {"latitude": ph["latitude"], "longitude": ph["longitude"], "accuracy": ph["accuracy"]}
+                info["geoperms"] = {"ispublic": ph["geo_is_public"]}
+            return {"photo": info}
+        if method == "flickr.photos.geo.setLocation":
+            for ph in self.photos:
+                if ph["id"] == p["photo_id"]:
+                    ph.update(latitude=float(p["lat"]), longitude=float(p["lon"]), accuracy=p["accuracy"], geo_is_public=0)
+            self._touch(photo_id=p["photo_id"])
+            return {}
         if method == "flickr.photos.getAllContexts":
             return {"set": [{"id": k} for k, v in self.sets.items() if p["photo_id"] in v["photos"]]}
         if method == "flickr.photos.getExif":

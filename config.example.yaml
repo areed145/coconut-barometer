@@ -322,6 +322,12 @@ schedule:
   #   process  processed right after the sync
   new_photos: queue
 
+review:
+  # Photos without a geotag go to review with a guessed location (from photos taken around the
+  # same time, place names in the title and tags, and the vision model's words), or none, to pick
+  # on the map. The daily re-read of every photo sends any not already in review.
+  missing_location: true
+
 # The web app (`coconut-barometer serve`). With no login yet it opens on a setup page
 # (or: `coconut-barometer user add <name>`).
 # On a server keep host 127.0.0.1 and put Caddy (HTTPS) in front. API keys belong in Settings

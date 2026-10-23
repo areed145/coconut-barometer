@@ -383,8 +383,9 @@ def cmd_plan(cfg, store, args):
 
     if not store.get_meta("last_sync"):
         sys.exit("No local data yet — run `sync` first.")
-    provider_key = f"{_provider_name(cfg)}:{cfg['vision']['model']}"
-    changes = build_plan(cfg, store, provider_key, photo_ids=set(args.photo) if args.photo else None)
+    from .vision import provider_key
+
+    changes = build_plan(cfg, store, provider_key(cfg["vision"]), photo_ids=set(args.photo) if args.photo else None)
     if not changes:
         print("Nothing to propose — the library already matches the rules.")
         return
@@ -396,16 +397,6 @@ def cmd_plan(cfg, store, args):
             new = " | ".join(c.new) if isinstance(c.new, list) else c.new
             print(f"{c.photo_id}  {c.action:<15} {new[:100]}  [{c.source}]")
     print("\nThis is a preview. `process` sends photos to review; apply them under Photos → Review in the web app.")
-
-
-def _provider_name(cfg) -> str:
-    """Must match VisionProvider.key without instantiating the SDK."""
-    name = cfg["vision"]["provider"].lower()
-    if name == "anthropic":
-        return "claude"
-    if name == "ollama" or (name == "openai" and cfg["vision"]["base_url"]):
-        return "openai-compat"
-    return name
 
 
 def cmd_process(cfg, store, args):

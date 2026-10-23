@@ -15,7 +15,7 @@ Sort = Literal["newest", "oldest", "views", "faves", "comments"]
 
 class Choice(BaseModel):
     approve: bool
-    value: Any = None      # edited title/description text, or the list of tags kept
+    value: Any = None      # edited title/description text, the list of tags kept, or {lat, lon, accuracy}
 
 
 class Decision(BaseModel):
@@ -39,6 +39,12 @@ def find(q: str = Query(..., max_length=300), rt=Depends(runtime)):
     if not pid:
         raise HTTPException(404, "not in your library")
     return {"photo_id": pid}
+
+
+@router.get("/places")
+def places(q: str = Query(..., min_length=2, max_length=200), rt=Depends(runtime)):
+    """Find a place for a photo's location: OpenStreetMap's Nominatim, or the offline town list."""
+    return rt.review.places(q)
 
 
 @router.get("/items/{photo_id}")

@@ -37,4 +37,14 @@ def make_provider(vcfg: dict) -> VisionProvider:
     return PROVIDERS[name](**kwargs)
 
 
-__all__ = ["VisionProvider", "make_provider", "PROVIDERS"]
+def provider_key(vcfg: dict) -> str:
+    """The key make_provider(vcfg) would have (VisionProvider.key), without making it."""
+    name = vcfg["provider"].lower()
+    if name == "anthropic":
+        name = "claude"
+    elif name == "ollama" or (name == "openai" and vcfg["base_url"]):
+        name = "openai-compat"
+    return f"{name}:{vcfg['model']}"
+
+
+__all__ = ["VisionProvider", "make_provider", "provider_key", "PROVIDERS"]

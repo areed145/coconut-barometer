@@ -16,7 +16,7 @@ from coconut_barometer.sync import sync
 class PipelineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.cfg = from_dict(CFG)
+        self.cfg = from_dict({**CFG, "review": {"missing_location": False}})   # (test_geoguess.py has those)
         self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         sync(self.fl, self.store, log=lambda *a: None)

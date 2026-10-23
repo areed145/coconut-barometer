@@ -331,6 +331,11 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .row .what { flex: 1; min-width: 0; }
 .row input[type=text] { width: 100%; margin-top: var(--s1); }
 .row textarea { margin-top: var(--s1); min-height: 70px; }
+.locmap { height: 280px; border-radius: var(--r-md); overflow: hidden; isolation: isolate; margin-top: var(--s2); cursor: crosshair; }
+.locsearch { display: flex; gap: var(--s2); }
+.locsearch input { flex: 1; min-width: 0; }
+.chip.prop.off.nostrike { text-decoration: none; }
+.status.conf-high { color: var(--ok); } .status.conf-low { color: var(--no); }
 .replaces { font-size: var(--text-xs); color: var(--muted); font-style: italic; margin: 3px 0; }
 .procgroup { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .kv dt { font-size: var(--text-xs); color: var(--muted); } .kv dd { margin: 0 0 var(--s2); overflow-wrap: anywhere; }

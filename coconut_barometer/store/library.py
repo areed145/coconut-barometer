@@ -140,6 +140,30 @@ class LibraryStore(Database):
         with self.db:
             self.db.execute(f"UPDATE photos SET {cols} WHERE id=?", (*fields.values(), photo_id))
 
+    def set_location_local(self, photo_id: str, lat: float, lon: float, accuracy: int) -> None:
+        with self.db:
+            self.db.execute("UPDATE photos SET lat=?, lon=?, accuracy=? WHERE id=?", (lat, lon, accuracy, photo_id))
+
+    def geotagged_between(self, start: str, end: str) -> list:
+        """Geotagged photos taken between two times (date_taken text, "YYYY-MM-DD HH:MM:SS"), with their camera."""
+        return self.db.execute(
+            "SELECT p.id, p.lat, p.lon, p.accuracy, p.date_taken, COALESCE(c.camera, '') AS camera FROM photos p "
+            "LEFT JOIN cameras c ON c.photo_id = p.id WHERE p.lat IS NOT NULL AND p.date_taken BETWEEN ? AND ? "
+            "AND COALESCE(p.date_taken_unknown, 0) = 0 ORDER BY p.date_taken", (start, end)).fetchall()
+
+    def geotag_cells(self, size: float) -> list[tuple[float, float, int]]:
+        """Where your geotagged photos are: (lat, lon, how many) per cell of `size` degrees."""
+        return [tuple(r) for r in self.db.execute(
+            "SELECT ROUND(lat / ?) * ?, ROUND(lon / ?) * ?, COUNT(*) FROM photos WHERE lat IS NOT NULL GROUP BY 1, 2",
+            (size, size, size, size))]
+
+    def common_tags(self, share: float) -> set[str]:
+        """Tags on at least this share (0-1) of your photos: the ones you put on everything."""
+        n = self.db.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+        return {r[0] for r in self.db.execute(
+            "SELECT t, COUNT(DISTINCT id) FROM (SELECT id, UNNEST(STRING_SPLIT(tags, ' ')) AS t FROM photos) "
+            "WHERE t <> '' GROUP BY t HAVING COUNT(DISTINCT id) >= ?", (max(2, share * n),))}
+
     def album_id(self, title: str) -> str | None:
         r = self.db.execute("SELECT id FROM albums WHERE title=?", (title,)).fetchone()
         return r[0] if r else None

@@ -13,7 +13,8 @@ from functools import cached_property
 from ..changes import Change
 from ..classify import fingerprint
 from ..config import MAX_TAGS_PER_PHOTO
-from ..geo import GeoMatcher
+from ..geo import GeoMatcher, offline_geocoder
+from ..geoguess import Guesser
 from ..util import clean_tag, norm_tag, norm_title
 
 
@@ -38,8 +39,9 @@ class Context:
     geocoding, vision results, EXIF) load on first use, so rules that are off cost nothing."""
 
     def __init__(self, cfg: dict, store, provider_key: str | None, geocoder=None,
-                 photo_ids: set[str] | None = None):
+                 photo_ids: set[str] | None = None, gazetteer=None):
         self.cfg, self.store, self.provider_key, self._geocoder = cfg, store, provider_key, geocoder
+        self._gazetteer = gazetteer
         self.photos = {p["id"]: p for p in store.photos() if photo_ids is None or p["id"] in photo_ids}
         self.albums = store.albums()
         self.album_ids = {norm_title(a["title"]): a["id"] for a in self.albums}      # normalized title -> id
@@ -55,6 +57,12 @@ class Context:
     def places(self) -> dict[str, dict]:
         """photo_id -> nearest place {cc, admin1, name} for geotagged photos."""
         return self.geo.locate(list(self.photos.values()))
+
+    @cached_property
+    def guesser(self) -> Guesser:
+        """Guesses where photos without a geotag were taken (rules/geotag.py)."""
+        from .. import gazetteer
+        return Guesser(self.store, self._gazetteer or gazetteer.default(), self._geocoder or offline_geocoder)
 
     @cached_property
     def fingerprint(self) -> str | None:

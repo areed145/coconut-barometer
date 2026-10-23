@@ -18,10 +18,10 @@ def photo_page(nsid: str, photo_id: str) -> str:
 
 
 def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
-               photo_ids: set[str] | None = None, tag_mode: str = "add") -> list[Change]:
+               photo_ids: set[str] | None = None, tag_mode: str = "add", gazetteer=None) -> list[Change]:
     """photo_ids: plan only these photos (the per-photo queue); default is the whole library.
     tag_mode: "add" to the photo's tags, or "replace" them (see rules.resolve)."""
-    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids)
+    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids, gazetteer=gazetteer)
     changes = resolve(ctx, [w for rule in WANT_RULES for w in rule.propose(ctx)], tag_mode)
     for rule in CHANGE_RULES:
         changes += rule.propose(ctx)
@@ -31,5 +31,6 @@ def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
 
 def summarize(changes: list[Change]) -> Counter:
     """How many of each: an album's title, or tags / renames / descriptions."""
-    label = {"add_tags": "tags", "set_tags": "tag replacements", "set_title": "titles", "set_description": "descriptions"}
+    label = {"add_tags": "tags", "set_tags": "tag replacements", "set_title": "titles", "set_description": "descriptions",
+             "set_location": "locations"}
     return Counter(label.get(c.action, c.new) for c in changes)

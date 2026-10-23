@@ -184,6 +184,8 @@ class ReviewApp:
             raise KeyError(photo_id)
         if q["status"] == "applying" or photo_id in self.processing:
             return {"status": "busy"}
+        if any(c.get("action") == "set_location" for c in q["changes"]):   # not sent again by the daily sweep
+            self.store.record(photo_id, "set_location", "", "rejected")
         self.store.queue_remove(photo_id)
         return {"status": "ignored"}
 
@@ -338,6 +340,8 @@ class ReviewApp:
             before = store.latest_upload()
             out = run_due(self.cfg, self.client, store, force=mode, log=self.log)
             out["new_photos"] = self._queue_new(store, before)
+            if {"full", "photo_list"} & set(out["ran"]) and self.cfg["review"]["missing_location"]:
+                out["missing_location"] = self._queue_missing_location(store)
             store.set_meta("last_sync_result", json.dumps({**out, "at": int(time.time())}, default=str))
         finally:
             self.syncing = False
@@ -363,6 +367,31 @@ class ReviewApp:
             for pid in reversed(new):     # oldest first
                 self.process(pid, if_new=True)
         return len(new)
+
+    def _queue_missing_location(self, store) -> int:
+        """review.missing_location, after each read of every photo: the ones with no geotag that aren't
+        in review go in, ready, proposed from what's already known (cached vision results, EXIF): no
+        vision or Flickr calls, so a backlog of hundreds costs nothing. Re-process one for a fresh look."""
+        from ..planner import build_plan
+        from ..vision import provider_key
+
+        ids = store.missing_location_ids()
+        if not ids:
+            return 0
+        rows = build_plan(self.cfg, store, provider_key(self.cfg["vision"]), photo_ids=set(ids),
+                          geocoder=self.process_kw.get("geocoder"))
+        changes: dict[str, list[dict]] = {}
+        for r in rows:
+            changes.setdefault(r.photo_id, []).append(r.to_dict())
+        for pid in ids:
+            store.queue_put(pid, "pending", changes.get(pid, []))
+        self.log(f"  {len(ids)} photo(s) without a location sent to review")
+        return len(ids)
+
+    def places(self, query: str) -> dict:
+        """The reviewer's map search (see gazetteer.search)."""
+        from .. import gazetteer
+        return gazetteer.search(query)
 
     def _count_vision(self, stats: dict) -> dict:
         self.vision_usage["photos"] += stats.get("queued", 0) + stats.get("nothing_to_change", 0)
@@ -440,4 +469,22 @@ def _with_choice(c: Change, choice: dict) -> Change:
         c.approved = c.approved and bool(kept)
     elif value is not None and c.action in META_ACTIONS and str(value).strip() != c.new:
         c.edited = str(value).strip()
+    elif c.action == "set_location":
+        if value is not None:
+            c.edited = _location(value)
+        c.approved = c.approved and bool(c.target)
     return c
+
+
+def _location(value) -> dict:
+    """A place picked on the map: {lat, lon, accuracy}, checked; {} if it isn't one."""
+    try:
+        lat, lon = float(value["lat"]), float(value["lon"])
+        acc = int(value.get("accuracy") or 16)
+    except (TypeError, KeyError, ValueError):
+        return {}
+    if not (-90 <= lat <= 90) or lon != lon:
+        return {}
+    lon = (lon + 180) % 360 - 180                # the map lets you scroll around the world
+    return {"lat": round(lat, 6), "lon": round(lon, 6), "accuracy": min(16, max(1, acc)),
+            "place": str(value.get("place") or "")[:200]}

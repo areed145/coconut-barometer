@@ -31,6 +31,9 @@ def _keep_changes_since(store: Store, since: int, photos: list[dict], membership
         elif action == "add_tag":
             if norm_tag(target) not in (p["tags"] or "").split():
                 p["tags"] = f"{p['tags']} {norm_tag(target)}".strip()
+        elif action == "set_location" and target and p["lat"] is None:
+            lat, lon, acc = target.split(",")
+            p.update(lat=float(lat), lon=float(lon), accuracy=int(acc))
         elif action == "add_to_album":
             album_id = store.album_id(target)
             if album_id:

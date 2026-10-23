@@ -56,6 +56,8 @@ DEFAULTS: dict[str, Any] = {
     "review": {
         "when_queued": "process",    # a photo sent to review (new from a sync, or from the gallery): "process" it
                                      # right away (vision costs), or "queue" it, processed when you open it
+        "missing_location": True,    # photos without a geotag: into review with a guessed location (the daily
+                                     # re-read of every photo sends any that aren't there), and one proposed
     },
     "backup": {
         "every_hours": 24,            # the web app's scheduler makes one this often; 0 = off

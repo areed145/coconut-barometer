@@ -11,7 +11,8 @@ ALREADY_IN_SET = 3
 
 
 def apply_changes(client, store, changes: list[Change], dry_run: bool = False, log=print) -> dict:
-    """Albums and tags one call each; a photo's title and description share one setMeta."""
+    """Albums and tags one call each; a photo's title and description share one setMeta; a location
+    is a re-read, setLocation and a re-read (for the location privacy Flickr gave it)."""
     stats = {"applied": 0, "rejected": 0, "failed": 0, "albums_created": 0, "skipped": 0}
     created: dict[str, str] = {}  # norm title -> new album id
     meta: dict[str, dict[str, Change]] = {}
@@ -24,6 +25,8 @@ def apply_changes(client, store, changes: list[Change], dry_run: bool = False, l
             _apply_set_tags(client, store, c, dry_run, stats, log)
         elif c.action == "add_to_album":
             _apply_album(client, store, c, created, dry_run, stats, log)
+        elif c.action == "set_location":
+            _apply_location(client, store, c, dry_run, stats, log)
         else:
             log(f"  ? unknown action '{c.action}' for {c.photo_id}, skipping")
             stats["skipped"] += 1
@@ -40,6 +43,10 @@ def outcomes(store, changes: list[Change]) -> list[dict]:
         if c.action in TAG_ACTIONS:
             out.append({"action": c.action, "tags": {t: decided.get((c.photo_id, "add_tag", t), "rejected")
                                                       for t in c.tags}})
+            continue
+        if c.action == "set_location":
+            out.append({"action": c.action, "target": c.target,
+                        "status": decided.get((c.photo_id, c.action, c.target), "rejected")})
             continue
         value = str(c.value).strip() if c.action in META_ACTIONS else c.new
         status = decided.get((c.photo_id, c.action, value)) or decided.get((c.photo_id, c.action, c.new), "rejected")
@@ -61,6 +68,10 @@ def unfinished(store, changes: list[Change], since: int) -> list[Change]:
             if not str(c.value).strip():       # blanked: never written (counts as rejected)
                 continue
             keys = [(c.photo_id, c.action, str(c.value).strip())]
+        elif c.action == "set_location":
+            if not c.target:                   # no place picked: never written (counts as rejected)
+                continue
+            keys = [(c.photo_id, c.action, c.target)]
         else:
             keys = [(c.photo_id, c.action, c.new)]
         if not all(k in done for k in keys):
@@ -172,6 +183,44 @@ def _apply_album(client, store, c: Change, created, dry_run, stats, log) -> None
     store.add_membership(album_id, pid)
     store.record(pid, "add_to_album", title, "applied")
     stats["applied"] += 1
+
+
+def _apply_location(client, store, c: Change, dry_run, stats, log) -> None:
+    """flickr.photos.geo.setLocation, only if the photo still has no location on Flickr. Passed on
+    (unticked, or no place picked): logged as rejected, so the daily sweep doesn't send it again."""
+    pid, target = c.photo_id, c.target if c.approved else ""
+    if not target:
+        stats["rejected"] += 1
+        if not dry_run:
+            store.record(pid, "set_location", "", "rejected")
+        return
+    lat, lon, acc = (float(x) for x in target.split(","))
+    if dry_run:
+        log(f"  [dry-run] locate {pid}: {lat}, {lon} (accuracy {int(acc)})")
+        stats["applied"] += 1
+        return
+    try:
+        refresh_photo(client, store, pid)
+        photo = store.photo(pid)
+        if photo is None or photo["lat"] is not None:
+            store.record(pid, "set_location", target, "failed", "location set on Flickr since proposed; re-process it")
+            stats["failed"] += 1
+            log(f"  ! {pid}: location set on Flickr since proposed; left alone")
+            return
+        # Who may see it: the account's default (flickr.com/account/geo/privacy); Flickr refuses without one.
+        client.call("flickr.photos.geo.setLocation", photo_id=pid, lat=f"{lat:.6f}", lon=f"{lon:.6f}", accuracy=int(acc))
+    except FlickrCallError as e:
+        store.record(pid, "set_location", target, "failed", str(e))
+        stats["failed"] += 1
+        log(f"  ! {pid} setLocation: {e}")
+        return
+    store.set_location_local(pid, lat, lon, int(acc))
+    store.record(pid, "set_location", target, "applied")
+    stats["applied"] += 1
+    try:
+        refresh_photo(client, store, pid)          # the privacy it was given (the gallery's map needs it)
+    except FlickrCallError:
+        pass
 
 
 def _apply_meta(client, store, pid: str, by_action: dict[str, Change], dry_run, stats, log) -> None:

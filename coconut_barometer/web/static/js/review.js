@@ -2,6 +2,7 @@
 // as edited), Ignore (out of review, nothing changed) or Re-process (a fresh look; it stays).
 // Applying and processing run in the server's background worker; this page polls for outcomes.
 import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink, every } from "./lib.js";
+import { leaflet, baseMap } from "./leaflet.js";
 
 // "new": waiting to be processed (processed when you reach it); "not_queued": opened by ID, not in review.
 const STATE = { new: "waiting", pending: "ready", applying: "applying", processing: "processing", not_queued: "not in review" };
@@ -11,8 +12,88 @@ const TAGS = new Set(["add_tags", "set_tags"]);
 const norm = (t) => t.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9:=]+/g, "");
 
 function initialChoices(item) {
-  return item.changes.map((c) => ({ approve: true, value: c.new,
-    tags: TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null }));
+  return item.changes.map((c) => {
+    if (c.action === "set_location") {          // a low-confidence guess waits for you to confirm it
+      const has = c.new && c.new.lat != null;
+      return { approve: has && c.confidence !== "low", value: has ? c.new : null, tags: null };
+    }
+    return { approve: true, value: c.new, tags: TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null };
+  });
+}
+
+const coords = (v) => `${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}`;
+const ACCURACY = (a) => (a >= 15 ? "street" : a >= 12 ? "neighborhood" : a >= 9 ? "town" : a >= 5 ? "region" : "country");
+
+// A map of the guesses: the pin is where it will be set. Click the map to move it (as precise as you're
+// zoomed in: Flickr's accuracy is about the zoom level), click a guess to take it, or search for a place.
+function LocationMap({ value, options, editable, onPick, focus }) {
+  const el = useRef(null), map = useRef(null), layers = useRef(null), pick = useRef(null);
+  pick.current = editable ? onPick : () => {};
+  useEffect(() => {
+    let live = true;
+    leaflet().then((lf) => {
+      if (!live || !el.current) return;
+      const { L } = lf;
+      const m = map.current = baseMap(lf, el.current, { scrollWheelZoom: false });
+      layers.current = L.layerGroup().addTo(m);
+      const pts = [...options.map((o) => [o.lat, o.lon]), ...(value ? [[value.lat, value.lon]] : [])];
+      if (pts.length > 1) m.fitBounds(pts, { padding: [30, 30], maxZoom: 12 });
+      else if (pts.length) m.setView(pts[0], value ? Math.min(13, Math.max(4, value.accuracy || 11)) : 11);
+      else m.setView([20, 0], 2);
+      m.on("click", (e) => pick.current({ lat: e.latlng.lat, lon: e.latlng.lng,
+                                                       accuracy: Math.min(16, Math.max(1, m.getZoom())), place: "" }));
+      draw();
+    }).catch(() => {});
+    return () => { live = false; map.current?.remove(); map.current = null; };
+  }, []);
+  const draw = () => {
+    const L = window.L, g = layers.current;
+    if (!L || !g) return;
+    g.clearLayers();
+    options.forEach((o) => L.circleMarker([o.lat, o.lon], { radius: 6, color: "#fff", weight: 1.5, fillColor: "#8a8f98", fillOpacity: 0.9 })
+      .bindTooltip(Object.assign(document.createElement("span"), { textContent: `${o.place || coords(o)} · ${o.confidence}` })).on("click", (e) => { L.DomEvent.stop(e); pick.current(o); }).addTo(g));
+    if (value) L.circleMarker([value.lat, value.lon], { radius: 8, color: "#fff", weight: 2.5, fillColor: "#1dab45", fillOpacity: 1 }).addTo(g);
+  };
+  useEffect(draw, [value, options]);
+  useEffect(() => {                               // a place found by search: show it
+    if (!focus || !map.current) return;
+    if (focus.bbox) map.current.fitBounds([[focus.bbox[0], focus.bbox[2]], [focus.bbox[1], focus.bbox[3]]], { maxZoom: 16 });
+    else map.current.setView([focus.lat, focus.lon], Math.min(16, Math.max(4, focus.accuracy || 11)));
+  }, [focus]);
+  return html`<div class="locmap" ref=${el}></div>`;
+}
+
+function Location({ c, ch, editable, status, set }) {
+  const [q, setQ] = useState(""), [found, setFound] = useState(null), [focus, setFocus] = useState(null);
+  const options = c.options || [];
+  const take = (v) => set({ value: { lat: v.lat, lon: v.lon, accuracy: v.accuracy || 11, place: v.place || v.label || "" }, approve: true });
+  const search = async (e) => {
+    e.preventDefault(); if (q.trim().length < 2) return;
+    try {
+      const r = await api("/api/review/places", { params: { q: q.trim() } });
+      setFound(r);
+      if (r.places.length) { setFocus(r.places[0]); take(r.places[0]); }
+    } catch (err) { toast(err.message); }
+  };
+  const v = ch.value;
+  return html`<div class="row"><input type="checkbox" checked=${ch.approve} disabled=${!editable || !v} aria-label="Approve"
+      onChange=${(e) => set({ approve: e.target.checked })} />
+    <div class="what">Location${status} ${c.confidence && html`<span class=${"status conf-" + c.confidence}>${c.confidence}</span>`}
+      <div class="why">${v ? html`<b>${v.place || coords(v)}</b> · ${ACCURACY(v.accuracy)} (${v.accuracy}/16)` : "No location yet: search, or click the map where it was taken."}</div>
+      ${c.reason && html`<div class="why">${c.reason}</div>`}
+      ${options.length > 1 && html`<div class="chips mt-1">${options.map((o) => html`<button type="button" disabled=${!editable}
+        class=${"chip prop" + (v && v.lat === o.lat && v.lon === o.lon ? "" : " off nostrike")} title=${o.reason}
+        onClick=${() => take(o)}>${o.place || coords(o)} · ${o.confidence}</button>`)}</div>`}
+      ${editable && html`<form class="locsearch mt-1" onSubmit=${search}>
+        <input value=${q} onInput=${(e) => setQ(e.target.value)} placeholder="Search a place: Red Rocks, Morrison CO" aria-label="Search a place" />
+        <button type="submit">Find</button></form>`}
+      ${found && found.places.length > 1 && html`<div class="chips mt-1">${found.places.map((p) => html`<button type="button" class="chip"
+        onClick=${() => { setFocus(p); take(p); }}>${p.label.split(",").slice(0, 3).join(",")}</button>`)}</div>`}
+      ${found && !found.places.length && html`<div class="why">Nothing found for that.</div>`}
+      ${found?.source === "offline" && html`<div class="why">Searched the offline town list (OpenStreetMap couldn't be reached).</div>`}
+      <${LocationMap} value=${v} options=${options} editable=${editable} focus=${focus}
+        onPick=${(p) => set({ value: { lat: p.lat, lon: p.lon, accuracy: p.accuracy, place: p.place || "" }, approve: true })} />
+    </div></div>`;
 }
 
 function Change({ c, ch, i, editable, out, onChange }) {
@@ -32,6 +113,7 @@ function Change({ c, ch, i, editable, out, onChange }) {
           aria-pressed=${ts.on} onClick=${() => set({ tags: ch.tags.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
       })}</div></div></div>`;
   }
+  if (c.action === "set_location") return html`<${Location} key=${c.photo_id} c=${c} ch=${ch} editable=${editable} status=${status} set=${set} />`;
   const box = html`<input type="checkbox" checked=${ch.approve} disabled=${!editable} aria-label="Approve"
                           onChange=${(e) => set({ approve: e.target.checked })} />`;
   if (c.action === "add_to_album")
@@ -130,6 +212,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
     if (!item || busy) return; setBusy(true);
     const payload = choices.map((ch, i) => TAGS.has(item.changes[i].action)
       ? { approve: ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
+      : item.changes[i].action === "set_location" ? { approve: ch.approve && !!ch.value, value: ch.value }
       : { approve: ch.approve, value: ch.value });
     try {
       await api(`/api/review/items/${item.photo_id}/decide`, { method: "POST", body: { choices: payload } });

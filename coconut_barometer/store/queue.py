@@ -45,6 +45,14 @@ class QueueStore(Database):
             self.queue_put(pid, "new", [])
         return ids
 
+    def missing_location_ids(self) -> list[str]:
+        """Photos with no geotag that aren't in review, newest first. Not ones whose location you
+        passed on (unticked, or ignored the photo) since: those come back only if you send them."""
+        return [r[0] for r in self.db.execute(
+            "SELECT id FROM photos WHERE lat IS NULL AND id NOT IN (SELECT photo_id FROM queue) "
+            "AND id NOT IN (SELECT photo_id FROM decisions WHERE action='set_location' AND status='rejected') "
+            "ORDER BY date_upload DESC, id")]
+
     def queue_item(self, photo_id: str) -> dict | None:
         r = self.db.execute("SELECT * FROM queue WHERE photo_id=?", (photo_id,)).fetchone()
         if not r:

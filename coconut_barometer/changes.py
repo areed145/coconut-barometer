@@ -8,6 +8,8 @@ stores them, the review tool shows and edits them, and apply carries them out:
   set_tags          (processing with "overwrite") the photo's whole tag list, replaced
   set_title         the title
   set_description   the description
+  set_location      a geotag for a photo without one: {lat, lon, accuracy, place}, or {} with no
+                    idea where (you pick it on the map); options: every guess, likeliest first
 
 Every processing proposes afresh: nothing you applied or ignored before holds a proposal
 back (only what's already true on Flickr does). The decisions table is a log of what
@@ -20,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 
 from .util import clean_tag, same_text
 
-ACTIONS = ("add_to_album", "add_tags", "set_tags", "set_title", "set_description")
+ACTIONS = ("add_to_album", "add_tags", "set_tags", "set_title", "set_description", "set_location")
 TAG_ACTIONS = ("add_tags", "set_tags")
 META_ACTIONS = ("set_title", "set_description")   # both written by one flickr.photos.setMeta
 
@@ -29,20 +31,29 @@ META_ACTIONS = ("set_title", "set_description")   # both written by one flickr.p
 class Change:
     action: str                 # one of ACTIONS
     photo_id: str
-    new: str | list[str]        # album title | tags | proposed title | proposed description
+    new: str | list[str] | dict  # album title | tags | proposed title | proposed description | location
     old: str = ""               # title/description it replaces ("" when blank); set_tags: the tags it replaces
     album_id: str = ""          # add_to_album: "" means the album will be created
     source: str = ""            # geo:country, vision:food, std:date, vision:title, ...
     confidence: str = ""
     reason: str = ""
+    options: list = field(default_factory=list)   # set_location: the guesses to choose from
     # Set in review:
     approved: bool = True
-    edited: str | list[str] | None = None   # your version: edited text, or the tags you kept
+    edited: str | list[str] | dict | None = None   # your version: edited text, the tags you kept, or your location
 
     @property
-    def value(self) -> str | list[str]:
+    def value(self) -> str | list[str] | dict:
         """What gets written: your edit if you made one, else the proposal."""
         return self.new if self.edited is None else self.edited
+
+    @property
+    def target(self) -> str:
+        """set_location: what the decisions log records, "lat,lon,accuracy" ("" for no location)."""
+        loc = self.value if isinstance(self.value, dict) else {}
+        if loc.get("lat") is None or loc.get("lon") is None:
+            return ""
+        return f"{float(loc['lat']):.6f},{float(loc['lon']):.6f},{int(loc.get('accuracy') or 16)}"
 
     @property
     def tags(self) -> list[str]:

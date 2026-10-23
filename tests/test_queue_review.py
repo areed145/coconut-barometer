@@ -279,7 +279,7 @@ class NewPhotosTest(unittest.TestCase):
     """After a sync, photos uploaded since go into review: processed now, or when opened (review.when_queued)."""
 
     def setUp(self):
-        self.cfg = from_dict(CFG)
+        self.cfg = from_dict({**CFG, "review": {"missing_location": False}})   # (MissingLocationTest has those)
         self.store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
         self.fl = FakeFlickr()
         self.app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: FakeVision("m1"),
