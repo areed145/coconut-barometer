@@ -90,6 +90,19 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
         self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
 
+    def test_home_is_the_front_page(self):
+        lib = open(os.path.join(STATIC, "js", "lib.js")).read()
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        home = open(os.path.join(STATIC, "js", "home.js")).read()
+        self.assertIn('const parts = (path || "home").split("/");', lib)          # an empty address is Home
+        self.assertIn('<a class="brand" href="#/" aria-label="Coconut Barometer: Home">', main)
+        self.assertIn('if (tab === "home") page = html`<${Home}', main)
+        self.assertIn('!["home", "weather", "aprs", "queue", "settings", "login"].includes(tab)', main)   # not a Photos page
+        for href in ('"#/photos"', '"#/weather"', '"#/aprs"'):
+            self.assertIn(f"href={href}", home)
+        self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only
+        self.assertNotRegex(home, r"\.(lat|lon)\b")                              # no station or beacon positions
+
     def test_every_module_main_imports_is_preloaded(self):
         seen, todo = set(), [os.path.join("js", "main.js")]
         while todo:

@@ -1,4 +1,4 @@
-// The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages. Photos, Weather
+// The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages: Home (#/), Photos, Weather
 // and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
 import { Photos, Albums, SinglePhoto } from "./gallery.js";
@@ -12,6 +12,7 @@ import { Aprs } from "./aprs.js";
 import { Igate } from "./igate.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
+import { Home } from "./home.js";
 
 function Login({ onLogin, note }) {
   const [username, setUsername] = useState("");
@@ -62,7 +63,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
       <a role="menuitem" href="#/settings" onClick=${() => setOpen(false)}>Settings</a>
       <button class="link" role="menuitem" onClick=${onLogout}>Sign out</button>
     </div>` : html`<div class="menu-pop" role="menu">
-      <a role="menuitem" href=${"#/login?next=" + encodeURIComponent(location.hash || "#/photos")}
+      <a role="menuitem" href=${"#/login?next=" + encodeURIComponent(location.hash || "#/")}
          onClick=${() => setOpen(false)}>Sign in</a>
     </div>`)}
   </div>`;
@@ -96,9 +97,9 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["weather", "aprs", "queue", "settings", "login"].includes(tab);
+  const inPhotos = !["home", "weather", "aprs", "queue", "settings", "login"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
-  const next = route.params.next || "#/photos";
+  const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
   let page;
   if (!inPhotos) page = null;
@@ -110,7 +111,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else if (sub === "photo") page = html`<${SinglePhoto} id=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
-  if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
+  if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} />`;
+  else if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
@@ -130,7 +132,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
       class=${t === (route[1] || "tracking") ? "on" : ""}>${label}</a>`)}</nav>` : "";
   return html`
     <header class="top">
-      <a class="brand" href="#/photos" aria-label="Coconut Barometer: Photos">
+      <a class="brand" href="#/" aria-label="Coconut Barometer: Home">
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">

@@ -243,6 +243,43 @@ header.top nav.tabs::-webkit-scrollbar { display: none; }
 main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6) + var(--safe-b)) calc(var(--gutter) + var(--safe-l));
   max-width: 1600px; margin: 0 auto; }
 
+/* Home (#/): the site's name, a large link per public section with a glance at it now, the private pages below */
+.home { max-width: 1080px; margin: 0 auto; }
+.home-head { text-align: center; margin: var(--s5) 0 var(--s6); }
+.home-head .logo.hero { width: 132px; margin-bottom: var(--s3); }
+.home-head .site-name { text-transform: lowercase; font-size: 32px; letter-spacing: -.01em; margin: 0 0 var(--s1); }
+.home-head p { margin: 0; font-size: var(--text-md); }
+.homecards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--s4); }
+.homecard { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: var(--s2); min-height: 220px;
+  padding: var(--s5); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  transition: border-color .15s, box-shadow .15s, transform .15s; }
+.homecard:hover { border-color: var(--accent); box-shadow: var(--shadow-2); transform: translateY(-2px); }
+.homecard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.homecard h2 { margin: 0; font-size: 28px; letter-spacing: -.01em; }
+.homecard .glance { flex: 1; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--text-base); }
+.homecard .glance b { font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.homecard .glance-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s3); }
+.homecard small { color: var(--muted); font-size: var(--text-sm); }
+/* The Photos card: the newest photo behind it, darkened so the text reads in either theme */
+.homecard.pic { color: #fff; border-color: transparent; background: #1c1917; }
+.homecard.pic > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.homecard.pic::after { content: ""; position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .45), rgba(0, 0, 0, .25) 45%, rgba(0, 0, 0, .75)); }
+.homecard > :not(img):not(.homebg) { position: relative; z-index: 1; }
+.homecard.pic small, .homecard.pic .muted { color: rgba(255, 255, 255, .8); }
+/* The Weather and APRS cards' backgrounds: faint, behind the text */
+.homebg { position: absolute; z-index: 0; pointer-events: none; }
+.homebg.curve { left: 0; right: 0; bottom: 0; width: 100%; height: 42%; }
+.homebg.curve .fill { opacity: .18; }
+.homebg.curve .edge { fill: none; stroke-width: 2; opacity: .55; }
+.homebg.rings { right: 0; bottom: 0; width: 200px; height: 200px; }
+.homebg.rings circle { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .3; }
+.homebg.rings .dot { fill: var(--accent); stroke: none; opacity: .45; }
+.homelinks { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); margin-top: var(--s5); }
+.homelinks a { display: inline-flex; align-items: center; padding: var(--s2) var(--s4); border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--fg); font-weight: 500; }
+.homelinks a:hover { border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .homecard, .homecard:hover { transition: none; transform: none; } }
+
 /* sign-in and first-run setup */
 .login { max-width: 360px; margin: 8vh auto; padding: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
 .login .site-name { text-transform: lowercase; margin: 0 0 var(--s4); text-align: center; font-size: var(--text-xl); }

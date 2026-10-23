@@ -122,7 +122,7 @@ export function useThemeTick() {
 export function useRoute() {
   const read = () => {
     const [path, qs] = location.hash.replace(/^#\/?/, "").split("?");
-    const parts = (path || "photos").split("/");
+    const parts = (path || "home").split("/");
     parts.params = Object.fromEntries(new URLSearchParams(qs || ""));
     return parts;
   };

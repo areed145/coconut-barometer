@@ -48,6 +48,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 Photos, Weather and APRS are public: visitors see public photos only, and the rest (Analytics, Review, Queue, Settings) needs the login.
 
+- **Home** (`/`, and the logo): a large link to Photos, Weather and APRS, each with a glance at it now (the newest photo, each station's temperature and wind, when each callsign was last heard); signed in, links to Review, Analytics, Queue and Settings below.
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
 - **Albums**: covers and counts; open one for its photos.
 - **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps. The tile provider sees the key in tile requests, so restrict it to your site in CARTO.

@@ -15,9 +15,9 @@ const UNITS = {
 };
 const unitsFor = (system) => UNITS[system] || UNITS.metric;
 const fmt = (v, digits = 1) => (v == null ? "–" : Number(v).toFixed(digits));
-const show = (u, kind, v, digits = 1) => (v == null ? "–" : `${fmt(unitsFor(u)[kind][1](v), digits)} ${unitsFor(u)[kind][0]}`);
+export const show = (u, kind, v, digits = 1) => (v == null ? "–" : `${fmt(unitsFor(u)[kind][1](v), digits)} ${unitsFor(u)[kind][0]}`);
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-const compass = (deg) => (deg == null ? "" : COMPASS[Math.round((deg % 360) / 22.5) % 16]);
+export const compass = (deg) => (deg == null ? "" : COMPASS[Math.round((deg % 360) / 22.5) % 16]);
 const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // ---- Live -------------------------------------------------------------------------------
