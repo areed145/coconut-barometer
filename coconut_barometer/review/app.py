@@ -217,7 +217,8 @@ class ReviewApp:
     def bulk(self, kind: str, value: str = "") -> dict:
         """Every ready photo's proposed change of one kind (BULK_KINDS), for approving many at once; value
         narrows it: a location's confidence (high, medium, low, none) or an album's or group's name.
-        counts: how many of each kind are waiting (and per confidence, album or group)."""
+        counts: how many of each kind are waiting (and per confidence, album or group); busy: photos in review
+        not listed yet, still being processed or applied (the page refreshes until they're done)."""
         action = BULK_KINDS[kind]
         busy = self.processing | set(self.store.queue_ids(["applying"]))
         counts: dict[str, int] = {}
@@ -241,8 +242,9 @@ class ReviewApp:
         items = [{"photo_id": pid, "index": i, "change": Change.from_dict(c).to_dict(),
                   "title": (cards.get(pid) or {}).get("title") or "", "tags": (self.store.photo(pid)["tags"] or "").split(),
                   "thumb": ((cards.get(pid) or {}).get("sizes") or {}).get("q", "")} for pid, i, c in found[:500]]
+        waiting = (set(self.store.queue_ids(["new"])) | busy) & set(self.store.queue_ids(["new", "pending", "applying"]))
         return {"counts": counts, "groups": dict(sorted(sub.items(), key=lambda kv: -kv[1])), "items": items,
-                "total": len(found)}
+                "total": len(found), "busy": len(waiting)}
 
     def bulk_decide(self, verb: str, picks: list[dict]) -> dict:
         """picks: [{photo_id, index, action}]. verb "apply": those changes, as proposed (each photo's others

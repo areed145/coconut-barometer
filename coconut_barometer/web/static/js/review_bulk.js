@@ -43,6 +43,13 @@ export function BulkReview() {
   const [busy, setBusy] = useState(false);
   const load = () => api("/api/review/bulk", { params: { kind, value } }).then((r) => { setD(r); setSel(new Set()); });
   useEffect(() => { setD(null); load(); }, [kind, value]);
+  // Photos still being processed (or applied) aren't listed yet: look again until they're done, unless some are picked.
+  const busyCount = d?.busy || 0;
+  useEffect(() => {
+    if (!busyCount || sel.size) return;
+    const t = setTimeout(() => load().catch(() => {}), 5000);
+    return () => clearTimeout(t);
+  }, [d, sel.size]);
   const items = d?.items || [];
   const chosen = items.filter((i) => sel.has(key(i)));
   const toggle = (i) => { const s = new Set(sel); s.has(key(i)) ? s.delete(key(i)) : s.add(key(i)); setSel(s); };
@@ -77,6 +84,8 @@ export function BulkReview() {
       <select value=${value} onChange=${(e) => setValue(e.target.value)} aria-label=${GROUP_LABEL[kind]}>
         <option value="">${GROUP_LABEL[kind]}: all</option>
         ${Object.entries(d.groups).map(([g, n]) => html`<option value=${g}>${g} (${num(n)})</option>`)}</select></div>`}
+    ${d?.busy > 0 && html`<p class="muted small"><span class="spin">⟳</span> ${num(d.busy)} photo${d.busy === 1 ? "" : "s"} still being
+      processed or applied: listed here when done.</p>`}
     ${!d ? html`<div class="boot">Loading…</div>` : !items.length ? html`<div class="empty">Nothing of this kind waiting.</div>` : html`
       <div class="toolbar actbar-bulk">
         <label class="check"><input type="checkbox" checked=${chosen.length === items.length}

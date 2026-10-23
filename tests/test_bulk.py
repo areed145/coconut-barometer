@@ -33,6 +33,15 @@ class BulkTest(unittest.TestCase):
         self.assertIn("Food", out["groups"])
         self.assertEqual({i["change"]["new"] for i in self.app.bulk("album", "Food")["items"]}, {"Food"})
 
+    def test_photos_still_being_processed_are_counted_not_listed(self):
+        tags = self.app.bulk("tags")
+        self.assertEqual(tags["busy"], 0)
+        pid = tags["items"][0]["photo_id"]
+        self.app.processing.add(pid)
+        out = self.app.bulk("tags")
+        self.assertEqual((out["busy"], out["total"]), (1, tags["total"] - 1))
+        self.assertNotIn(pid, {i["photo_id"] for i in out["items"]})
+
     def test_apply_some_kind_and_the_rest_stays(self):
         before = {pid: len(self.store.queue_item(pid)["changes"]) for pid in self.store.queue_ids(["pending"])}
         out = self.app.bulk_decide("apply", self.picks("album", "Food"))
