@@ -99,6 +99,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const route = useRoute();
   const [pending, setPending] = useState(null);
   const [queued, setQueued] = useState(0);           // jobs on the background worker: running or waiting
+  const [health, setHealth] = useState(null);        // the worst connection's state, by the logo (Home has the detail)
+  useEffect(() => every(() => api("/api/status").then((s) => setHealth(s)).catch(() => {}), 60000), [session]);
   useEffect(() => {
     if (!session) { setPending(null); return; }
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
@@ -155,7 +157,10 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     <header class="top">
       <a class="brand" href="#/" aria-label="Coconut Barometer: Home">
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
-        <span class="brand-name">Coconut Barometer</span></a>
+        <span class="brand-name">Coconut Barometer</span>
+        ${health && (health.overall === "warn" || health.overall === "bad") && html`<i class=${"health-dot " + health.overall}
+          title=${health.rows.filter((r) => r.level === health.overall).map((r) => `${r.name}: ${r.state}`).join("\n")}
+          role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
         ${session && link("queue", "Queue", html`<span class=${"qdot" + (queued ? " busy" : "")} role="status"

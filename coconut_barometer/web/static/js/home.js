@@ -90,6 +90,27 @@ function AprsCard() {
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
 }
 
+// Status: the health of each connection (/api/status: visitors get the public ones, without errors). All green
+// folds to one line; anything else opens, worst first.
+const LEVEL = { bad: 0, warn: 1, ok: 2, off: 3 };
+const LABEL = { ok: "All systems normal", warn: "Something needs a look", bad: "Something's down", off: "Nothing set up yet" };
+function Status({ session }) {
+  const d = useGlance("/api/status", 30000);
+  const [open, setOpen] = useState(false);
+  if (!d || !d.rows.length) return null;
+  const rows = [...d.rows].sort((a, b) => LEVEL[a.level] - LEVEL[b.level]);
+  const shown = open || d.overall === "warn" || d.overall === "bad";
+  return html`<section class="status" aria-label="Status">
+    <button class="status-head link" aria-expanded=${shown} onClick=${() => setOpen(!shown)}>
+      <i class=${"health-dot " + d.overall} aria-hidden="true"></i><b>${LABEL[d.overall]}</b>
+      <span class="muted">${shown ? "hide" : `${rows.filter((r) => r.level !== "off").length} connections`}</span></button>
+    ${shown && html`<ul class="status-rows">${rows.map((r) => html`<li key=${r.id} class=${"status-row " + r.level}>
+      <i class=${"health-dot " + r.level} aria-label=${r.level}></i><b>${r.name}</b>
+      <span>${r.state}${r.detail ? html` · <span class="problem">${r.detail}</span>` : ""}</span>
+      ${session && r.href && r.level !== "ok" && html`<a href=${r.href}>Fix</a>`}</li>`)}</ul>`}
+  </section>`;
+}
+
 // Highlights: running totals and streaks that mean something from the first week of history, each linking to
 // where it comes from. "Record" only once there's more than a year to compare with (the server decides).
 function Hl({ href, label, value, note, record }) {
@@ -168,6 +189,7 @@ export function Home({ session, pending, queued }) {
     <nav class="homecards" aria-label="Sections">
       <${PhotosCard} /><${WeatherCard} /><${AprsCard} />
     </nav>
+    <${Status} session=${session} />
     <${Highlights} />
     <${OnThisDay} />
     ${session && html`<nav class="homelinks" aria-label="Signed in">

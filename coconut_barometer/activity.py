@@ -93,6 +93,16 @@ class Activity:
             raise
         self.end(token, result.get("status", "ok"), result.get("detail"), result.get("error", False))
 
+    def latest(self, source: str) -> dict:
+        """For the status panel: when this source's last call finished, its last success, and the error if the
+        newest call failed. All None until it has made one."""
+        with self.lock:
+            calls = [e for e in self.entries.get(source, ()) if e["kind"] == "call"]
+        newest = calls[-1] if calls else None
+        ok = next((e for e in reversed(calls) if not e["error"]), None)
+        return {"at": newest and newest["at"], "ok_at": ok and ok["at"],
+                "error": newest["detail"] if newest and newest["error"] else None}
+
     # ---- stream messages, connections, job results ----------------------------------
     def record(self, source: str, what: str, detail: str = "", status: str = "ok", error: bool = False,
                kind: str = "message", ms: int | None = None) -> None:

@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..store import SchemaTooNew
-from .api import activity, admin, analytics, aprs, auth, gallery, home, maps, review, setup, sync, weather
+from .api import activity, admin, analytics, aprs, auth, gallery, home, maps, review, setup, status, sync, weather
 from .deps import session
 from . import assets, share
 from .runtime import Runtime
@@ -112,7 +112,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     # Outermost: refuse Host headers that aren't ours (DNS rebinding, stray vhosts).
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=web["allowed_hosts"])
 
-    for module in (auth, setup, gallery, home, maps, review, analytics, sync, weather, aprs, activity, admin):
+    for module in (auth, setup, gallery, home, status, maps, review, analytics, sync, weather, aprs, activity, admin):
         app.include_router(module.router)
 
     @app.get("/healthz", include_in_schema=False)
