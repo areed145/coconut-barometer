@@ -98,7 +98,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('const parts = (path || "home").split("/");', lib)          # an empty address is Home
         self.assertIn('<a class="brand" href="#/" aria-label="Coconut Barometer: Home">', main)
         self.assertIn('if (tab === "home") page = html`<${Home}', main)
-        self.assertIn('!["home", "weather", "aprs", "queue", "settings", "login"].includes(tab)', main)   # not a Photos page
+        self.assertIn('!["home", "weather", "aprs", "status", "settings", "login"].includes(tab)', main)   # not a Photos page
         for href in ('"#/photos"', '"#/weather"', '"#/aprs"'):
             self.assertIn(f"href={href}", home)
         self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only

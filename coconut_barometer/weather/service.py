@@ -36,7 +36,7 @@ class WeatherService:
         elif self._client is None or self._client.token != token:
             old = self._client
             self._client = WeatherFlowClient(token, WEATHERFLOW_CALLS_PER_SECOND)
-            if old:                                   # the Queue page's counter carries on across a token change
+            if old:                                   # the Status page's counter carries on across a token change
                 self._client.call_count, self._client.log = old.call_count, old.log
         return self._client
 

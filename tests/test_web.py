@@ -171,16 +171,16 @@ class WebTest(unittest.TestCase):
     def test_theme(self):
         self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})   # public
 
-    def test_worker_view_needs_login(self):
-        self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
+    def test_status_jobs_and_activity_need_login(self):
+        self.assertEqual(self.c.get("/api/status/jobs").status_code, 401)
         self.login()
-        q = self.c.get("/api/review/worker").json()
+        q = self.c.get("/api/status/jobs").json()
         self.assertEqual(set(q), {"running", "waiting", "line", "by_kind", "took", "done_in", "services", "recent"})
-        self.assertEqual(self.c.get("/api/activity").status_code, 200)
+        self.assertEqual(self.c.get("/api/status/activity").status_code, 200)
 
     # ---- security -----------------------------------------------------------
     def test_private_pages_need_a_session(self):
-        for path in ("/api/review/summary", "/api/analytics/overview", "/api/sync/status", "/api/activity",
+        for path in ("/api/review/summary", "/api/analytics/overview", "/api/sync/status", "/api/status/activity", "/api/status/jobs",
                      "/api/admin/settings", "/api/auth/session"):
             self.assertEqual(self.c.get(path).status_code, 401, path)
         self.assertEqual(self.c.post("/api/sync/run", json={}).status_code, 401)

@@ -319,7 +319,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
       <form onSubmit=${find}><input value=${goto} onInput=${(e) => setGoto(e.target.value)} placeholder="Go to photo ID or Flickr URL" aria-label="Go to photo" /></form>
       <span class="muted">${ids.length ? `${idx + 1} of ${num(ids.length)}` : ""}</span>
       <span class="spacer"></span>
-      ${working > 0 && html`<a class="status s-applying" href="#/queue" title="Open the queue"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</a>`}
+      ${working > 0 && html`<a class="status s-applying" href="#/status" title="See the jobs on Status"><span class="spin">⟳</span> ${[jobs.applying && `applying ${jobs.applying}`, jobs.processing && `processing ${jobs.processing}`].filter(Boolean).join(" · ")}</a>`}
       <span class="muted small hint-keys"><kbd>Enter</kbd> apply · <kbd>I</kbd> ignore · <kbd>P</kbd> re-process · <kbd>→</kbd> skip · <kbd>←</kbd> back</span>
     </div>
     ${!item ? html`<div class="empty">Nothing in review. Send photos from <a href="#/photos">Photos</a> (open one, then Send to Review);

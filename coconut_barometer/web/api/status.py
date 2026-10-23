@@ -1,4 +1,6 @@
-"""Home's status panel: the health of everything the site depends on, a row each, worst first in `overall`.
+"""The Status page: the health of everything the site depends on, the worker's jobs, and the log of every call.
+
+/api/status, a row per connection, worst first in `overall` (Home's panel and the dot in the top bar read it too):
 
     ok    working    warn  working, but something's behind or failed once    bad  not working
     off   not set up (left out of `overall`)
@@ -6,19 +8,22 @@
 Visitors get the public services only (WeatherFlow, APRS-IS, radar and satellite), without error text; signed
 in, every row, with the error and where it's fixed. Each row is read from what the app already tracks (the
 streams' state, the activity log, the sync and backup records); nothing here calls out, except Flickr's
-sign-in check, made at most every FLICKR_CHECK seconds. Cached for CACHE_SECONDS."""
+sign-in check, made at most every FLICKR_CHECK seconds. Cached for CACHE_SECONDS.
+
+/api/status/jobs and /api/status/activity need a session: the job running now and the line behind it, and
+every call out, stream message and finished job (poll with `since`, the last `seq` seen, for what's new)."""
 from __future__ import annotations
 
 import json
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from ... import activity
-from ..deps import runtime, store, viewer
+from ..deps import runtime, session, store, viewer
 from . import weather as wx_api
 
-router = APIRouter(prefix="/api", tags=["status"])
+router = APIRouter(prefix="/api/status", tags=["status"])
 CACHE_SECONDS, FLICKR_CHECK = 15, 600
 STALE_WARN, STALE_BAD = 15 * 60, 60 * 60          # a station's newest observation, this old
 LEVELS = ("ok", "off", "warn", "bad")             # worse to the right; "off" doesn't count
@@ -92,9 +97,9 @@ def _flickr(rt, db, now) -> dict:
     result = json.loads(db.get_meta("last_sync_result") or "null") or {}
     every = rt.cfg["web"]["sync_every_minutes"] * 60
     if result.get("error"):
-        return row("flickr", "Flickr", "warn", f"signed in · last sync failed", result["error"], "#/queue", last)
+        return row("flickr", "Flickr", "warn", f"signed in · last sync failed", result["error"], "#/status", last)
     late = every and last and now - last > 3 * every
-    return row("flickr", "Flickr", "warn" if late else "ok", f"signed in · synced {_ago(now, last)}", None, "#/queue", last)
+    return row("flickr", "Flickr", "warn" if late else "ok", f"signed in · synced {_ago(now, last)}", None, "#/status", last)
 
 
 def _vision(rt, now) -> dict:
@@ -103,10 +108,10 @@ def _vision(rt, now) -> dict:
         return row("vision", "Vision model", "off", "no API key", href="#/settings/connections")
     last = activity.log.latest("vision")
     if last["error"]:
-        return row("vision", "Vision model", "warn", f"{v.get('model')} · last call failed", last["error"], "#/queue", last["at"])
+        return row("vision", "Vision model", "warn", f"{v.get('model')} · last call failed", last["error"], "#/status", last["at"])
     return row("vision", "Vision model", "ok",
                f"{v.get('model')} · {'last used ' + _ago(now, last['at']) if last['at'] else 'not used since the app started'}",
-               None, "#/queue", last["at"])
+               None, "#/status", last["at"])
 
 
 def _imagery(now) -> dict:
@@ -135,7 +140,7 @@ def _backups(rt, db, now) -> dict:
     return row("backups", "Backups", "bad" if overdue else "ok", f"last backup {_ago(now, last)}", None, "#/settings/backup", last)
 
 
-@router.get("/status")
+@router.get("")
 def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     now = time.time()
     hit = _cache.get((rt.db_path, me is None))
@@ -150,3 +155,16 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     out = {"overall": max(counted, key=LEVELS.index) if counted else "off", "checked_at": int(now), "rows": rows}
     _cache[(rt.db_path, me is None)] = (now, out)
     return out
+
+
+@router.get("/jobs", dependencies=[Depends(session)])
+def jobs(rt=Depends(runtime)):
+    return rt.review.jobs_view()
+
+
+@router.get("/activity", dependencies=[Depends(session)])
+def recent(since: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=2000), rt=Depends(runtime)):
+    entries = activity.log.since(since, limit)
+    return {"seq": entries[-1]["seq"] if entries else since, "entries": entries, **activity.log.snapshot(),
+            "streams": {"wx-stream": rt.weather.hub.snapshot()["stream"] if rt.weather.token() else None,
+                        "aprs": {**rt.aprs.hub.snapshot(), "callsigns": rt.aprs.callsigns()}}}

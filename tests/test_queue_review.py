@@ -138,10 +138,10 @@ class QueueReviewTest(unittest.TestCase):
 
     def test_queued_counts_every_job_running_or_waiting(self):
         app = ReviewApp(self.store, self.fl, background=False)          # no worker to take the jobs meanwhile
-        self.assertEqual(app.jobs_status()["queued"], 0)                 # the Queue tab's dot: green
+        self.assertEqual(app.jobs_status()["queued"], 0)                 # the Status tab's dot: still
         app.jobs.put(("wx", ""))
         app.running = {"kind": "sync", "photo_id": "", "started": 0}
-        self.assertEqual(app.jobs_status()["queued"], 2)                 # amber
+        self.assertEqual(app.jobs_status()["queued"], 2)                 # pulsing
 
     def test_a_failed_apply_is_retried_once(self):
         self.fl.fail_next["flickr.photosets.addPhoto"] = 1                         # a blip: the retry goes through
@@ -236,12 +236,12 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(self.store.jobs_requested(), [])
         self.assertNotIn("1", self.fl.sets["102"]["photos"])                   # the undo happened
 
-    def test_queue_view_lanes_and_results(self):
+    def test_jobs_view_lanes_and_results(self):
         view = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg)
         for job in (("apply", "1"), ("process", "2"), ("sync", "")):
             view.jobs.put(job)
         view.running = {"kind": "process", "photo_id": "3", "started": 1.0}
-        q = view.queue_view()
+        q = view.jobs_view()
         self.assertEqual((q["waiting"], q["by_kind"]), (3, {"apply": 1, "process": 1, "sync": 1}))
         self.assertEqual([(j["kind"], j["photo_id"], j["position"]) for j in q["line"]],
                          [("apply", "1", 1), ("process", "2", 2), ("sync", None, 3)])
@@ -253,15 +253,15 @@ class QueueReviewTest(unittest.TestCase):
         # Once each kind has taken 10 s, the line is timed from that, behind what's left of the running job.
         view.recent.extend({"kind": k, "seconds": 10.0} for k in ("apply", "process", "sync"))
         view.running["started"] = time.time() - 4
-        q = view.queue_view()
+        q = view.jobs_view()
         self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([6, 16, 26], 36))
         # A real job through the background worker: timed, and listed under recent.
         choices = [{"approve": True} for _ in self.store.queue_item("1")["changes"]]
         self.decide("1", choices)
-        done = self.app.queue_view()["recent"][0]
+        done = self.app.jobs_view()["recent"][0]
         self.assertEqual((done["kind"], done["photo_id"], done["status"]), ("apply", "1", "applied"))
         self.assertGreaterEqual(done["seconds"], 0)
-        self.assertIsNone(self.app.queue_view()["running"])
+        self.assertIsNone(self.app.jobs_view()["running"])
 
     def test_processing_counts_vision_tokens(self):
         app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,

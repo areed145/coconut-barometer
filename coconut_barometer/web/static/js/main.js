@@ -1,6 +1,6 @@
-// The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages: Home (#/), Photos, Weather
-// and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
-import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
+// The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather
+// and APRS are public; Review, Analytics, Status and Settings need a login (and their tabs only show once signed in).
+import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot } from "./lib.js";
 import { Home } from "./home.js";
 
 // Every page but Home (the landing page, which comes with the app) loads its code the first time it's
@@ -27,7 +27,7 @@ const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
 const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
-const QueuePage = lazy(() => import("./queue.js"), "QueuePage");
+const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
 const Aprs = lazy(() => import("./aprs.js"), "Aprs");
 const Igate = lazy(() => import("./igate.js"), "Igate");
@@ -91,7 +91,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
-const PRIVATE_TABS = ["queue", "settings"];
+const PRIVATE_TABS = ["status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"]];
 
@@ -99,8 +99,9 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const route = useRoute();
   const [pending, setPending] = useState(null);
   const [queued, setQueued] = useState(0);           // jobs on the background worker: running or waiting
-  const [health, setHealth] = useState(null);        // the worst connection's state, by the logo (Home has the detail)
-  useEffect(() => every(() => api("/api/status").then((s) => setHealth(s)).catch(() => {}), 60000), [session]);
+  const [health, setHealth] = useState(null);        // each connection's state (/api/status), for Home and Status; its worst is
+                                                     // the Status tab's dot, or for visitors (no Status page) a dot by the logo
+  useEffect(() => every(() => api("/api/status").then((s) => setHealth(s)).catch(() => {}), 30000), [session]);
   useEffect(() => {
     if (!session) { setPending(null); return; }
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
@@ -120,7 +121,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["home", "weather", "aprs", "queue", "settings", "login"].includes(tab);
+  const inPhotos = !["home", "weather", "aprs", "status", "settings", "login"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
@@ -134,10 +135,10 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else if (sub === "photo") page = html`<${SinglePhoto} id=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
-  if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} />`;
+  if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;
   else if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
-  else if (tab === "queue") page = html`<${QueuePage} />`;
+  else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
@@ -158,14 +159,12 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
       <a class="brand" href="#/" aria-label="Coconut Barometer: Home">
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span>
-        ${health && (health.overall === "warn" || health.overall === "bad") && html`<i class=${"health-dot " + health.overall}
+        ${!session && health && (health.overall === "warn" || health.overall === "bad") && html`<i class=${"health-dot " + health.overall}
           title=${health.rows.filter((r) => r.level === health.overall).map((r) => `${r.name}: ${r.state}`).join("\n")}
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
-        ${session && link("queue", "Queue", html`<span class=${"qdot" + (queued ? " busy" : "")} role="status"
-          title=${queued ? `${queued} job${queued === 1 ? "" : "s"} running or waiting` : "Nothing queued"}
-          aria-label=${queued ? `${queued} queued` : "nothing queued"}></span>`)}
+        ${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />

@@ -1,4 +1,4 @@
-"""Everything the app asks of the outside world, for the Queue page: each call (who, what, how long it
+"""Everything the app asks of the outside world, for the Status page: each call (who, what, how long it
 waited for its rate limit, how long it took, what came back), each stream message, each finished job,
 and the calls in flight or waiting for a rate-limit slot right now.
 

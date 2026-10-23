@@ -152,7 +152,7 @@ function Empty() {
   if (!signedIn()) return html`<div class="card"><h2>No stations yet</h2></div>`;
   return html`<div class="card"><h2>No stations yet</h2>
     <p>Add your WeatherFlow token under <a href="#/settings/connections">Settings → Connections</a>. The stations on that account are found
-    on the next sync, and their history appears under <a href="#/queue">Queue</a> as it's fetched.</p></div>`;
+    on the next sync, and their history appears under <a href="#/status">Status</a> as it's fetched.</p></div>`;
 }
 
 // ---- Records ----------------------------------------------------------------------------
@@ -670,7 +670,7 @@ export function WxStations() {
           connected ? "live stream connected" : `stream ${stream?.state || "unknown"}`}</span>
           ${stream?.last_message && html`<span class="muted"> · last message ${ago(stream.last_message)}</span>`}</p>
         <p class="muted">History comes from WeatherFlow's REST API, ${info.backfill_days} day${info.backfill_days === 1 ? "" : "s"} back
-          (set below); the live feed from its WebSocket. Both appear under <a href="#/queue">Queue</a>.</p>
+          (set below); the live feed from its WebSocket. Both appear under <a href="#/status">Status</a>.</p>
         ${info.stations.length ? html`<table class="qdone"><thead><tr><th>Station</th><th>Device</th><th>Place</th><th>History</th><th>Observations</th></tr></thead><tbody>
           ${info.stations.map((s) => html`<tr key=${s.device_id}><td>${s.name}</td><td class="muted">${s.serial || s.device_id}</td>
             <td class="muted">${fmt(s.lat, 3)}, ${fmt(s.lon, 3)} · ${fmt(s.elevation, 0)} m</td>

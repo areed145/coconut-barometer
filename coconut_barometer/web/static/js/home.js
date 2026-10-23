@@ -1,7 +1,8 @@
 // The home page (#/): a large link per public section, each with a glance at what's there now (the newest
 // photo, each station's weather, when each tracked callsign was last heard); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
-import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, today, dayLabel, photosLink } from "./lib.js";
+import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, today, dayLabel, photosLink, HealthPanel, StatusDot }
+  from "./lib.js";
 import { show, compass } from "./units.js";
 
 function useGlance(path, ms) {
@@ -90,27 +91,6 @@ function AprsCard() {
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
 }
 
-// Status: the health of each connection (/api/status: visitors get the public ones, without errors). All green
-// folds to one line; anything else opens, worst first.
-const LEVEL = { bad: 0, warn: 1, ok: 2, off: 3 };
-const LABEL = { ok: "All systems normal", warn: "Something needs a look", bad: "Something's down", off: "Nothing set up yet" };
-function Status({ session }) {
-  const d = useGlance("/api/status", 30000);
-  const [open, setOpen] = useState(false);
-  if (!d || !d.rows.length) return null;
-  const rows = [...d.rows].sort((a, b) => LEVEL[a.level] - LEVEL[b.level]);
-  const shown = open || d.overall === "warn" || d.overall === "bad";
-  return html`<section class="status" aria-label="Status">
-    <button class="status-head link" aria-expanded=${shown} onClick=${() => setOpen(!shown)}>
-      <i class=${"health-dot " + d.overall} aria-hidden="true"></i><b>${LABEL[d.overall]}</b>
-      <span class="muted">${shown ? "hide" : `${rows.filter((r) => r.level !== "off").length} connections`}</span></button>
-    ${shown && html`<ul class="status-rows">${rows.map((r) => html`<li key=${r.id} class=${"status-row " + r.level}>
-      <i class=${"health-dot " + r.level} aria-label=${r.level}></i><b>${r.name}</b>
-      <span>${r.state}${r.detail ? html` · <span class="problem">${r.detail}</span>` : ""}</span>
-      ${session && r.href && r.level !== "ok" && html`<a href=${r.href}>Fix</a>`}</li>`)}</ul>`}
-  </section>`;
-}
-
 // Highlights: running totals and streaks that mean something from the first week of history, each linking to
 // where it comes from. "Record" only once there's more than a year to compare with (the server decides).
 function Hl({ href, label, value, note, record }) {
@@ -179,7 +159,7 @@ function OnThisDay() {
   </section>`;
 }
 
-export function Home({ session, pending, queued }) {
+export function Home({ session, pending, queued, health }) {
   return html`<div class="home">
     <header class="home-head">
       <img class="logo hero" src="/static/img/logo-320.png" width="200" height="195" alt="" />
@@ -189,13 +169,13 @@ export function Home({ session, pending, queued }) {
     <nav class="homecards" aria-label="Sections">
       <${PhotosCard} /><${WeatherCard} /><${AprsCard} />
     </nav>
-    <${Status} session=${session} />
+    <${HealthPanel} health=${health} fix=${session} />
     <${Highlights} />
     <${OnThisDay} />
     ${session && html`<nav class="homelinks" aria-label="Signed in">
       <a href="#/photos/review">Review${pending ? html`<span class="badge">${pending}</span>` : ""}</a>
       <a href="#/photos/analytics">Analytics</a>
-      <a href="#/queue">Queue<span class=${"qdot" + (queued ? " busy" : "")} aria-hidden="true"></span></a>
+      <a href="#/status">Status<${StatusDot} health=${health} queued=${queued} /></a>
       <a href="#/settings">Settings</a></nav>`}
   </div>`;
 }

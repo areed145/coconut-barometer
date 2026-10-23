@@ -203,7 +203,7 @@ function SyncPanel() {
   if (!s) return null;
   const err = s.last_result?.error;
   return html`<div class="card"><h2>Sync now</h2>
-    <p>${s.running ? html`<a href="#/queue"><span class="spin">⟳</span> Syncing…</a>`
+    <p>${s.running ? html`<a href="#/status"><span class="spin">⟳</span> Syncing…</a>`
       : err ? html`<b class="problem">Last sync failed:</b> ${err}`
       : html`Synced ${ago(s.last_sync)}${s.next_run ? html` <span class="muted">· next ${until(s.next_run)}</span>` : ""}`}</p>
     <div class="actions">

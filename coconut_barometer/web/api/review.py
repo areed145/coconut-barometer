@@ -137,12 +137,6 @@ def undo(photo_id: str, rt=Depends(runtime)):
         raise HTTPException(404, "nothing to undo")
 
 
-@router.get("/worker")
-def worker(rt=Depends(runtime)):
-    """The Queue page: the job running now, what's waiting (Flickr and vision), recent results."""
-    return rt.review.queue_view()
-
-
 @router.get("/jobs")
 def jobs(since: int = Query(0, ge=0), rt=Depends(runtime)):
     return rt.review.jobs_status(since)

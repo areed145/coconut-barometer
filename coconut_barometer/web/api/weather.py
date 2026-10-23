@@ -26,7 +26,7 @@ def stations(rt=Depends(runtime), db=Depends(store)):
 
 @router.post("/sync", dependencies=[Depends(session)])
 def sync(rt=Depends(runtime)):
-    """Queue a REST sync: refresh the stations, fetch missing history. Shows in the Queue."""
+    """Queue a REST sync: refresh the stations, fetch missing history. Shows on the Status page."""
     return rt.review.wx_sync()
 
 

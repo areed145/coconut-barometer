@@ -1,4 +1,5 @@
-"""Home's status panel (/api/status): a row per connection, from what the app already tracks."""
+"""The health of each connection (/api/status), for Home, the Status page and the top bar's dot: a row per
+connection, from what the app already tracks."""
 import os
 import tempfile
 import time

@@ -40,7 +40,7 @@ class SharedRateLimiter:
 
     def wait(self, on_slot=None) -> float:
         """Block until this caller may make one call. Returns how long it waited.
-        on_slot(slot): told the time it was given, before the wait (the Queue page shows it)."""
+        on_slot(slot): told the time it was given, before the wait (the Status page shows it)."""
         if self.interval <= 0:
             return 0.0
         with self._local:

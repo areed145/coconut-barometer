@@ -406,13 +406,13 @@ class ReviewApp:
         return {"status": "processing"}
 
     def jobs_status(self, since: int = 0) -> dict:
-        """queued: every job on the worker, the one running and those waiting (the Queue tab's dot)."""
+        """queued: every job on the worker, the one running and those waiting (the Status tab's dot pulses)."""
         return {"applying": self.store.queue_counts().get("applying", 0), "processing": len(self.processing),
                 "syncing": self.syncing, "queued": self.jobs.qsize() + (1 if self.running else 0),
                 "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
-    def queue_view(self) -> dict:
-        """The Queue page's line: the job running now and every job waiting, in the one order the worker takes
+    def jobs_view(self) -> dict:
+        """The Status page's jobs: the job running now and every job waiting, in the one order the worker takes
         them. Each gets an estimated start, from how long recent jobs of its kind took (their waits for the
         rate limit included); none once a kind with no history is ahead. Plus each service's limits and use."""
         waiting = list(self.jobs.queue)                       # a snapshot; the worker may move on

@@ -31,7 +31,7 @@ DETAIL_PARAMS = ("photo_id", "photoset_id", "group_id", "date", "page", "min_dat
 
 
 def _detail(params: dict) -> str:
-    """What a call was about, for the Queue page's log (ids and pages, never anything else)."""
+    """What a call was about, for the Status page's log (ids and pages, never anything else)."""
     return " ".join(f"{k}={params[k]}" for k in DETAIL_PARAMS if k in params)
 
 

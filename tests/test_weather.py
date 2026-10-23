@@ -381,7 +381,7 @@ class WeatherApiTest(unittest.TestCase):
         rt.weather._client.token = "tok"
         self.assertEqual(self.c.post("/api/wx/sync", headers=csrf).json(), {"status": "queued"})
         rt.review.wait()
-        q = self.c.get("/api/review/worker").json()
+        q = self.c.get("/api/status/jobs").json()
         self.assertEqual(q["recent"][0]["kind"], "wx")
         self.assertEqual(q["recent"][0]["status"], "done")
         self.assertTrue(q["services"]["weatherflow"]["configured"])

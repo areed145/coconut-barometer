@@ -1,4 +1,4 @@
-"""The activity log behind the Queue page: calls waiting for a rate-limit slot, calls made, stream
+"""The activity log on the Status page: calls waiting for a rate-limit slot, calls made, stream
 messages, finished jobs; and that the clients and streams write to it."""
 import os
 import tempfile

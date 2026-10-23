@@ -106,7 +106,7 @@ label.check { display: inline-flex; gap: var(--s1); align-items: center; font-si
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); min-width: 0;
   margin-bottom: var(--s4); }
 /* cards in grids and stacked lists are spaced by the container's gap instead */
-:is(.cols, .cols3, .qlanes, .setup-choices, .panel, .settings, .kpis) > .card { margin-bottom: 0; }
+:is(.cols, .cols3, .setup-choices, .panel, .settings, .kpis) > .card { margin-bottom: 0; }
 .card h2, .settings h3.group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 0 0 var(--s3); }
 h1.title { font-size: var(--text-xl); margin: var(--s1) 0 var(--s2); letter-spacing: -.01em; }
 h1.title .share { font-size: var(--text-sm); font-weight: normal; vertical-align: middle; }
@@ -237,8 +237,6 @@ header.top nav.tabs::-webkit-scrollbar { display: none; }
 .menu-pop > * { padding: var(--s2) var(--s3); text-align: left; color: inherit; text-decoration: none; font-size: var(--text-base); }
 .menu-pop > a:hover, .menu-pop > button:hover { background: var(--surface-2); }
 .menu-pop .who { font-size: var(--text-sm); border-bottom: 1px solid var(--line); }
-.qdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-left: var(--s2); vertical-align: middle; }
-.qdot.busy { background: #e0a800; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6) + var(--safe-b)) calc(var(--gutter) + var(--safe-l));
   max-width: 1600px; margin: 0 auto; }
@@ -274,20 +272,23 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .homebg.rings { right: 0; bottom: 0; width: 200px; height: 200px; }
 .homebg.rings circle { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .3; }
 .homebg.rings .dot { fill: var(--accent); stroke: none; opacity: .45; }
-/* Status: a dot per connection's health, on Home and (when not all green) by the logo */
+/* Health (/api/status): a dot per connection, the panel on Home and Status, the Status tab's dot (pulsing while
+   the worker is busy) and, for visitors, one by the logo when anything's amber or red */
 .health-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
 .health-dot.ok { background: var(--ok); } .health-dot.warn { background: var(--warn); } .health-dot.bad { background: var(--no); }
 .health-dot.off { background: transparent; border: 1.5px solid var(--muted); }
 header.top .brand .health-dot { margin-left: var(--s1); }
-.status { margin-top: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); }
-.status-head { display: flex; align-items: center; gap: var(--s2); width: 100%; text-align: left; padding: 0; }
-.status-head.link, .status-head.link b { color: var(--fg); font-size: var(--text-base); text-decoration: none; }
-.status-head .muted { margin-left: auto; font-size: var(--text-sm); }
-.status-rows { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
-.status-row { display: grid; grid-template-columns: auto minmax(110px, 160px) 1fr auto; gap: var(--s2); align-items: baseline;
+.health-dot.busy { animation: pulse 1.2s ease-in-out infinite; }
+nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-align: middle; }
+.health { margin-top: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); }
+.health-head { display: flex; align-items: center; gap: var(--s2); width: 100%; text-align: left; padding: 0; }
+.health-head.link, .health-head.link b { color: var(--fg); font-size: var(--text-base); text-decoration: none; }
+.health-head .muted { margin-left: auto; font-size: var(--text-sm); }
+.health-rows { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.health-row { display: grid; grid-template-columns: auto minmax(110px, 160px) 1fr auto; gap: var(--s2); align-items: baseline;
   padding-top: var(--s2); border-top: 1px solid var(--line); font-size: var(--text-sm); }
-.status-row .health-dot { align-self: center; }
-@media (max-width: 520px) { .status-row { grid-template-columns: auto 1fr; } .status-row > span, .status-row > a { grid-column: 2; } }
+.health-row .health-dot { align-self: center; }
+@media (max-width: 520px) { .health-row { grid-template-columns: auto 1fr; } .health-row > span, .health-row > a { grid-column: 2; } }
 .highlights { margin-top: var(--s6); }
 .hltiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--s2); }
 .wxtile.hl { padding: var(--s3); background: var(--surface); }
@@ -438,7 +439,7 @@ header.top .brand .health-dot { margin-left: var(--s1); }
 .group-inline { display: inline-flex; flex-wrap: wrap; gap: var(--s1) var(--s3); align-items: center; }
 .impact .kpis.small { grid-template-columns: repeat(2, 1fr); }
 
-/* queue: service cards (each filters the log), the line of jobs, the activity log */
+/* Status: the jobs, service cards (each filters the log), the activity log */
 .srcdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; margin-right: 6px; vertical-align: middle; }
 .svcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: var(--s3); margin: var(--s4) 0; }
 button.svc { display: flex; flex-direction: column; align-items: stretch; gap: var(--s1); min-width: 0; padding: var(--s3); text-align: left;
@@ -453,24 +454,24 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .svcbar i { display: block; height: 100%; background: var(--accent); }
 .svcmeta, .svcnow { display: block; font-size: var(--text-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .svcwait { display: block; color: var(--warn); white-space: normal; }
-.qline h2 .muted, .actlog h2 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: var(--s2); }
-.qline h2 .badge { vertical-align: middle; }
-.qkinds { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0 0 var(--s2); font-size: var(--text-sm); }
-.qkinds small { color: var(--muted); }
-.qjobs { list-style: none; margin: 0 0 var(--s2); padding: 0; }
-.qjob { display: flex; align-items: center; gap: var(--s2); padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
-.qjob:first-child { border-top: 0; }
-.qjob.running { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: var(--r-sm); padding: 6px var(--s2); margin: 0 calc(-1 * var(--s2)); }
-.qjob.idle { padding: var(--s2) 0; }
-.qjob img, .qicon { width: 36px; height: 36px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: var(--line);
+.jobs h2 .muted, .actlog h2 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: var(--s2); }
+.jobs h2 .badge { vertical-align: middle; }
+.jobkinds { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0 0 var(--s2); font-size: var(--text-sm); }
+.jobkinds small { color: var(--muted); }
+.joblist { list-style: none; margin: 0 0 var(--s2); padding: 0; }
+.jobrow { display: flex; align-items: center; gap: var(--s2); padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.jobrow:first-child { border-top: 0; }
+.jobrow.running { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: var(--r-sm); padding: 6px var(--s2); margin: 0 calc(-1 * var(--s2)); }
+.jobrow.idle { padding: var(--s2) 0; }
+.jobrow img, .jobicon { width: 36px; height: 36px; border-radius: var(--r-sm); object-fit: cover; flex: none; background: var(--line);
   display: flex; align-items: center; justify-content: center; }
-.qicon .srcdot { margin: 0; width: 12px; height: 12px; }
-.qwhat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.qwhat b, .qwhat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qwhat span { font-size: var(--text-xs); }
-.qpos { width: 2.5em; flex: none; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
-.qwhen { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.qwhen small { font-size: var(--text-2xs); color: var(--muted); }
+.jobicon .srcdot { margin: 0; width: 12px; height: 12px; }
+.jobwhat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.jobwhat b, .jobwhat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jobwhat span { font-size: var(--text-xs); }
+.jobpos { width: 2.5em; flex: none; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--text-sm); }
+.jobwhen { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jobwhen small { font-size: var(--text-2xs); color: var(--muted); }
 .actbar .seg { flex: 1 1 100%; min-width: 0; }
 .actbar .seg button { min-height: 30px; font-size: var(--text-sm); }
 .acts { max-height: min(70dvh, 760px); overflow-y: auto; overscroll-behavior: contain; }

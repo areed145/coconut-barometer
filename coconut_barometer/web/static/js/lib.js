@@ -196,6 +196,34 @@ export const fallback = (sizes, prefs) => (e) => {
   if (next) { e.target.removeAttribute("srcset"); e.target.src = next; }
 };
 
+// ---- health: /api/status, read once by the shell for Home, the Status page and the top bar ------
+const HEALTH = { ok: "All systems normal", warn: "Something needs a look", bad: "Something's down", off: "Nothing set up yet" };
+const WORST = { bad: 0, warn: 1, ok: 2, off: 3 };
+// A row per connection (visitors get the public ones, without errors). All green folds to one line; anything
+// else opens, worst first. fix: link each problem to where it's fixed, except the page it's on (here).
+export function HealthPanel({ health, fix, here }) {
+  const [open, setOpen] = useState(false);
+  if (!health || !health.rows.length) return null;
+  const rows = [...health.rows].sort((a, b) => WORST[a.level] - WORST[b.level]);
+  const shown = open || health.overall === "warn" || health.overall === "bad";
+  return html`<section class="health" aria-label="Status">
+    <button class="health-head link" aria-expanded=${shown} onClick=${() => setOpen(!shown)}>
+      <i class=${"health-dot " + health.overall} aria-hidden="true"></i><b>${HEALTH[health.overall]}</b>
+      <span class="muted">${shown ? "hide" : `${rows.filter((r) => r.level !== "off").length} connections`}</span></button>
+    ${shown && html`<ul class="health-rows">${rows.map((r) => html`<li key=${r.id} class=${"health-row " + r.level}>
+      <i class=${"health-dot " + r.level} aria-label=${r.level}></i><b>${r.name}</b>
+      <span>${r.state}${r.detail ? html` · <span class="problem">${r.detail}</span>` : ""}</span>
+      ${fix && r.href && r.href !== here && r.level !== "ok" && html`<a href=${r.href}>Fix</a>`}</li>`)}</ul>`}
+  </section>`;
+}
+
+// The Status tab's dot: the worst connection's health, pulsing while the worker has jobs running or waiting.
+export function StatusDot({ health, queued }) {
+  const jobs = queued ? `${queued} job${queued === 1 ? "" : "s"} running or waiting` : "nothing queued";
+  const said = health ? `${HEALTH[health.overall]} · ${jobs}` : jobs;
+  return html`<i class=${"health-dot " + (health?.overall || "") + (queued ? " busy" : "")} role="img" title=${said} aria-label=${said}></i>`;
+}
+
 // ---- toasts ----------------------------------------------------------------------------
 let pushToast = () => {};
 export const toast = (msg) => pushToast(msg);
