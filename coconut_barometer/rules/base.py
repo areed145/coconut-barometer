@@ -16,7 +16,7 @@ from ..classify import fingerprint
 from ..config import MAX_TAGS_PER_PHOTO
 from ..geo import GeoMatcher, offline_geocoder
 from ..geoguess import Guesser
-from ..util import clean_tag, norm_tag, norm_title
+from ..util import clean_tag, norm_tag, norm_title, tag_matcher
 
 
 @dataclass
@@ -40,9 +40,11 @@ class Context:
     geocoding, vision results, EXIF) load on first use, so rules that are off cost nothing."""
 
     def __init__(self, cfg: dict, store, provider_key: str | None, geocoder=None,
-                 photo_ids: set[str] | None = None, gazetteer=None):
+                 photo_ids: set[str] | None = None, gazetteer=None, any_vision: bool = False):
+        """any_vision: with no vision result for the current settings, use the photo's latest one
+        (re-planning from what's known, without asking the model again)."""
         self.cfg, self.store, self.provider_key, self._geocoder = cfg, store, provider_key, geocoder
-        self._gazetteer = gazetteer
+        self._gazetteer, self.any_vision = gazetteer, any_vision
         self.photos = {p["id"]: p for p in store.photos() if photo_ids is None or p["id"] in photo_ids}
         self.albums = store.albums()
         self.album_ids = {norm_title(a["title"]): a["id"] for a in self.albums}      # normalized title -> id
@@ -60,6 +62,12 @@ class Context:
         return self.geo.locate(list(self.photos.values()))
 
     @cached_property
+    def groups(self):
+        """Which of your groups a photo fits (rules/groups.py)."""
+        from ..grouping import GroupMatcher
+        return GroupMatcher(self.store)
+
+    @cached_property
     def guesser(self) -> Guesser:
         """Guesses where photos without a geotag were taken (rules/geotag.py)."""
         from .. import gazetteer
@@ -71,7 +79,8 @@ class Context:
 
     def vision(self, photo_id: str) -> dict | None:
         """The cached vision result for the current settings, if there is one."""
-        return self.store.classification(photo_id, self.fingerprint) if self.fingerprint else None
+        found = self.store.classification(photo_id, self.fingerprint) if self.fingerprint else None
+        return found or (self.store.latest_classification(photo_id) if self.any_vision else None)
 
     def classified_at(self, photo_id: str) -> int:
         return (self.store.classified_at(photo_id, self.fingerprint) or 0) if self.fingerprint else 0
@@ -84,7 +93,8 @@ class Context:
 def resolve(ctx: Context, wants: list) -> list[Change]:
     """Turn album and tag wants (in priority order) into Changes. Tags: one set_tags per photo
     with every tag wanted, the ones it has already among them, replacing its tags (any it has
-    that nothing wants go); none if that's the tags it has. A photo nothing wants tags for keeps its own."""
+    that nothing wants go); none if that's the tags it has. A photo nothing wants tags for keeps its own.
+    Then tags.always_add go on every photo's list (last) and tags.always_remove come off it."""
     albums: dict[str, dict[str, AlbumWant]] = {}   # photo -> normalized album title -> first want
     tags: dict[str, dict[str, TagWant]] = {}       # photo -> normalized tag -> first want
     for w in wants:
@@ -106,11 +116,19 @@ def resolve(ctx: Context, wants: list) -> list[Change]:
             out.append(Change("add_to_album", pid, title, album_id=album_id, source=w.source, confidence=w.confidence,
                               reason=w.reason if album_id else f"{w.reason} (NEW ALBUM)"))
 
-    cap = MAX_TAGS_PER_PHOTO
-    for pid, by_tag in tags.items():
+    always = ctx.cfg["tags"]
+    extra = [TagWant("", t, "always:add") for t in always["always_add"] if clean_tag(t)]
+    removed = tag_matcher(always["always_remove"])
+    for pid in (ctx.photos if extra or always["always_remove"] else tags):
         current = (ctx.photos[pid]["tags"] or "").split()
-        keep = list(by_tag.values())[:cap]       # in priority order: over Flickr's limit, the least useful drop off
+        mine = [TagWant(pid, t, "") for t in current]          # nothing wants tags for it: it keeps its own
+        listed: dict[str, TagWant] = {}
+        for w in list(tags.get(pid, {}).values() or mine) + extra:
+            listed.setdefault(norm_tag(clean_tag(w.tag)), w)
+        keep = [w for k, w in listed.items() if not removed(k)]
+        keep = keep[:MAX_TAGS_PER_PHOTO]      # in priority order: over Flickr's limit, the least useful drop off
         if keep and {norm_tag(clean_tag(w.tag)) for w in keep} != {norm_tag(t) for t in current}:
+            sources = {w.source for w in keep} | ({"always:remove"} if any(map(removed, current)) else set())
             out.append(Change("set_tags", pid, [clean_tag(w.tag) for w in keep], old=" ".join(current),
-                              source=",".join(sorted({w.source for w in keep}))))
+                              source=",".join(sorted(sources - {""}))))
     return out

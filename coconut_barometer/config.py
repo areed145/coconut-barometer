@@ -28,6 +28,15 @@ DEFAULTS: dict[str, Any] = {
     "aprs": {"callsigns": ["KJ4TFD-10"]},   # tracked on the APRS page, heard live from APRS-IS
     "database": "db.duckdb",
     "albums": {"create_missing": False},
+    "groups": {
+        "suggest": True,              # propose group pools for each photo, from the photos you've put in each
+        "max_per_photo": 3,
+        "min_match": 3.0,             # how well it must match (see grouping.py); higher: fewer, surer
+    },
+    "tags": {
+        "always_add": [],             # on every photo's proposed tag list (e.g. your name, your site)
+        "always_remove": [],          # never on it: taken off when proposed (* and ? wildcards, e.g. www*)
+    },
     "geo": {
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
         "countries": {"aliases": {}},
@@ -110,7 +119,8 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
-          ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650)}
+          ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
+          ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50)}
 COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
@@ -285,6 +295,13 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             except (re.error, TypeError) as e:
                 errors.append(f"{where}: not a valid regular expression ({e})")
     checks.append(regexes)
+
+    def tag_lists():
+        for kind in ("always_add", "always_remove"):
+            for i, t in enumerate(get(("tags", kind))):
+                if not isinstance(t, str) or not t.strip():
+                    errors.append(f"tags.{kind}[{i}]: should be a tag, not {t!r}")
+    checks.append(tag_lists)
 
     def callsigns():
         from .aprs.stream import CALLSIGN

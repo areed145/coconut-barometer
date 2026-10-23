@@ -108,6 +108,10 @@ class LibraryStore(Database):
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO memberships VALUES (?, ?)", (album_id, photo_id))
 
+    def remove_membership(self, album_id: str, photo_id: str) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM memberships WHERE album_id=? AND photo_id=?", (album_id, photo_id))
+
     def set_photo_albums(self, photo_id: str, album_ids: list[str]) -> None:
         with self.db:
             self._set_memberships("photo_id=?", (photo_id,), {(a, photo_id) for a in album_ids})
@@ -140,9 +144,11 @@ class LibraryStore(Database):
         with self.db:
             self.db.execute(f"UPDATE photos SET {cols} WHERE id=?", (*fields.values(), photo_id))
 
-    def set_location_local(self, photo_id: str, lat: float, lon: float, accuracy: int) -> None:
+    def set_location_local(self, photo_id: str, lat: float | None, lon: float | None, accuracy: int | None) -> None:
+        """None: no location (and so none to be public)."""
         with self.db:
-            self.db.execute("UPDATE photos SET lat=?, lon=?, accuracy=? WHERE id=?", (lat, lon, accuracy, photo_id))
+            self.db.execute("UPDATE photos SET lat=?, lon=?, accuracy=?, geo_public=CASE WHEN ? IS NULL THEN NULL "
+                            "ELSE geo_public END WHERE id=?", (lat, lon, accuracy, lat, photo_id))
 
     def geotagged_between(self, start: str, end: str) -> list:
         """Geotagged photos taken between two times (date_taken text, "YYYY-MM-DD HH:MM:SS"), with their camera."""

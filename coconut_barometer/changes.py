@@ -10,6 +10,7 @@ stores them, the review tool shows and edits them, and apply carries them out:
                     still applied as they are)
   set_title         the title
   set_description   the description
+  add_to_group      a group's pool (new: its name; album_id: its id)
   set_location      a geotag for a photo without one: {lat, lon, accuracy, place}, or {} with no
                     idea where (you pick it on the map); options: every guess, likeliest first
 
@@ -24,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 
 from .util import clean_tag, same_text
 
-ACTIONS = ("add_to_album", "add_tags", "set_tags", "set_title", "set_description", "set_location")
+ACTIONS = ("add_to_album", "add_to_group", "add_tags", "set_tags", "set_title", "set_description", "set_location")
 TAG_ACTIONS = ("add_tags", "set_tags")
 META_ACTIONS = ("set_title", "set_description")   # both written by one flickr.photos.setMeta
 
@@ -35,7 +36,7 @@ class Change:
     photo_id: str
     new: str | list[str] | dict  # album title | tags | proposed title | proposed description | location
     old: str = ""               # title/description it replaces ("" when blank); set_tags: the tags it replaces
-    album_id: str = ""          # add_to_album: "" means the album will be created
+    album_id: str = ""          # add_to_album: "" means the album will be created; add_to_group: the group's id
     source: str = ""            # geo:country, vision:food, std:date, vision:title, ...
     confidence: str = ""
     reason: str = ""

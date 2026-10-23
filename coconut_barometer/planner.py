@@ -17,9 +17,11 @@ def photo_page(nsid: str, photo_id: str) -> str:
 
 
 def build_plan(cfg: dict, store, provider_key: str | None, geocoder=None,
-               photo_ids: set[str] | None = None, gazetteer=None) -> list[Change]:
-    """photo_ids: plan only these photos (the per-photo queue); default is the whole library."""
-    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids, gazetteer=gazetteer)
+               photo_ids: set[str] | None = None, gazetteer=None, any_vision: bool = False) -> list[Change]:
+    """photo_ids: plan only these photos (the per-photo queue); default is the whole library.
+    any_vision: use a photo's latest vision result when there's none for the current settings."""
+    ctx = Context(cfg, store, provider_key, geocoder=geocoder, photo_ids=photo_ids, gazetteer=gazetteer,
+                  any_vision=any_vision)
     changes = resolve(ctx, [w for rule in WANT_RULES for w in rule.propose(ctx)])
     for rule in CHANGE_RULES:
         changes += rule.propose(ctx)

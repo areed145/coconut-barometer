@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, username TEXT,
 CREATE TABLE IF NOT EXISTS settings (path TEXT PRIMARY KEY, value TEXT, updated_at BIGINT, updated_by TEXT);
 CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, nonce BLOB, ciphertext BLOB, hint TEXT, updated_at BIGINT, updated_by TEXT);
 CREATE SEQUENCE IF NOT EXISTS settings_log_id_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS applied_id_seq START 1;
+CREATE TABLE IF NOT EXISTS applied (id BIGINT PRIMARY KEY DEFAULT nextval('applied_id_seq'), photo_id TEXT, "at" BIGINT, changes TEXT, undone_at BIGINT, result TEXT);
 CREATE TABLE IF NOT EXISTS settings_log (id BIGINT PRIMARY KEY DEFAULT nextval('settings_log_id_seq'), "at" BIGINT, username TEXT, path TEXT, old TEXT, new TEXT);
 """
 

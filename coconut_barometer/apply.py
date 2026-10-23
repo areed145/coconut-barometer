@@ -8,6 +8,8 @@ from .util import norm_tag, norm_title, quote_tags, same_text
 
 # photosets.addPhoto error 3 = "Photo already in set" → treat as success.
 ALREADY_IN_SET = 3
+# groups.pools.add: 3 already in the pool; 6 / 7 added to (already in) the group's queue for a moderator.
+POOL_DONE = {3: "", 6: "waiting for the group's moderator", 7: "waiting for the group's moderator"}
 
 
 def apply_changes(client, store, changes: list[Change], dry_run: bool = False, log=print) -> dict:
@@ -27,6 +29,8 @@ def apply_changes(client, store, changes: list[Change], dry_run: bool = False, l
             _apply_album(client, store, c, created, dry_run, stats, log)
         elif c.action == "set_location":
             _apply_location(client, store, c, dry_run, stats, log)
+        elif c.action == "add_to_group":
+            _apply_group(client, store, c, dry_run, stats, log)
         else:
             log(f"  ? unknown action '{c.action}' for {c.photo_id}, skipping")
             stats["skipped"] += 1
@@ -182,6 +186,32 @@ def _apply_album(client, store, c: Change, created, dry_run, stats, log) -> None
         return
     store.add_membership(album_id, pid)
     store.record(pid, "add_to_album", title, "applied")
+    stats["applied"] += 1
+
+
+def _apply_group(client, store, c: Change, dry_run, stats, log) -> None:
+    """flickr.groups.pools.add. Group rules and posting limits are Flickr's to enforce: a refusal
+    (limit reached, not allowed there) is a failure, saying why."""
+    pid, name = c.photo_id, c.new
+    if not c.approved:
+        stats["rejected"] += 1
+        return
+    if dry_run:
+        log(f"  [dry-run] {pid} → group {name}")
+        stats["applied"] += 1
+        return
+    detail = ""
+    try:
+        client.call("flickr.groups.pools.add", group_id=c.album_id, photo_id=pid)
+    except FlickrCallError as e:
+        if e.code not in POOL_DONE:
+            store.record(pid, "add_to_group", name, "failed", str(e))
+            stats["failed"] += 1
+            log(f"  ! {pid} → group {name}: {e}")
+            return
+        detail = POOL_DONE[e.code]
+    store.add_group_photo(c.album_id, pid)
+    store.record(pid, "add_to_group", name, "applied", detail)
     stats["applied"] += 1
 
 

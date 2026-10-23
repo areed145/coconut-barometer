@@ -38,6 +38,18 @@ class RulesTest(unittest.TestCase):
         tags = next(c for c in changes if c.action == "set_tags")
         self.assertEqual(tags.new, ["ramen", "noodles"])          # deduped, then capped at 2
 
+    def test_always_add_and_always_remove(self):
+        self.store.update_photo("4", tags="mine wwwexamplecom")
+        cfg = from_dict({**CFG, "tags": {"always_add": ["Adam Reeder"], "always_remove": ["www*", "noodles"]}})
+        ctx = Context(cfg, self.store, None)
+        changes = {c.photo_id: c for c in resolve(ctx, [TagWant("1", "ramen", "vision:tags"),
+                                                        TagWant("1", "noodles", "vision:tags")])}
+        self.assertEqual(changes["1"].new, ["ramen", "adam reeder"])        # removed even though proposed; added last
+        self.assertEqual(changes["4"].new, ["mine", "adam reeder"])          # nothing proposed: keeps its own, less www*
+        self.assertEqual(changes["4"].source, "always:add,always:remove")
+        self.store.update_photo("4", tags="mine adamreeder")
+        changes = {c.photo_id: c for c in resolve(Context(cfg, self.store, None), [])}
+        self.assertNotIn("4", changes)                                       # already right: nothing to change
 
 if __name__ == "__main__":
     unittest.main()

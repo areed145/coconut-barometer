@@ -32,8 +32,9 @@ def _p(part):
     return lambda label, help="", group="", options=None: _m("photos", label, help, group, options, part)
 
 
-_sync, _review, _writing, _subjects, _location, _cameras, _albums = (
-    _p("Sync"), _p("Review"), _p("Writing"), _p("Subjects"), _p("Location"), _p("Cameras & dates"), _p("Albums"))
+_sync, _review, _tags, _writing, _subjects, _location, _cameras, _albums, _groups = (
+    _p("Sync"), _p("Review"), _p("Tags"), _p("Writing"), _p("Subjects"), _p("Location"), _p("Cameras & dates"),
+    _p("Albums"), _p("Groups"))
 
 META = {
     # ---- Connections
@@ -76,6 +77,15 @@ META = {
                                        "the same time, place names in the title and tags, and the vision model. "
                                        "With no clue, you pick the place on the map. Off: locations are never "
                                        "proposed."),
+
+    # ---- Photos: Tags
+    "tags.always_add": _tags("Always add", "Put on every photo's proposed tags: your name, your site, anything "
+                             "you want on all of them. A photo's tags are proposed as one list that replaces "
+                             "them, so a tag of yours that nothing proposes would otherwise be taken off."),
+    "tags.always_remove": _tags("Always remove", "Never on a photo: taken off its tags when it's proposed, even if "
+                                "the model or a rule suggests it. * and ? are wildcards (www* matches "
+                                "wwwadammreedercom). Applies to proposals made after the change: re-plan to update "
+                                "the ones in review."),
 
     # ---- Photos: Writing
     "vision.title.max_words": _writing("Length (words)", group="Titles"),
@@ -126,6 +136,15 @@ META = {
     # ---- Photos: Albums
     "albums.create_missing": _albums("Create missing albums",
                                      "Off: only add photos to albums you already have. On: also propose new albums."),
+
+    # ---- Photos: Groups
+    "groups.suggest": _groups("Suggest groups", "Propose adding each public photo to the groups it fits best "
+                              "among those you're in, judged by the photos you've already put in each (a group "
+                              "needs 3 of yours to learn from)."),
+    "groups.max_per_photo": _groups("Groups per photo", "At most this many suggested for a photo."),
+    "groups.min_match": _groups("Minimum match", "How well a photo must match a group's photos: about 3 suggests "
+                                "2-3 groups for most photos, 5 about one for the closer matches. Group rules and "
+                                "posting limits still apply when it's added."),
 
     # ---- Weather
     "weatherflow.backfill_days": _m("weather", "History to fetch (days)", "How far back the REST sync reaches, one "

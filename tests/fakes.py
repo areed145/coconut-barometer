@@ -44,6 +44,8 @@ class FakeFlickr:
         self.activity = []                       # activity.userPhotos items
         self.daily = {}                          # stats day -> {"total": n, "photos": [(id, views, comments, faves)]}
         self.fail_next: dict[str, int] = {}      # method -> how many of its next calls fail (a Flickr outage)
+        self.pools: dict[str, list[str]] = {}    # group id -> photos added by pools.add
+        self.moderated: set[str] = set()         # groups whose additions wait for a moderator
 
     @property
     def call_count(self):
@@ -148,6 +150,29 @@ class FakeFlickr:
                 info["location"] = {"latitude": ph["latitude"], "longitude": ph["longitude"], "accuracy": ph["accuracy"]}
                 info["geoperms"] = {"ispublic": ph["geo_is_public"]}
             return {"photo": info}
+        if method == "flickr.photosets.removePhoto":
+            self.sets[p["photoset_id"]]["photos"].remove(p["photo_id"])
+            return {}
+        if method == "flickr.photosets.delete":
+            del self.sets[p["photoset_id"]]
+            return {}
+        if method == "flickr.photos.geo.removeLocation":
+            for ph in self.photos:
+                if ph["id"] == p["photo_id"]:
+                    ph.update(latitude=0, longitude=0)
+            return {}
+        if method == "flickr.groups.pools.add":
+            pool = self.pools.setdefault(p["group_id"], [])
+            if p["photo_id"] in pool:
+                raise FlickrCallError(method, 3, "Photo already in pool")
+            if p["group_id"] in self.moderated:
+                pool.append(p["photo_id"])
+                raise FlickrCallError(method, 6, "Your Photo has been added to the Pending Queue for this Pool")
+            pool.append(p["photo_id"])
+            return {}
+        if method == "flickr.groups.pools.remove":
+            self.pools.get(p["group_id"], []).remove(p["photo_id"])
+            return {}
         if method == "flickr.photos.geo.setLocation":
             for ph in self.photos:
                 if ph["id"] == p["photo_id"]:

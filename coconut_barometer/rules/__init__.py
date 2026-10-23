@@ -4,10 +4,10 @@ list it below. Order matters for wants: earlier rules take priority, and when a 
 would go over Flickr's tag limit the tags from later rules are dropped first."""
 from __future__ import annotations
 
-from . import conventions, descriptions, geotag, location, subjects, titles
+from . import conventions, descriptions, geotag, groups, location, subjects, titles
 from .base import AlbumWant, Context, TagWant, resolve
 
 WANT_RULES = [location, subjects, conventions]   # albums and tags, in priority order
-CHANGE_RULES = [titles, descriptions, geotag]     # return Changes directly
+CHANGE_RULES = [titles, descriptions, geotag, groups]   # return Changes directly
 
 __all__ = ["Context", "AlbumWant", "TagWant", "resolve", "WANT_RULES", "CHANGE_RULES"]

@@ -3,6 +3,7 @@
 // Applying and processing run in the server's background worker; this page polls for outcomes.
 import { html, useState, useEffect, useRef, api, num, day, plain, toast, photosLink, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
+import { ReviewViews } from "./review_bulk.js";
 
 // "new": waiting to be processed (processed when you reach it); "not_queued": opened by ID, not in review.
 const STATE = { new: "waiting", pending: "ready", applying: "applying", processing: "processing", not_queued: "not in review" };
@@ -123,6 +124,9 @@ function Change({ c, ch, i, editable, out, onChange }) {
   if (c.action === "add_to_album")
     return html`<div class="row">${box}<div class="what">Add to album <b>${c.new}</b>${c.album_id ? "" : " (new album)"}${status}
       <div class="why">${why}</div></div></div>`;
+  if (c.action === "add_to_group")
+    return html`<div class="row">${box}<div class="what">Add to group <b>${c.new}</b>${status}
+      ${c.confidence && html` <span class=${"status conf-" + c.confidence}>${c.confidence}</span>`}<div class="why">${c.reason}</div></div></div>`;
   if (c.action === "set_title")
     return html`<div class="row">${box}<div class="what">Title${status} <span class="why">was: ${c.old || "(blank)"}</span>
       <input type="text" value=${ch.value} disabled=${!editable} onInput=${(e) => set({ value: e.target.value })} /></div></div>`;
@@ -196,6 +200,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
         seq.current = j.seq; setJobs(j);
         for (const f of j.finished) {
           if (f.kind === "sync") continue;
+          if (f.kind === "replan") { toast("Re-planned everything in review"); loadItem(current.current); continue; }
           if (f.status === "failed") toast(`⚠ ${f.title}: ${f.error || f.failed + " change(s) failed"}${f.kind === "apply" ? " (still in review)" : ""}`);
           else if (f.kind === "process" && f.photo_id === current.current) toast(`Processed ${f.title}`);
           if (f.photo_id === current.current) loadItem(f.photo_id);
@@ -279,6 +284,7 @@ export function Reviewer({ onCount, targetPhotoId }) {
   const working = jobs.applying + jobs.processing;
   return html`
     <div class="toolbar">
+      <${ReviewViews} />
       <b>${summary ? `${num(summary.to_review)} in review` : "In review"}</b>
       <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Sort">
         <option value="newest">Newest first</option><option value="oldest">Oldest first</option>

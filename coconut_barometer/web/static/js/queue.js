@@ -9,8 +9,9 @@ const SOURCES = {
   weatherflow: ["WeatherFlow REST", "--accent"], "wx-stream": ["WeatherFlow stream", "--warn"], aprs: ["APRS-IS", "--ok"],
   imagery: ["Radar & satellite", "--muted"], jobs: ["Jobs", "--fg"],
 };
-const KIND = { apply: "Apply changes", process: "Process photo", sync: "Flickr sync", wx: "WeatherFlow sync" };
-const SERVICE = { apply: "flickr", sync: "flickr", process: "vision", wx: "weatherflow" };
+const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
+               wx: "WeatherFlow sync", replan: "Re-plan review" };
+const SERVICE = { apply: "flickr", undo: "flickr", sync: "flickr", process: "vision", wx: "weatherflow", replan: "jobs" };
 const label = (s) => (SOURCES[s] || [s])[0];
 const dot = (s) => html`<i class="srcdot" style=${`background: var(${(SOURCES[s] || [, "--muted"])[1]})`}></i>`;
 const dur = (s) => (s == null ? "" : s < 1 ? `${Math.round(s * 1000)} ms` : s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s`

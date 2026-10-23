@@ -21,8 +21,13 @@ from ..planner import photo_page
 STATUSES = ("new", "pending", "applying")
 
 
-JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "sync": "Flickr sync", "wx": "WeatherFlow sync"}
-PHOTO_JOBS = ("apply", "process")      # the other jobs are not about a photo: "sync" and "wx" (WeatherFlow)
+JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "undo": "undo an apply", "sync": "Flickr sync",
+             "wx": "WeatherFlow sync", "replan": "re-plan review"}
+PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan"
+OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan"}
+# Bulk review: the kinds of change it lists, by action.
+BULK_KINDS = {"location": "set_location", "tags": "set_tags", "title": "set_title", "description": "set_description",
+              "album": "add_to_album", "group": "add_to_group"}
 
 
 class ReviewApp:
@@ -188,6 +193,128 @@ class ReviewApp:
         self.store.queue_remove(photo_id)
         return {"status": "ignored"}
 
+    def applied(self, limit: int = 50) -> list[dict]:
+        """The latest applies, newest first, for the Applied list: what each wrote, and whether it can be undone."""
+        from ..undo import describe
+
+        rows = self.store.recent_applied(limit)
+        cards = self.store.cards([r["photo_id"] for r in rows])
+        latest = {}
+        for r in rows:                       # only a photo's latest apply still standing can be undone
+            if r["undone_at"] is None:
+                latest.setdefault(r["photo_id"], r["id"])
+        undoing = {pid for kind, pid in list(self.jobs.queue) if kind == "undo"}
+        return [{"id": r["id"], "photo_id": r["photo_id"], "at": r["at"], "undone_at": r["undone_at"],
+                 "result": r["result"], "what": [describe(e) for e in r["changes"]],
+                 "title": (cards.get(r["photo_id"]) or {}).get("title") or r["photo_id"],
+                 "thumb": ((cards.get(r["photo_id"]) or {}).get("sizes") or {}).get("q", ""),
+                 "can_undo": latest.get(r["photo_id"]) == r["id"] and r["photo_id"] not in undoing,
+                 "undoing": r["photo_id"] in undoing} for r in rows]
+
+    # ---- bulk review --------------------------------------------------------------------
+    def bulk(self, kind: str, value: str = "") -> dict:
+        """Every ready photo's proposed change of one kind (BULK_KINDS), for approving many at once; value
+        narrows it: a location's confidence (high, medium, low, none) or an album's or group's name.
+        counts: how many of each kind are waiting (and per confidence, album or group)."""
+        action = BULK_KINDS[kind]
+        busy = self.processing | set(self.store.queue_ids(["applying"]))
+        counts: dict[str, int] = {}
+        sub: dict[str, int] = {}
+        found = []
+        for pid in self.store.queue_ids(["pending"]):
+            if pid in busy:
+                continue
+            for i, c in enumerate(self.store.queue_item(pid)["changes"]):
+                k = next((k for k, a in BULK_KINDS.items() if a == c.get("action")), None)
+                if not k:
+                    continue
+                counts[k] = counts.get(k, 0) + 1
+                if k != kind:
+                    continue
+                group = _bulk_group(c)
+                sub[group] = sub.get(group, 0) + 1
+                if not value or group == value:
+                    found.append((pid, i, c))
+        cards = self.store.cards([pid for pid, _, _ in found[:500]])
+        items = [{"photo_id": pid, "index": i, "change": Change.from_dict(c).to_dict(),
+                  "title": (cards.get(pid) or {}).get("title") or "", "tags": (self.store.photo(pid)["tags"] or "").split(),
+                  "thumb": ((cards.get(pid) or {}).get("sizes") or {}).get("q", "")} for pid, i, c in found[:500]]
+        return {"counts": counts, "groups": dict(sorted(sub.items(), key=lambda kv: -kv[1])), "items": items,
+                "total": len(found)}
+
+    def bulk_decide(self, verb: str, picks: list[dict]) -> dict:
+        """picks: [{photo_id, index, action}]. verb "apply": those changes, as proposed (each photo's others
+        stay in review); "drop": those proposals, gone (a photo with none left leaves review)."""
+        by_photo: dict[str, list[int]] = {}
+        for p in picks:
+            by_photo.setdefault(p["photo_id"], []).append(int(p["index"]))
+        actions = {(p["photo_id"], int(p["index"])): p["action"] for p in picks}
+        done, skipped = 0, 0
+        for pid, idx in by_photo.items():
+            q = self.store.queue_item(pid)
+            if not q or q["status"] != "pending" or pid in self.processing:
+                skipped += len(idx)
+                continue
+            # Only the ones still as listed: the photo may have been re-planned since.
+            idx = [i for i in sorted(set(idx)) if i < len(q["changes"]) and q["changes"][i].get("action") == actions[(pid, i)]]
+            skipped += len(by_photo[pid]) - len(idx)
+            if not idx:
+                continue
+            chosen = [q["changes"][i] for i in idx]
+            rest = [c for i, c in enumerate(q["changes"]) if i not in idx]
+            done += len(idx)
+            if verb == "drop":
+                if any(c.get("action") == "set_location" for c in chosen):   # the daily sweep leaves it out
+                    self.store.record(pid, "set_location", "", "rejected")
+                if rest:
+                    self.store.queue_put(pid, "pending", rest)
+                else:
+                    self.store.queue_remove(pid)
+                continue
+            self.store.queue_put(pid, "pending", chosen + rest)        # the chosen first: _apply takes those
+            self.decide(pid, [{"approve": True} for _ in chosen])
+        return {"status": "applying" if verb == "apply" else "dropped", "changes": done, "skipped": skipped}
+
+    def replan(self) -> dict:
+        """Every ready photo in review planned again with the current settings, from what's already known
+        (cached vision results, EXIF): no vision or Flickr calls. Returns at once."""
+        if any(kind == "replan" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        if not self.background:
+            return self._replan(self.store)
+        self.jobs.put(("replan", ""))
+        return {"status": "queued"}
+
+    def _replan(self, store) -> dict:
+        from ..planner import build_plan
+        from ..vision import provider_key
+
+        ids = [pid for pid in store.queue_ids(["pending"]) if pid not in self.processing]
+        if not ids:
+            return {"status": "done", "rows": 0}
+        rows = build_plan(self.cfg, store, provider_key(self.cfg["vision"]), photo_ids=set(ids),
+                          geocoder=self.process_kw.get("geocoder"), any_vision=True)
+        changes: dict[str, list[dict]] = {}
+        for r in rows:
+            changes.setdefault(r.photo_id, []).append(r.to_dict())
+        for pid in ids:
+            q = store.queue_item(pid)
+            if q and q["status"] == "pending":          # not applied meanwhile
+                store.queue_put(pid, "pending", changes.get(pid, []))
+        return {"status": "done", "rows": len(ids)}
+
+    def undo(self, photo_id: str) -> dict:
+        """Undo the photo's latest apply (see undo.py). Returns at once."""
+        if not self.store.last_applied(photo_id):
+            raise KeyError(photo_id)
+        q = self.store.queue_item(photo_id)
+        if (q and q["status"] == "applying") or photo_id in self.processing:
+            return {"status": "busy"}
+        if not self.background:
+            return self._undo(self.store, photo_id)
+        self.jobs.put(("undo", photo_id))
+        return {"status": "undoing"}
+
     def process(self, photo_id: str, if_new: bool = False) -> dict:
         """(Re-)process one photo or video now: EXIF, classify, plan; it stays in review. Returns at once.
         if_new: only if it's waiting to be processed (on arrival, or the reviewer asking ahead).
@@ -233,7 +360,7 @@ class ReviewApp:
         def job(kind, pid, **extra):
             c = cards.get(pid) if kind in PHOTO_JOBS else None
             return {"kind": kind, "photo_id": pid if kind in PHOTO_JOBS else None, "mode": (pid or "due") if kind == "sync" else None,
-                    "title": {"sync": "Sync", "wx": "WeatherFlow"}.get(kind) or ((c or {}).get("title") or pid),
+                    "title": OTHER_JOBS.get(kind) or ((c or {}).get("title") or pid),
                     "thumb": ((c or {}).get("sizes") or {}).get("q", ""), **extra}
 
         eta: float | None = 0.0
@@ -284,6 +411,10 @@ class ReviewApp:
                     out = self._sync(store, pid or None)
                 elif kind == "wx":
                     out = self.weather.sync(store, log=self.log)
+                elif kind == "undo":
+                    out = self._undo(store, pid)
+                elif kind == "replan":
+                    out = self._replan(store)
                 else:
                     out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
@@ -298,7 +429,7 @@ class ReviewApp:
                 photo = store.photo(pid) if kind in PHOTO_JOBS else None
                 self._seq += 1
                 self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
-                                    "title": {"sync": "sync", "wx": "WeatherFlow"}.get(kind) or (photo["title"] if photo else "") or pid,
+                                    "title": OTHER_JOBS.get(kind) or (photo["title"] if photo else "") or pid,
                                     "rows": out.get("rows"), "calls": out.get("calls"),
                                     "flickr_calls": getattr(self.client, "call_count", 0) - calls0,
                                     "applied": out.get("stats", {}).get("applied", 0),
@@ -376,7 +507,7 @@ class ReviewApp:
         if not ids:
             return 0
         rows = build_plan(self.cfg, store, provider_key(self.cfg["vision"]), photo_ids=set(ids),
-                          geocoder=self.process_kw.get("geocoder"))
+                          geocoder=self.process_kw.get("geocoder"), any_vision=True)
         changes: dict[str, list[dict]] = {}
         for r in rows:
             changes.setdefault(r.photo_id, []).append(r.to_dict())
@@ -422,13 +553,30 @@ class ReviewApp:
             return {"status": "failed", "error": "EXIF or classification failed; try again", **tokens}
         return {"status": store.queue_item(photo_id)["status"], **tokens}   # pending
 
+    def _undo(self, store, photo_id: str) -> dict:
+        """Put back what the photo's latest apply replaced, where Flickr still has what it wrote."""
+        from ..undo import undo
+
+        entry = store.last_applied(photo_id)
+        if not entry:
+            return {"status": "done", "error": "nothing to undo"}
+        out = undo(self.client, store, photo_id, entry["changes"], log=self.log)
+        store.mark_undone(entry["id"], out)
+        if out["skipped"]:
+            return {"status": "done" if out["undone"] else "failed", "error": "; ".join(out["skipped"])}
+        return {"status": "done"}
+
     def _apply(self, store, photo_id: str) -> dict:
         """Your choices, applied; anything that fails is tried once more. Done: out of review.
         Still failing: back in review with just those changes, and why."""
+        from ..undo import entries
+
         q = store.queue_item(photo_id)
         choices = (q["result"] or {}).get("choices", [])
-        proposals = q["changes"][:len(choices)]
+        proposals, rest = q["changes"][:len(choices)], q["changes"][len(choices):]   # rest: not decided, stay in review
         changes = [_with_choice(Change.from_dict(d), choice) for d, choice in zip(proposals, choices)]
+        before = store.photo(photo_id)
+        tags_before = (before["tags"] if before is not None else "") or ""
         started, todo, errors = int(time.time()), changes, []
         stats = {"applied": 0, "failed": 0}
         for _attempt in range(2):
@@ -440,17 +588,45 @@ class ReviewApp:
             todo = unfinished(store, todo, since)
             if not todo:
                 break
+        left_out = {id(c) for c in todo}
+        written = [c for c in changes if id(c) not in left_out and c.approved and _writes(c)]
+        if written:
+            store.record_applied(photo_id, entries(store, written, tags_before))
         if not todo:
-            store.queue_remove(photo_id)
+            if rest:
+                store.queue_put(photo_id, "pending", rest)
+            else:
+                store.queue_remove(photo_id)
             return {"status": "applied", "stats": stats}
         stats["failed"] = len(todo)
         at = {id(c): i for i, c in enumerate(changes)}
         left = [proposals[at[id(c)]] for c in todo]
         why = "; ".join(dict.fromkeys(errors + store.failures_since(photo_id, started))) or "failed twice"
-        store.queue_put(photo_id, "pending", left)
+        store.queue_put(photo_id, "pending", left + rest)
         result = {"error": why, "failed_at": int(time.time()), "changes": outcomes(store, todo)}
         store.queue_finish(photo_id, "pending", result)
         return {"status": "failed", "error": why, "stats": stats}
+
+
+def _bulk_group(c: dict) -> str:
+    """What bulk review narrows a kind by: a location's confidence, an album's or group's name."""
+    if c.get("action") == "set_location":
+        has = (c.get("new") or {}).get("lat") is not None
+        return (c.get("confidence") or "low") if has else "none"
+    if c.get("action") in ("add_to_album", "add_to_group"):
+        return str(c.get("new") or "")
+    return ""
+
+
+def _writes(c: Change) -> bool:
+    """Approved, does it write anything? (A blanked text, no tags kept, no place picked: no.)"""
+    if c.action in TAG_ACTIONS:
+        return bool(split_tags(c.value))
+    if c.action in META_ACTIONS:
+        return bool(str(c.value).strip())
+    if c.action == "set_location":
+        return bool(c.target)
+    return True
 
 
 def _with_choice(c: Change, choice: dict) -> Change:

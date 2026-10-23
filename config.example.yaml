@@ -14,6 +14,20 @@ albums:
   # albums whose title it can find. Set true to also propose creating missing ones.
   create_missing: false
 
+# A photo's tags are proposed as one list that replaces them, so a tag of yours that nothing
+# proposes would be taken off. always_add puts tags on every photo's list; always_remove keeps
+# tags off it, even when the model or a rule suggests them (* and ? are wildcards).
+tags:
+  always_add: []                # e.g. [adam reeder, coconutbarometer]
+  always_remove: []             # e.g. [awesome, cool, "www*"]
+
+# Groups to add each public photo to: the ones it fits best among those you're in, judged by
+# the photos you've already put in each (a group needs 3 of yours to learn from).
+groups:
+  suggest: true
+  max_per_photo: 3
+  min_match: 3.0                # higher: fewer, surer suggestions
+
 # Location albums from each photo's geotag (location tags are standard_tags.place, below).
 geo:
   # Flickr geo accuracy: 1=world, 3=country, 6=region, 11=city, 16=street (phone GPS).

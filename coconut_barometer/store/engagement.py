@@ -14,6 +14,22 @@ class EngagementStore(Database):
             self.db.execute("INSERT OR REPLACE INTO account_stats VALUES (?, ?)",
                             (time.strftime("%Y-%m-%d"), json.dumps(stats)))
 
+    def group_pools(self) -> tuple[dict[str, str], dict[str, set[str]]]:
+        """(group id -> name, group id -> your photos in its pool), for the groups you're in."""
+        names = {r[0]: r[1] for r in self.db.execute("SELECT id, name FROM flickr_groups")}
+        pools: dict[str, set[str]] = {g: set() for g in names}
+        for g, p in self.db.execute("SELECT group_id, photo_id FROM group_photos"):
+            pools.setdefault(g, set()).add(p)
+        return names, pools
+
+    def add_group_photo(self, group_id: str, photo_id: str) -> None:
+        with self.db:
+            self.db.execute("INSERT OR IGNORE INTO group_photos VALUES (?, ?, ?)", (group_id, photo_id, int(time.time())))
+
+    def remove_group_photo(self, group_id: str, photo_id: str) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM group_photos WHERE group_id=? AND photo_id=?", (group_id, photo_id))
+
     def replace_groups(self, groups: list[dict], pool: list[tuple[str, str, int]]) -> None:
         with self.db:
             self.db.execute("DELETE FROM flickr_groups")

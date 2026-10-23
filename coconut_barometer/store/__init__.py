@@ -31,7 +31,8 @@ Tables
   users, sessions  the web app's owner login; sessions by sha256 of their token
   queue            per-photo proposed changes for the review tool:
                    pending | applying | none (nothing to change) | applied | rejected | failed
-  decisions        per (photo, action, target): applied / rejected / failed.
+  applied          each apply from review: what every change written replaced, so it can be undone
+  decisions        per (photo, action, target): applied / rejected / failed / undone.
                    Rejected items are never proposed again.
   settings         admin-page settings (path -> JSON), layered over config.yaml
   secrets          API keys, AES-GCM encrypted with a key kept outside the database

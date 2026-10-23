@@ -90,6 +90,28 @@ class QueueStore(Database):
     def queue_counts(self) -> dict[str, int]:
         return {r[0]: r[1] for r in self.db.execute("SELECT status, COUNT(*) FROM queue GROUP BY status")}
 
+    def record_applied(self, photo_id: str, changes: list[dict]) -> None:
+        """An apply, for undoing it: per change written, what it replaced (see review.app._undo_entry)."""
+        with self.db:
+            self.db.execute('INSERT INTO applied (photo_id, "at", changes) VALUES (?, ?, ?)',
+                            (photo_id, int(time.time()), json.dumps(changes)))
+
+    def last_applied(self, photo_id: str) -> dict | None:
+        """This photo's latest apply not undone yet."""
+        r = self.db.execute('SELECT * FROM applied WHERE photo_id=? AND undone_at IS NULL ORDER BY id DESC LIMIT 1',
+                            (photo_id,)).fetchone()
+        return {**dict(r), "changes": json.loads(r["changes"])} if r else None
+
+    def recent_applied(self, limit: int = 50) -> list[dict]:
+        """The latest applies, newest first, undone or not."""
+        return [{**dict(r), "changes": json.loads(r["changes"]), "result": json.loads(r["result"] or "null")}
+                for r in self.db.execute('SELECT * FROM applied ORDER BY id DESC LIMIT ?', (limit,))]
+
+    def mark_undone(self, applied_id: int, result) -> None:
+        with self.db:
+            self.db.execute("UPDATE applied SET undone_at=?, result=? WHERE id=?",
+                            (int(time.time()), json.dumps(result), applied_id))
+
     def decisions(self) -> dict[tuple[str, str, str], str]:
         return {
             (r["photo_id"], r["action"], r["target"]): r["status"]

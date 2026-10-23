@@ -198,6 +198,25 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/photos/nope").status_code, 404)
         self.assertEqual(self.c.get("/api/photos", params={"sort": "drop table"}).status_code, 422)
 
+    def test_bulk_replan_applied_and_undo_through_the_worker(self):
+        h = self.csrf()
+        self.c.post("/api/review/items/1/send", headers=h)
+        self.wait()
+        out = self.c.get("/api/review/bulk", params={"kind": "album", "value": "Food"}).json()
+        picks = [{"photo_id": i["photo_id"], "index": i["index"], "action": i["change"]["action"]} for i in out["items"]]
+        self.assertEqual(self.c.post("/api/review/bulk", json={"verb": "apply", "picks": picks}, headers=h).json()["changes"], 1)
+        self.wait()
+        self.assertIn("1", self.fl.sets["102"]["photos"])
+        self.assertEqual(self.c.post("/api/review/replan", headers=h).json()["status"], "queued")
+        self.wait()
+        (row,) = self.c.get("/api/review/applied").json()
+        self.assertTrue(row["can_undo"])
+        self.assertEqual(self.c.post("/api/review/items/1/undo", headers=h).json()["status"], "undoing")
+        self.wait()
+        self.assertNotIn("1", self.fl.sets["102"]["photos"])
+        self.assertEqual(self.c.post("/api/review/items/1/undo", headers=h).status_code, 404)   # nothing left
+        self.assertEqual(self.c.post("/api/review/bulk", json={"verb": "wipe", "picks": []}, headers=h).status_code, 422)
+
     def test_review_send_apply_and_ignore_through_the_worker(self):
         headers = self.csrf()
         self.assertEqual(self.c.post("/api/review/items/1/send", headers=headers).json()["status"], "processing")

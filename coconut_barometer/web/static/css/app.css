@@ -332,6 +332,17 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .row textarea { margin-top: var(--s1); min-height: 70px; }
 .locmap { height: 280px; border-radius: var(--r-md); overflow: hidden; isolation: isolate; margin-top: var(--s2); cursor: crosshair; }
 .locsearch { display: flex; gap: var(--s2); }
+.bulkgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--s2); }
+.bulkcard { display: flex; gap: var(--s2); padding: var(--s2); border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); cursor: pointer; min-width: 0; }
+.bulkcard.on { border-color: var(--accent); background: var(--accent-soft); }
+.bulkcard img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--r-sm); flex: none; background: var(--surface-2); }
+.bulkcard .body, .applied .body { flex: 1; min-width: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.bulkcard .t { display: flex; gap: var(--s1); align-items: center; margin-bottom: 2px; }
+.bulkcard .t a { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.applied { display: flex; gap: var(--s3); align-items: center; padding: var(--s2) 0; border-top: 1px solid var(--line); }
+.applied img { width: 56px; height: 56px; object-fit: cover; border-radius: var(--r-sm); flex: none; }
 .locsearch input { flex: 1; min-width: 0; }
 .chip.prop.off.nostrike { text-decoration: none; }
 .status.conf-high { color: var(--ok); } .status.conf-low { color: var(--no); }

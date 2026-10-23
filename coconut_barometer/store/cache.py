@@ -14,6 +14,12 @@ class CacheStore(Database):
         ).fetchone()
         return json.loads(row["result"]) if row else None
 
+    def latest_classification(self, photo_id: str) -> dict | None:
+        """The newest vision result for the photo, made with any settings."""
+        row = self.db.execute("SELECT result FROM classifications WHERE photo_id=? ORDER BY created_at DESC LIMIT 1",
+                              (photo_id,)).fetchone()
+        return json.loads(row["result"]) if row else None
+
     def classified_at(self, photo_id: str, fingerprint: str) -> int | None:
         r = self.db.execute("SELECT created_at FROM classifications WHERE photo_id=? AND fingerprint=?",
                             (photo_id, fingerprint)).fetchone()

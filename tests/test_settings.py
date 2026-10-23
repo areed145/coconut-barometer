@@ -201,6 +201,7 @@ class AdminApiTest(Base):
             "map.carto_key": ("connections", ""),
             "web.sync_every_minutes": ("photos", "Sync"),
             "review.when_queued": ("photos", "Review"),
+            "tags.always_add": ("photos", "Tags"),
             "vision.title.max_words": ("photos", "Writing"),
             "vision.use_location": ("photos", "Writing"),
             "vision.categories": ("photos", "Subjects"),
@@ -221,7 +222,7 @@ class AdminApiTest(Base):
         # Each Photos heading appears once: its settings are listed together.
         parts = [s["part"] for s in payload["settings"] if s["section"] == "photos"]
         self.assertEqual([p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]],
-                         ["Sync", "Review", "Writing", "Subjects", "Location", "Cameras & dates", "Albums"])
+                         ["Sync", "Review", "Tags", "Writing", "Subjects", "Location", "Cameras & dates", "Albums", "Groups"])
 
     def test_retired_settings_in_the_database_dont_block_saving(self):
         self.store.save_admin_settings({"rename.enabled": True, "vision.describe.enabled": False}, [], "old", [])

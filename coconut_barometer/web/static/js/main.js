@@ -3,6 +3,7 @@
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
+import { BulkReview, AppliedList } from "./review_bulk.js";
 import { Analytics } from "./analytics.js";
 import { MapPage } from "./map.js";
 import { QueuePage } from "./queue.js";
@@ -102,6 +103,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
   else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
+  else if (sub === "review" && route[2] === "bulk") page = html`<${BulkReview} />`;
+  else if (sub === "review" && route[2] === "applied") page = html`<${AppliedList} />`;
   else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} targetPhotoId=${route.params.photo_id} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;

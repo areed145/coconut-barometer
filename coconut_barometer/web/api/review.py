@@ -22,6 +22,17 @@ class Decision(BaseModel):
     choices: list[Choice]
 
 
+class Pick(BaseModel):
+    photo_id: str
+    index: int
+    action: str            # the change's action, checked: the photo may have been re-planned since it was listed
+
+
+class Bulk(BaseModel):
+    verb: Literal["apply", "drop"]
+    picks: list[Pick]
+
+
 @router.get("/summary")
 def summary(rt=Depends(runtime)):
     return rt.review.summary()
@@ -89,6 +100,41 @@ def process(photo_id: str, if_new: bool = False, rt=Depends(runtime)):
         return rt.review.process(photo_id, if_new=if_new)
     except KeyError:
         raise HTTPException(404, "not in your library")
+
+
+@router.get("/bulk")
+def bulk(kind: Literal["location", "tags", "title", "description", "album", "group"] = "location",
+         value: str = Query("", max_length=300), rt=Depends(runtime)):
+    """Bulk review: one kind of proposed change across every ready photo (value: a location's confidence,
+    an album's or group's name), and how many of each kind are waiting."""
+    return rt.review.bulk(kind, value)
+
+
+@router.post("/bulk")
+def bulk_decide(body: Bulk, rt=Depends(runtime)):
+    """Apply (as proposed) or drop the picked changes; each photo's others stay in review."""
+    return rt.review.bulk_decide(body.verb, [p.model_dump() for p in body.picks])
+
+
+@router.post("/replan")
+def replan(rt=Depends(runtime)):
+    """Re-plan every ready photo with the current settings, from what's already known: no vision or Flickr calls."""
+    return rt.review.replan()
+
+
+@router.get("/applied")
+def applied(limit: int = Query(50, ge=1, le=200), rt=Depends(runtime)):
+    """The latest applies, newest first, and whether each can be undone."""
+    return rt.review.applied(limit)
+
+
+@router.post("/items/{photo_id}/undo")
+def undo(photo_id: str, rt=Depends(runtime)):
+    """Undo the photo's latest apply: what it replaced comes back, where Flickr still has what it wrote."""
+    try:
+        return rt.review.undo(photo_id)
+    except KeyError:
+        raise HTTPException(404, "nothing to undo")
 
 
 @router.get("/worker")
