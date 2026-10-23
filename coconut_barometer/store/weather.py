@@ -86,7 +86,17 @@ class WeatherStore(Database):
             self.db.execute("INSERT OR REPLACE INTO wx_events VALUES (?, ?, ?, ?, ?)", (device_id, ts, kind, value, energy))
 
     def wx_station(self, device_id: int) -> dict | None:
-        return next((s for s in self.wx_stations() if s["device_id"] == device_id), None)
+        """One station by its Tempest, without the stored-history totals wx_stations() counts up."""
+        row = self.db.execute(
+            "SELECT s.station_id, s.name, s.lat, s.lon, s.elevation, s.timezone, d.device_id, d.serial "
+            "FROM wx_stations s JOIN wx_devices d ON d.station_id = s.station_id "
+            "WHERE d.device_id=? AND d.device_type = 'ST'", (device_id,)).fetchone()
+        return dict(row) if row else None
+
+    def wx_freshness(self) -> tuple:
+        """Changes whenever what wx_latest() reports could: a new observation or event, or a device added."""
+        return tuple(self.db.execute("SELECT (SELECT MAX(ts) FROM wx_obs), (SELECT MAX(ts) FROM wx_events), "
+                                     "(SELECT COUNT(*) FROM wx_devices)").fetchone())
 
     def wx_latest(self, device_id: int) -> dict | None:
         """The newest observation with what the Live page adds: sea-level pressure and its 3-hour

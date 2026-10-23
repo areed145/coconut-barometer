@@ -273,6 +273,21 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(len(self.c.get("/api/wx/days", params={"device": 11, "hours": 2}).json()["days"]), 1)
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "part": "noon"}).status_code, 422)
 
+    def test_live_is_cached_until_something_new_is_stored(self):
+        from coconut_barometer.store import weather as wx_store
+        first = self.c.get("/api/wx/live").json()["stations"][0]["obs"]
+        calls = []
+        orig = wx_store.WeatherStore.wx_latest
+        wx_store.WeatherStore.wx_latest = lambda db, d: calls.append(d) or orig(db, d)
+        self.addCleanup(setattr, wx_store.WeatherStore, "wx_latest", orig)
+        self.assertEqual(self.c.get("/api/wx/live").json()["stations"][0]["obs"], first)
+        self.assertEqual(calls, [])                                       # nothing new: from the cache
+        store = Store(self.cfg["database"], migrate=False)
+        store.wx_save_obs(11, [arr(first["ts"] + 60, temp=25.0)])
+        store.close()
+        self.assertEqual(self.c.get("/api/wx/live").json()["stations"][0]["obs"]["temp"], 25.0)   # shown at once
+        self.assertEqual(calls, [11])
+
     def test_map_lists_stations_and_frames(self):
         from coconut_barometer.web.api import weather as wx_api
         from coconut_barometer.weather.imagery import Imagery

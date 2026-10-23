@@ -30,13 +30,28 @@ def sync(rt=Depends(runtime)):
     return rt.review.wx_sync()
 
 
+# The stations part of /live, per database: rebuilt when a new observation or event is stored (or after a
+# minute, for anything else a sync changes). Every Live viewer polls every 3 s; observations come once a minute.
+_live_cache: dict[str, tuple] = {}
+LIVE_CACHE_SECONDS = 60
+
+
+def _latest(rt, db) -> list[dict]:
+    key, now = db.wx_freshness(), time.time()
+    hit = _live_cache.get(rt.db_path)
+    if hit and hit[0] == key and now - hit[1] < LIVE_CACHE_SECONDS:
+        return hit[2]
+    stations = [s for s in (db.wx_latest(d["device_id"]) for d in db.wx_devices()) if s]
+    _live_cache[rt.db_path] = (key, now, stations)
+    return stations
+
+
 @router.get("/live")
 def live(rt=Depends(runtime), db=Depends(store)):
     """Each station's newest observation plus the 3-second wind from the stream. Poll this every few seconds."""
     snap = rt.weather.hub.snapshot()
     return {"units": _units(rt), "now": int(time.time()), "stream": snap["stream"], "rapid": snap["rapid"],
-            "events": snap["events"],
-            "stations": [s for s in (db.wx_latest(d["device_id"]) for d in db.wx_devices()) if s]}
+            "events": snap["events"], "stations": _latest(rt, db)}
 
 
 def _window(start, end, hours):
