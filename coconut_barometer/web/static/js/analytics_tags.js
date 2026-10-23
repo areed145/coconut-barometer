@@ -1,8 +1,8 @@
-// The Tags tab: the top tags by any measure as ranked bars, niche winners vs overused tags, trending tags,
+// The Tags tab: the top tags by any measure as ranked bars, trending tags,
 // a sortable table, and a tag's own page (its photos, views over time, tags it goes with).
 import { html, useState, useEffect, useMemo, api, num, photosLink } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Bars, Scatter, Table, TopGrid, usePhotoBox, pct, times } from "./viz.js";
+import { Bars, Table, TopGrid, usePhotoBox, pct, times } from "./viz.js";
 
 const METRICS = [
   ["photos", "Use", "How many of your photos carry the tag", (t) => `${num(t.photos)} photos`],
@@ -14,7 +14,6 @@ const METRICS = [
 ];
 const SOURCES = [["all", "All tags"], ["yours", "Yours"], ["added", "Added here"]];
 const KINDS = [["date", "dates"], ["common", "on most photos"], ["place", "places"], ["camera", "cameras"]];
-const tone = (t) => (t.trend == null ? "" : t.trend > 0.15 ? "up" : t.trend < -0.15 ? "down" : "");
 
 function TagPage({ tag, onPick, onClose }) {
   const [d, setD] = useState(null);
@@ -51,9 +50,6 @@ export function TagsTab() {
   const fmt = { photos: (t) => num(t.photos), views: (t) => num(t.views), avg_views: (t) => num(t.avg_views),
                 faves_per_1k: (t) => t.faves_per_1k, comments: (t) => num(t.comments), lift: (t) => times(t.lift) }[metric];
   const arrow = (t) => (t.trend == null ? "" : t.trend > 0.15 ? " ▲" : t.trend < -0.15 ? " ▼" : "");
-  const points = useMemo(() => tags.map((t) => ({ label: t.tag, x: t.photos, y: t.avg_views, tone: tone(t),
-    r: 3 + Math.min(6, Math.sqrt(t.faves_per_1k || 0) / 1.5),
-    title: `${t.tag}: ${num(t.photos)} photos, ${num(t.avg_views)} views each, lift ${times(t.lift)}` })), [data]);
   const trending = useMemo(() => tags.filter((t) => t.trend != null).sort((a, b) => b.trend - a.trend).slice(0, 15), [data]);
   const toggle = (k) => setHide(hide.includes(k) ? hide.filter((x) => x !== k) : [...hide, k]);
   const pick = (t) => { setTag(t); setTimeout(() => document.querySelector(".tagpage")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
@@ -79,16 +75,10 @@ export function TagsTab() {
         <p class="muted small">Bar color follows Settings → Display → Colors. ▲ ▼: views rising or falling over the last 14 days against the 14 before
           (of the ${num(data.days_collected)} days collected). Click a tag for its page.</p>
       </div>
-      <div class="cols">
-        <div class="card"><h2>Niche winners and overused tags</h2>
-          <${Scatter} points=${points} xLabel="photos with the tag" yLabel="average views per photo" onPick=${pick}
-            corners=${["niche winners: tag more photos with these", "overused: on many photos, few views each"]} />
-          <p class="muted small">Each dot is a tag; size is faves per view. Lines are the medians.</p></div>
-        <div class="card"><h2>Trending</h2>
-          ${trending.length ? trending.map((t) => html`<div class="trend" key=${t.tag} onClick=${() => pick(t.tag)}>
-              <span>${t.tag}</span><span class="muted">${num(t.recent)} views</span><span class=${t.trend >= 0 ? "up" : "down"}>${pct(t.trend)}</span></div>`)
-            : html`<p class="muted">Needs a few weeks of daily stats.</p>`}</div>
-      </div>
+      <div class="card"><h2>Trending</h2>
+        ${trending.length ? trending.map((t) => html`<div class="trend" key=${t.tag} onClick=${() => pick(t.tag)}>
+            <span>${t.tag}</span><span class="muted">${num(t.recent)} views</span><span class=${t.trend >= 0 ? "up" : "down"}>${pct(t.trend)}</span></div>`)
+          : html`<p class="muted">Needs a few weeks of daily stats.</p>`}</div>
       <div class="card"><h2>All tags</h2>
         <${Table} rows=${tags} initial=${metric} onPick=${(r) => pick(r.tag)} cols=${[
           { key: "tag", label: "Tag" }, { key: "kind", label: "Kind" }, { key: "photos", label: "Photos", num: true },

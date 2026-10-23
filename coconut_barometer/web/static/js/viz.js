@@ -1,5 +1,5 @@
 // Small charts for the Analytics tabs, drawn as plain HTML/SVG (no library): bar lists
-// (colored along the Settings → Display → Colors gradient), photo tiles, a week heatmap and a scatter plot. Nothing uses inline
+// (colored along the Settings → Display → Colors gradient), photo tiles and a week heatmap. Nothing uses inline
 // HTML or style attributes in markup, so the Content-Security-Policy holds.
 import { html, useState, useMemo, num, pick, shade, logShare } from "./lib.js";
 import { Lightbox } from "./gallery.js";
@@ -70,45 +70,6 @@ export function Heatmap({ cells, rows, cols }) {
     ${rows.map((r, y) => html`<span class="hrow">${r}</span>${cells[y].map((v, x) => html`<span
         class=${"hcell l" + Math.min(5, Math.ceil((5 * v) / max))} title=${`${r} ${cols[x]}:00 · ${num(v)}`}></span>`)}`)}
   </div>`;
-}
-
-// ---- scatter -------------------------------------------------------------------------------
-// points: [{label, x, y, r?, tone?}], log scales; quadrant guides at the medians.
-export function Scatter({ points, xLabel, yLabel, onPick, labels = 18, corners }) {
-  const sw = 900, sh = 380, m = { l: 56, r: 14, t: 12, b: 38 };
-  const good = points.filter((p) => p.x > 0 && p.y > 0);
-  if (!good.length) return html`<p class="muted">Not enough tags.</p>`;
-  const lx = good.map((p) => Math.log10(p.x)), ly = good.map((p) => Math.log10(p.y));
-  const [x0, x1] = [Math.min(...lx), Math.max(...lx) + 1e-9], [y0, y1] = [Math.min(...ly), Math.max(...ly) + 1e-9];
-  const sx = (v) => m.l + ((Math.log10(v) - x0) / (x1 - x0)) * (sw - m.l - m.r);
-  const sy = (v) => sh - m.b - ((Math.log10(v) - y0) / (y1 - y0)) * (sh - m.t - m.b);
-  const med = (a) => [...a].sort((p, q) => p - q)[Math.floor(a.length / 2)];
-  const mx = 10 ** med(lx), my = 10 ** med(ly);
-  const ticks = (lo, hi) => { const out = []; for (let e = Math.floor(lo); e <= Math.ceil(hi); e++) out.push(10 ** e); return out; };
-  // Label the most striking points (high views for how few photos), skipping any label that
-  // would overlap one already placed.
-  const boxes = [], named = new Set();
-  for (const p of [...good].sort((a, b) => b.y / b.x - a.y / a.x)) {
-    if (named.size >= labels) break;
-    const x = sx(p.x) + 7, y = Math.max(m.t + 10, sy(p.y) + 4), w = 6.2 * p.label.length;
-    if (x + w > sw - 2 || boxes.some((b) => x < b.x + b.w + 4 && x + w + 4 > b.x && Math.abs(y - b.y) < 13)) continue;
-    boxes.push({ x, y, w });
-    named.add(p.label);
-  }
-  return html`<svg class="scatter" viewBox=${`0 0 ${sw} ${sh}`} role="img" aria-label=${`${yLabel} by ${xLabel}`}>
-    ${ticks(x0, x1).filter((v) => v >= 10 ** x0 / 1.01 && v <= 10 ** x1 * 1.01).map((v) => html`<g key=${"x" + v}>
-      <line class="grid" x1=${sx(v)} x2=${sx(v)} y1=${m.t} y2=${sh - m.b} /><text class="axis" x=${sx(v)} y=${sh - m.b + 16} text-anchor="middle">${num(v)}</text></g>`)}
-    ${ticks(y0, y1).filter((v) => v >= 10 ** y0 / 1.01 && v <= 10 ** y1 * 1.01).map((v) => html`<g key=${"y" + v}>
-      <line class="grid" x1=${m.l} x2=${sw - m.r} y1=${sy(v)} y2=${sy(v)} /><text class="axis" x=${m.l - 6} y=${sy(v) + 4} text-anchor="end">${num(v)}</text></g>`)}
-    <line class="median" x1=${sx(mx)} x2=${sx(mx)} y1=${m.t} y2=${sh - m.b} />
-    <line class="median" x1=${m.l} x2=${sw - m.r} y1=${sy(my)} y2=${sy(my)} />
-    ${good.map((p) => html`<circle key=${p.label} cx=${sx(p.x)} cy=${sy(p.y)} r=${p.r || 4} class=${"dot " + (p.tone || "")}
-        onClick=${() => onPick?.(p.label)}><title>${p.title || p.label}</title></circle>`)}
-    ${good.filter((p) => named.has(p.label)).map((p) => html`<text key=${"l" + p.label} class="dotlabel" x=${sx(p.x) + 7} y=${Math.max(m.t + 10, sy(p.y) + 4)}
-        onClick=${() => onPick?.(p.label)}>${p.label}</text>`)}
-    <text class="axis title" x=${(sw + m.l) / 2} y=${sh - 4} text-anchor="middle">${xLabel}</text>
-    <text class="axis title" x=${12} y=${(sh - m.b) / 2} text-anchor="middle" transform=${`rotate(-90 12 ${(sh - m.b) / 2})`}>${yLabel}</text>
-  </svg>${corners && html`<p class="muted small corners"><span>↖ ${corners[0]}</span><span>↘ ${corners[1]}</span></p>`}`;
 }
 
 // A number with its change against the period before.
