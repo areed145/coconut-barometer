@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
+from .assets import versioned
 from .deps import runtime, store
 
 STATIC = Path(__file__).parent / "static"
@@ -53,7 +54,7 @@ def page(request: Request, rt, title: str = "", description: str = "", image: st
             *(f'<meta property="{k}" content="{html.escape(v)}">' for k, v in props.items()),
             f'<meta name="twitter:card" content="{"summary_large_image" if image else "summary"}">']
     head = f"<title>{html.escape(f'{title} · {SITE}' if title else SITE)}</title>\n" + "\n".join(tags)
-    doc = (STATIC / "index.html").read_text(encoding="utf-8").replace(f"<title>{SITE}</title>", head, 1)
+    doc = versioned((STATIC / "index.html").read_text(encoding="utf-8")).replace(f"<title>{SITE}</title>", head, 1)
     return HTMLResponse(doc, headers={"Cache-Control": "no-cache"})
 
 

@@ -6,10 +6,11 @@ import { html, useEffect, useRef, api, isDark } from "./lib.js";
 let loading = null;
 export function leaflet() {
   if (!loading) loading = (async () => {
-    for (const href of ["/static/vendor/leaflet.css", "/static/vendor/MarkerCluster.css"]) {
+    const at = (file) => new URL(`../vendor/${file}`, import.meta.url).href;   // beside this module: same version
+    for (const href of [at("leaflet.css"), at("MarkerCluster.css")]) {
       const link = document.createElement("link"); link.rel = "stylesheet"; link.href = href; document.head.append(link);
     }
-    for (const src of ["/static/vendor/leaflet.js", "/static/vendor/leaflet.markercluster.js"]) {
+    for (const src of [at("leaflet.js"), at("leaflet.markercluster.js")]) {
       await new Promise((ok, fail) => {
         const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fail; document.head.append(s);
       });

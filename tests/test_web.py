@@ -3,6 +3,7 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -86,6 +87,43 @@ class WebTest(unittest.TestCase):
         self.assertEqual(r.headers["cache-control"], "no-cache")
         again = self.c.get("/static/js/main.js", headers={"If-None-Match": r.headers["etag"]})
         self.assertEqual(again.status_code, 304)                         # unchanged: nothing re-sent
+
+    def test_js_and_css_are_versioned_and_kept_for_good(self):
+        import re as _re
+        from coconut_barometer.web import assets
+
+        page = self.c.get("/").text
+        v = assets.version()
+        self.assertIn(f'src="/static/v/{v}/js/main.js"', page)
+        self.assertIn(f'href="/static/v/{v}/css/app.css"', page)
+        self.assertIn(f'href="/static/v/{v}/js/lib.js"', page)                  # the preloads too
+        self.assertNotRegex(page, r'"/static/(js|css|vendor)/')                   # nothing left unversioned
+        self.assertIn('href="/static/fonts/dm-sans-latin.woff2"', page)          # fonts and images aren't
+        r = self.c.get(f"/static/v/{v}/js/main.js")
+        self.assertEqual((r.status_code, r.headers["cache-control"]), (200, "public, max-age=31536000, immutable"))
+        self.assertIn("lazy(", r.text)
+        self.assertEqual(self.c.get(f"/static/v/{v}/js/main.js", headers={"If-None-Match": r.headers["etag"]}).status_code, 304)
+        for bad in (f"/static/v/{'0' * 12}/js/main.js", f"/static/v/{v}/img/logo-96.png", f"/static/v/{v}/js/nope.js"):
+            r = self.c.get(bad)
+            self.assertEqual(r.status_code, 404, bad)
+            self.assertNotIn("immutable", r.headers.get("cache-control", ""), bad)
+        self.assertTrue(_re.fullmatch(r"[0-9a-f]{12}", v))
+
+    def test_the_version_follows_the_files(self):
+        from coconut_barometer.web import assets
+
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "js"))
+        f = os.path.join(tmp, "js", "a.js")
+        orig = assets.STATIC
+        self.addCleanup(setattr, assets, "STATIC", orig)
+        self.addCleanup(assets._cache.update, sig=None, version="")
+        assets.STATIC = Path(tmp)
+        open(f, "w").write("export const a = 1;")
+        first = assets.version()
+        self.assertEqual(assets.version(), first)                                 # unchanged: same version
+        open(f, "w").write("export const a = 22;")
+        self.assertNotEqual(assets.version(), first)
 
     def test_responses_are_compressed_except_auth(self):
         from fastapi import FastAPI

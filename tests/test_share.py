@@ -46,7 +46,7 @@ class ShareTest(unittest.TestCase):
         self.store.db.commit()
         self.assertEqual(meta(self.c.get("/p/1").text)["og:image"], "https://live.staticflickr.com/1/1_s_c.jpg")
         self.assertIn("<title>Ramen in Tokyo · Coconut Barometer</title>", r.text)
-        self.assertIn('src="/static/js/main.js"', r.text)                     # still the app
+        self.assertRegex(r.text, r'src="/static/v/[0-9a-f]{12}/js/main\.js"')    # still the app (versioned)
 
     def test_private_or_missing_get_the_plain_page(self):
         plain = self.c.get("/p/999").text

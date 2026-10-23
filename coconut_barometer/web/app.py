@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from ..store import SchemaTooNew
 from .api import activity, admin, analytics, aprs, auth, gallery, maps, review, setup, sync, weather
 from .deps import session
-from . import share
+from . import assets, share
 from .runtime import Runtime
 from .security import security_headers
 
@@ -98,9 +98,12 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
             response.headers.setdefault(k, v)
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path.startswith("/static/v/") and response.status_code in (200, 304):
+            # A versioned address never changes what it serves (assets.py): keep it for good.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif request.url.path.startswith("/static/"):
-            # Always ask before using a saved copy (unchanged files come back as 304): the
-            # scripts import each other, so one stale file after a deploy breaks the whole app.
+            # Unversioned (images, the font, the plain addresses): always ask before using a saved
+            # copy; unchanged files come back as 304.
             response.headers["Cache-Control"] = "no-cache"
         return response
 
@@ -140,7 +143,16 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     def no_such_api(rest: str):   # any method: an unknown API address is a 404, not a 405
         return JSONResponse({"detail": "not found"}, status_code=404)
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    static_files = StaticFiles(directory=STATIC)
+
+    @app.get("/static/v/{build}/{path:path}", include_in_schema=False)
+    async def versioned_static(build: str, path: str, request: Request):
+        """The JS and CSS at the current version only (any other is a 404: see assets.py)."""
+        if build != assets.version() or path.split("/", 1)[0] not in assets.VERSIONED:
+            return JSONResponse({"detail": "not found"}, status_code=404)
+        return await static_files.get_response(path, request.scope)
+
+    app.mount("/static", static_files, name="static")
     app.include_router(share.router)       # /p/<id>, /a/<id> (share links with previews), robots.txt, sitemap.xml
 
     @app.get("/{rest:path}", include_in_schema=False)
