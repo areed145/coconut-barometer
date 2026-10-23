@@ -626,6 +626,12 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .meter { position: relative; height: 6px; border-radius: var(--r-pill); }
 .meter i { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--fg); border: 2px solid var(--surface); transform: translate(-50%, -50%); }
 .wxrecent { font-size: var(--text-xs); margin: var(--s3) 0 0; }
+.wxrecords { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+.wxrecords > .card { margin-bottom: 0; }
+.wxsince { margin: 0 0 var(--s3); font-size: var(--text-sm); }
+.wxmonths td { white-space: nowrap; }
+.wxmonths td .muted { font-size: var(--text-xs); }
+.card:has(> .wxmonths) { overflow-x: auto; }
 .rose { display: flex; gap: var(--s5); align-items: center; flex-wrap: wrap; }
 /* Weather history: titled sections of cards, at most two across (so each station's pair lines up); .wide takes the row */
 .wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - var(--s4)) / 2))), 1fr)); gap: var(--s4); }

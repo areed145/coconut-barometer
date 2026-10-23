@@ -34,6 +34,9 @@ FEELS_SQL = (f"CASE WHEN o.temp >= 27 AND o.humidity >= 40 THEN {_HEAT_INDEX} "
              f"WHEN o.temp <= 10 AND o.wind_avg * 3.6 > 4.8 THEN {_WIND_CHILL} ELSE o.temp END")
 # Gust over average, skipping near-calm readings where the ratio means nothing.
 GUST_FACTOR_SQL = "CASE WHEN o.wind_avg >= 1 THEN o.wind_gust / o.wind_avg END"
+# A strike's distance, for the closest-lightning record. The sensor's nearest is 1 km ("overhead"); the odd 0 is
+# an observation without a distance, so it doesn't count.
+_NEAR = "CASE WHEN o.strike_count > 0 AND o.strike_dist > 0 THEN o.strike_dist END"
 PARTS = {"night": (0, 6), "morning": (6, 12), "afternoon": (12, 18), "evening": (18, 24)}
 
 
@@ -205,6 +208,65 @@ class WeatherStore(Database):
                         "mean": sum(seen) / len(seen) if seen else None, "rain": d["rain"], "uv": d["uv"], "hours": hours})
         return {"timezone": zone.key, "days": out}
 
+    def wx_records(self, device_id: int, now: int | None = None) -> dict:
+        """The station's records over everything stored, all-time and per calendar month, each {v, ts} (the
+        value, metric, and when). By local time at the station: a month or day is the station's.
+          temp_high temp_low gust uv pressure_high pressure_low (sea level)  rain_hour (most in a clock hour)
+          rain_day (wettest local day; ts its midnight)  lightning (closest strike, km)
+        Also: since/until (first and last observation), days (with data), this_date (today's month and day
+        in each year stored: high, low, rain) and the almanac for today."""
+        now = int(now or time.time())
+        zone, lat, lon = self._place(device_id)
+        rows = self.db.execute(
+            f"SELECT (o.ts // 3600) * 3600 AS t, max(o.temp), arg_max(o.ts, o.temp), min(o.temp), arg_min(o.ts, o.temp), "
+            f"max(o.wind_gust), arg_max(o.ts, o.wind_gust), sum(o.rain), max(o.uv), arg_max(o.ts, o.uv), "
+            f"max({SEA_LEVEL_SQL}), arg_max(o.ts, {SEA_LEVEL_SQL}), min({SEA_LEVEL_SQL}), arg_min(o.ts, {SEA_LEVEL_SQL}), "
+            f"min({_NEAR}), arg_min(o.ts, {_NEAR}) "
+            "FROM wx_obs o JOIN wx_devices d ON d.device_id = o.device_id JOIN wx_stations s ON s.station_id = d.station_id "
+            "WHERE o.device_id=? GROUP BY 1 ORDER BY 1", (device_id,)).fetchall()
+        strikes = self.db.execute("SELECT ts, value FROM wx_events WHERE device_id=? AND kind='strike' AND value > 0",
+                                  (device_id,)).fetchall()
+        best: dict[str, dict] = {}                 # "all" and "1".."12" -> record name -> {v, ts}
+
+        def offer(name, v, ts, higher=True):
+            if v is None or ts is None:
+                return
+            for key in ("all", str(datetime.fromtimestamp(ts, zone).month)):
+                r = best.setdefault(key, {})
+                if name not in r or (v > r[name]["v"] if higher else v < r[name]["v"]):
+                    r[name] = {"v": v, "ts": int(ts)}
+
+        days: dict[str, dict] = {}
+        for (t, hi, hi_ts, lo, lo_ts, gust, gust_ts, rain, uv, uv_ts, p_hi, p_hi_ts, p_lo, p_lo_ts, near, near_ts) in rows:
+            offer("temp_high", hi, hi_ts)
+            offer("temp_low", lo, lo_ts, higher=False)
+            offer("gust", gust, gust_ts)
+            offer("uv", uv, uv_ts)
+            offer("pressure_high", p_hi, p_hi_ts)
+            offer("pressure_low", p_lo, p_lo_ts, higher=False)
+            if rain:
+                offer("rain_hour", rain, t)
+            offer("lightning", near, near_ts, higher=False)
+            local = datetime.fromtimestamp(t, zone)
+            d = days.setdefault(local.date().isoformat(), {
+                "t": int(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()), "rain": 0.0, "high": None, "low": None})
+            d["rain"] += rain or 0.0
+            if hi is not None:
+                d["high"] = hi if d["high"] is None else max(d["high"], hi)
+                d["low"] = lo if d["low"] is None else min(d["low"], lo)
+        for ts, km in strikes:
+            offer("lightning", km, ts, higher=False)
+        for d in days.values():
+            if d["rain"] > 0:
+                offer("rain_day", d["rain"], d["t"])
+        today = datetime.fromtimestamp(now, zone).date()
+        this_date = [{"date": date, "high": d["high"], "low": d["low"], "rain": d["rain"]}
+                     for date, d in sorted(days.items(), reverse=True) if date[5:] == today.isoformat()[5:]]
+        return {"timezone": zone.key, "since": rows[0][0] if rows else None, "until": rows[-1][0] + 3599 if rows else None,
+                "days": len(days), "all": best.get("all", {}),
+                "months": [{"month": m, **best[str(m)]} for m in range(1, 13) if str(m) in best],
+                "this_date": this_date, "almanac": almanac(lat, lon, zone, now) if lat is not None and lon is not None else None}
+
     def wx_lightning(self, device_id: int, start: int, end: int, step: int = 1800) -> dict:
         """Strikes per `step`-second bin and kilometre of distance, for a heatmap. The station reports one
         average distance and a count per observation, so that's what is binned: cells = [[bin start, km, strikes], ...]."""
@@ -259,6 +321,35 @@ def clear_sky(lat: float, lon: float, ts: float) -> float:
     phi = math.radians(lat)
     cosz = math.sin(phi) * math.sin(decl) + math.cos(phi) * math.cos(decl) * math.cos(ha)
     return 1098 * cosz * math.exp(-0.057 / cosz) if cosz > 0 else 0.0
+
+
+def _sun_times(lat: float, lon: float, day) -> tuple[float | None, float | None]:
+    """Sunrise and sunset (epoch seconds) on that local date, from NOAA's low-precision solar position
+    (as in clear_sky), with the sun's centre 0.833° below the horizon (refraction and its radius).
+    (None, None) when the sun doesn't rise or doesn't set that day."""
+    g = 2 * math.pi / 365 * (day.timetuple().tm_yday - 1)
+    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g) - 0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
+    decl = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g) + 0.000907 * math.sin(2 * g)
+            - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g))
+    phi = math.radians(lat)
+    cos_ha = math.cos(math.radians(90.833)) / (math.cos(phi) * math.cos(decl)) - math.tan(phi) * math.tan(decl)
+    if not -1 <= cos_ha <= 1:
+        return None, None
+    ha = math.degrees(math.acos(cos_ha))
+    midnight_utc = datetime(day.year, day.month, day.day, tzinfo=ZoneInfo("UTC")).timestamp()
+    return midnight_utc + (720 - 4 * (lon + ha) - eqtime) * 60, midnight_utc + (720 - 4 * (lon - ha) - eqtime) * 60
+
+
+def almanac(lat: float, lon: float, zone: ZoneInfo, ts: int) -> dict:
+    """Today at the station: sunrise, sunset, day length (s), and how much longer than yesterday (s)."""
+    from datetime import timedelta
+
+    today = datetime.fromtimestamp(ts, zone).date()
+    rise, set_ = (int(t) if t is not None else None for t in _sun_times(lat, lon, today))
+    before = _sun_times(lat, lon, today - timedelta(days=1))
+    length = set_ - rise if rise is not None else None
+    return {"sunrise": rise, "sunset": set_, "day_length": length,
+            "change": int(length - (before[1] - before[0])) if length is not None and before[0] is not None else None}
 
 
 def clear_sky_mean(lat: float, lon: float, start: int, span: int) -> float:

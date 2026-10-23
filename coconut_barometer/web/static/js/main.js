@@ -93,7 +93,7 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map"
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["queue", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
-const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];
+const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"]];
 
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();

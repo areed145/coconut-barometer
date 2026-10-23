@@ -92,6 +92,24 @@ def days(device: int, start: int | None = None, end: int | None = None, hours: f
     return {"start": start, "end": end, **db.wx_days(device, start, end)}
 
 
+_records_cache: dict[tuple, tuple] = {}
+
+
+@router.get("/records")
+def records(device: int, rt=Depends(runtime), db=Depends(store)):
+    """The station's records (all-time and per month), today's date in past years, and today's almanac.
+    Rebuilt only when something new is stored (as /live)."""
+    if device not in {d["device_id"] for d in db.wx_devices()}:
+        raise HTTPException(404, "unknown device")
+    key, now = db.wx_freshness(), time.time()
+    hit = _records_cache.get((rt.db_path, device))
+    if hit and hit[0] == key and now - hit[1] < LIVE_CACHE_SECONDS:
+        return {"units": _units(rt), **hit[2]}
+    out = db.wx_records(device, int(now))
+    _records_cache[(rt.db_path, device)] = (key, now, out)
+    return {"units": _units(rt), **out}
+
+
 _imagery = Imagery()
 
 

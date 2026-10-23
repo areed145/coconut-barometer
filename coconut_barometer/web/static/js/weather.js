@@ -56,7 +56,8 @@ function WindDial({ dir, speed, gust, trail = [], unit }) {
 }
 
 function Tile({ label, value, note, href, children }) {
-  return html`<a class="wxtile" href=${href} title=${`${label} history`}><span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}</a>`;
+  const body = html`<span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}`;
+  return href ? html`<a class="wxtile" href=${href} title=${`${label} history`}>${body}</a>` : html`<div class="wxtile">${body}</div>`;
 }
 
 // The History view for one station's chart of a variable, over the last day.
@@ -152,6 +153,62 @@ function Empty() {
   return html`<div class="card"><h2>No stations yet</h2>
     <p>Add your WeatherFlow token under <a href="#/settings/connections">Settings → Connections</a>. The stations on that account are found
     on the next sync, and their history appears under <a href="#/queue">Queue</a> as it's fetched.</p></div>`;
+}
+
+// ---- Records ----------------------------------------------------------------------------
+// [key, label, units kind (null: none), digits metric/imperial, History chart]. Values come metric, with when.
+const RECORDS = [
+  ["temp_high", "Hottest", "temp", [1, 0], "temperature"], ["temp_low", "Coldest", "temp", [1, 0], "temperature"],
+  ["gust", "Top gust", "speed", [1, 0], "wind"], ["rain_day", "Wettest day", "rain", [1, 2], "rain"],
+  ["rain_hour", "Wettest hour", "rain", [1, 2], "rain"], ["uv", "Highest UV", null, [1, 1], "uv"],
+  ["pressure_high", "High pressure", "pressure", [1, 2], "pressure"], ["pressure_low", "Low pressure", "pressure", [1, 2], "pressure"],
+  ["lightning", "Nearest lightning", "dist", [0, 0], "lightning"]];
+const MONTH_COLS = ["temp_high", "temp_low", "gust", "rain_day"];
+const monthName = (m) => new Date(2000, m - 1, 15).toLocaleDateString(undefined, { month: "long" });
+const hm = (s) => `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+
+function StationRecords({ s }) {
+  const [r, setR] = useState(null);
+  useEffect(() => { api(`/api/wx/records?device=${s.device_id}`).then(setR).catch(() => setR(false)); }, [s.device_id]);
+  if (r === null) return html`<div class="card"><h2>${s.name}</h2><div class="boot">Loading…</div></div>`;
+  if (!r || !r.since) return html`<div class="card"><h2>${s.name}</h2><p class="muted">Nothing stored yet.</p></div>`;
+  const tz = { timeZone: r.timezone };
+  const stamp = (ts, dateOnly) => new Date(ts * 1000).toLocaleString(undefined, dateOnly
+    ? { ...tz, month: "short", day: "numeric", year: "numeric" } : { ...tz, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { ...tz, hour: "numeric", minute: "2-digit" });
+  const value = ([, , kind, digits], v) => kind ? show(r.units, kind, v, digits[r.units === "imperial" ? 1 : 0]) : fmt(v, digits[0]);
+  // Each record opens History on its day, at its chart (#/weather/history: from/to are local dates).
+  const dayOf = (ts) => new Date(ts * 1000).toLocaleDateString("sv", tz);
+  const at = (rec, x) => `#/weather/history?from=${dayOf(x.ts)}&to=${dayOf(x.ts)}&station=${s.device_id}&chart=${rec[4]}`;
+  const a = r.almanac;
+  const past = r.this_date.filter((d) => d.date.slice(0, 4) < new Date().toLocaleDateString("sv", tz).slice(0, 4));
+  return html`
+    <div class="card"><h2>${s.name} · records</h2>
+      <p class="muted wxsince">Since ${stamp(r.since, true)} (${num(r.days)} days stored): records grow as the history does.</p>
+      <div class="wxtiles">${RECORDS.filter(([k]) => r.all[k]).map((rec) => { const x = r.all[rec[0]];
+        return html`<${Tile} key=${rec[0]} href=${at(rec, x)} label=${rec[1]} value=${value(rec, x.v)}
+          note=${rec[0] === "rain_day" ? stamp(x.ts, true) : stamp(x.ts)} />`; })}</div></div>
+    ${a && html`<div class="card"><h2>Today</h2><div class="wxtiles">
+      <${Tile} label="Sunrise" value=${a.sunrise ? clock(a.sunrise) : "–"} note=${a.sunset ? `sunset ${clock(a.sunset)}` : ""} />
+      <${Tile} label="Daylight" value=${a.day_length ? hm(a.day_length) : "–"}
+        note=${a.change == null ? "" : `${Math.abs(Math.round(a.change / 6) / 10)} min ${a.change < 0 ? "shorter" : "longer"}`} />
+      ${past.map((d) => html`<${Tile} key=${d.date} label=${`This day in ${d.date.slice(0, 4)}`}
+        value=${d.high == null ? "–" : `${show(r.units, "temp", d.high, 0)} / ${show(r.units, "temp", d.low, 0)}`}
+        note=${d.rain > 0 ? `${show(r.units, "rain", d.rain, r.units === "imperial" ? 2 : 1)} of rain` : "dry"} />`)}
+    </div></div>`}
+    ${r.months.length > 1 && html`<div class="card"><h2>By month</h2><table class="qdone wxmonths"><thead><tr><th>Month</th>
+        ${MONTH_COLS.map((k) => html`<th key=${k}>${RECORDS.find(([x]) => x === k)[1]}</th>`)}</tr></thead><tbody>
+      ${r.months.map((m) => html`<tr key=${m.month}><td>${monthName(m.month)}</td>${MONTH_COLS.map((k) => { const rec = RECORDS.find(([x]) => x === k);
+        return html`<td key=${k}>${m[k] ? html`<a href=${at(rec, m[k])}>${value(rec, m[k].v)}</a> <span class="muted">${stamp(m[k].ts, true)}</span>` : "–"}</td>`; })}</tr>`)}
+    </tbody></table></div>`}`;
+}
+
+function Records() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => { api("/api/wx/stations").then(setInfo).catch(() => setInfo({ stations: [] })); }, []);
+  if (!info) return html`<div class="boot">Loading…</div>`;
+  if (!info.stations.length) return html`<${Empty} />`;
+  return html`<div class="cols wxcols">${info.stations.map((s) => html`<div class="wxrecords" key=${s.device_id}><${StationRecords} s=${s} /></div>`)}</div>`;
 }
 
 // ---- History ----------------------------------------------------------------------------
@@ -624,6 +681,6 @@ export function WxStations() {
 }
 
 export function Weather({ tab = "live", params = {} }) {
-  return tab === "history" ? html`<${History} params=${params} />`
+  return tab === "history" ? html`<${History} params=${params} />` : tab === "records" ? html`<${Records} />`
     : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />` : html`<${Live} />`;
 }

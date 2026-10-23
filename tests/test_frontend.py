@@ -61,7 +61,7 @@ class FrontendTest(unittest.TestCase):
         self.assertNotIn("StreamBadge", weather)
         self.assertIn('export function WxStations()', weather)
         main = open(os.path.join(STATIC, "js", "main.js")).read()
-        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];', main)   # Stations is in Settings
+        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"]];', main)   # Stations is in Settings
         self.assertIn('section === "weather" && html`<${WxStations} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 

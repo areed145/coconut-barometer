@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from collections import deque
+from datetime import datetime
 
 from fastapi.testclient import TestClient
 
@@ -136,6 +137,42 @@ class StoreTest(unittest.TestCase):
         self.assertAlmostEqual(first["hours"][16], 2.0)          # 16:13–16:53 -> 0..4
         self.assertEqual(second["t"], local_midnight("America/Chicago", NOW + DAY))
         self.assertEqual((first["rain"], first["uv"]), (0.0, 2.0))
+
+    def test_records_all_time_and_by_month(self):
+        def obs(ts, temp=20.0, gust=5.0, rain=0.0, strike_km=0, strikes=0):
+            a = arr(ts, temp=temp, rain=rain)
+            a[3], a[14], a[15] = gust, strike_km, strikes
+            return a
+        october = NOW - 30 * DAY                                     # 2023-10-15, local
+        self.store.wx_save_obs(11, [
+            obs(october, temp=35.0, gust=9.0),
+            obs(NOW, temp=10.0), obs(NOW + 60, temp=12.0, gust=14.0, rain=2.0), obs(NOW + 120, rain=3.0),
+            obs(NOW + 3600, rain=4.0),                               # same local day, the next hour
+            obs(NOW + 7200, strike_km=0, strikes=2), obs(NOW + 7260, strike_km=8, strikes=1)])   # 0 km: no distance
+        r = self.store.wx_records(11, now=NOW + 7300)
+        rec = lambda k: (r["all"][k]["v"], r["all"][k]["ts"])
+        self.assertEqual(rec("temp_high"), (35.0, october))
+        self.assertEqual(rec("temp_low"), (10.0, NOW))
+        self.assertEqual(rec("gust"), (14.0, NOW + 60))
+        self.assertEqual(r["all"]["rain_hour"]["v"], 5.0)                      # 2 + 3 in one clock hour
+        self.assertEqual(r["all"]["rain_day"], {"v": 9.0, "ts": local_midnight("America/Chicago", NOW)})
+        self.assertEqual(rec("lightning"), (8, NOW + 7260))
+        self.assertEqual([m["month"] for m in r["months"]], [10, 11])
+        self.assertEqual(r["months"][1]["temp_high"]["v"], 20.0)               # November's own high
+        self.assertEqual((r["since"], r["days"]), ((october // 3600) * 3600, 2))
+        self.assertEqual([d["date"] for d in r["this_date"]], ["2023-11-14"])
+
+    def test_almanac_matches_the_published_times(self):
+        from coconut_barometer.store.weather import almanac
+        from zoneinfo import ZoneInfo
+        a = almanac(30.27, -97.74, ZoneInfo("America/Chicago"), NOW)          # Austin, 14 Nov 2023
+        local = lambda ts: datetime.fromtimestamp(ts, ZoneInfo("America/Chicago"))
+        rise, set_ = local(a["sunrise"]), local(a["sunset"])
+        minutes = lambda t: t.hour * 60 + t.minute + t.second / 60
+        self.assertLess(abs(minutes(rise) - (6 * 60 + 55.5)), 2)       # NOAA's solar calculator: 6:55:30 am CST
+        self.assertLess(abs(minutes(set_) - (17 * 60 + 35.1)), 2)      # 5:35:06 pm
+        self.assertEqual(a["day_length"], a["sunset"] - a["sunrise"])
+        self.assertLess(a["change"], 0)                                          # November: days getting shorter
 
     def test_wind_rose_counts_by_direction(self):
         self.store.wx_save_obs(11, [arr(NOW, wind=1.0, direction=0.0), arr(NOW + 60, wind=6.0, direction=90.0)])
@@ -287,6 +324,13 @@ class WeatherApiTest(unittest.TestCase):
         store.close()
         self.assertEqual(self.c.get("/api/wx/live").json()["stations"][0]["obs"]["temp"], 25.0)   # shown at once
         self.assertEqual(calls, [11])
+
+    def test_records_api(self):
+        r = self.c.get("/api/wx/records", params={"device": 11}).json()           # public, like the other weather pages
+        self.assertEqual(r["all"]["temp_high"]["v"], 20.0)
+        self.assertEqual(r["units"], "metric")
+        self.assertIsNotNone(r["almanac"]["sunrise"])
+        self.assertEqual(self.c.get("/api/wx/records", params={"device": 99}).status_code, 404)
 
     def test_map_lists_stations_and_frames(self):
         from coconut_barometer.web.api import weather as wx_api
