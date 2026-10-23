@@ -131,6 +131,32 @@ class ReporterTest(unittest.TestCase):
         self.assertEqual(self.gh.issues, {})
 
 
+class CaughtTest(unittest.TestCase):
+    def setUp(self):
+        self.reported = []
+        original = errors.reporter.report
+        errors.reporter.report = lambda exc, where: self.reported.append(where) if not errors.expected(exc) else None
+        self.addCleanup(setattr, errors.reporter, "report", original)
+
+    def test_a_bug_is_an_error_with_its_traceback_and_reported(self):
+        with self.assertLogs("coconut_barometer.errors") as log:
+            errors.caught(caught(boom), "sync job")
+        self.assertEqual(log.records[0].levelname, "ERROR")
+        self.assertIn("Traceback", log.output[0])
+        self.assertEqual(self.reported, ["sync job"])
+
+    def test_the_outside_world_is_a_warning_and_not_reported(self):
+        class APIError(Exception):
+            pass
+        APIError.__module__ = "anthropic._exceptions"
+        with self.assertLogs("coconut_barometer.errors") as log:
+            errors.caught(caught(lambda: (_ for _ in ()).throw(requests.ConnectionError("down"))), "aprs")
+            errors.caught(caught(lambda: (_ for _ in ()).throw(APIError("overloaded"))), "vision")
+        self.assertEqual([r.levelname for r in log.records], ["WARNING", "WARNING"])
+        self.assertNotIn("Traceback", "".join(log.output))
+        self.assertEqual(self.reported, [])
+
+
 class ServerErrorTest(unittest.TestCase):
     def test_a_500_is_reported(self):
         path = os.path.join(tempfile.mkdtemp(), "db.duckdb")

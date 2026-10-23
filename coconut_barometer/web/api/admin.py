@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ... import backup as B
 from ... import settings as S
 from ...config import read_raw
+from ...errors import caught
 from ...settings_meta import SECTIONS
 from ..deps import client_ip, runtime, session, store
 from ..security import COOKIE, MIN_PASSWORD, hash_password, token_hash, verify_password
@@ -170,6 +171,7 @@ def flickr_connect(request: Request, sess=Depends(session), rt=Depends(runtime))
     except ValueError as e:
         raise HTTPException(409, str(e))
     except Exception as e:
+        caught(e, "flickr login")
         raise HTTPException(502, f"Flickr didn't start the login: {e}")
 
 

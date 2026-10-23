@@ -19,6 +19,7 @@ with warnings.catch_warnings():     # aprslib 0.7 has regexes with invalid escap
     import aprslib
 
 from .. import activity
+from ..errors import caught
 from .igate import gated_by, header_path
 
 SERVER = ("rotate.aprs2.net", 14580)    # the APRS-IS server pool; 14580 is the port that takes a filter
@@ -135,6 +136,7 @@ class AprsStream(threading.Thread):
                 self._session(calls, gate)
                 delay = 5
             except Exception as e:
+                caught(e, "aprs")
                 self.service.hub.update(state="reconnecting", error=f"{type(e).__name__}: {e}"[:200])
                 activity.log.record("aprs", "disconnected", f"{type(e).__name__}: {e}"[:200], "reconnecting",
                                     error=True, kind="connect")

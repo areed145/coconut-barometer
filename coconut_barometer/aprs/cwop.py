@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timezone
 
 from .. import activity
+from ..errors import caught
 from .stream import CALLSIGN, SERVER
 
 TOCALL = "APZCBR"          # APZ: experimental software (no registered tocall for this app)
@@ -105,6 +106,7 @@ class CwopReporter(threading.Thread):
             try:
                 self.report()
             except Exception as e:  # noqa: BLE001 - a failed round is logged; the next one tries again
+                caught(e, "cwop")
                 self.last = {"at": int(self._clock()), "sent": [], "error": str(e)[:200]}
             wait = max(5, int(self.svc.cfg["aprs"].get("cwop_minutes") or 10)) * 60
 

@@ -6,11 +6,14 @@ so photos taken right on a border can occasionally land on the wrong side.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
 from .util import norm_title
+
+logger = logging.getLogger(__name__)
 
 # US state name -> postal abbreviation (standard tags use it, e.g. "tx").
 US_STATES = {
@@ -79,8 +82,8 @@ def country_names(cc: str) -> list[str]:
     except ImportError:
         global _WARNED
         if not _WARNED:
-            print("warning: pycountry not installed; country auto-matching only knows a few names "
-                  "(pip install pycountry, or add geo.countries.aliases)")
+            logger.warning("pycountry not installed; country auto-matching only knows a few names "
+                           "(pip install pycountry, or add geo.countries.aliases)")
             _WARNED = True
     return names or [cc]
 

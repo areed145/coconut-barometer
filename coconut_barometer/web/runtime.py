@@ -4,19 +4,22 @@ also runs syncs) and the scheduler that asks it to sync every web.sync_every_min
 All Flickr calls go through the one worker, in order, under the shared rate limit."""
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import sys
 import threading
 import time
 
-from ..errors import reporter
+from ..errors import caught
 from ..review import ReviewApp
 from ..schedule import due
 from ..weather.service import WeatherService
 from ..aprs.service import AprsService
 from ..store import Store
 from .security import LoginThrottle
+
+logger = logging.getLogger(__name__)
 
 
 class Runtime:
@@ -44,7 +47,7 @@ class Runtime:
         self.setup_code = None
         if self.needs_setup():
             self.setup_code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
-            print(f"No login yet. Open the app and finish setup with this code: {self.setup_code}", flush=True)
+            logger.warning("No login yet. Open the app and finish setup with this code: %s", self.setup_code)
 
     def needs_setup(self) -> bool:
         return not self.store().usernames()
@@ -54,7 +57,7 @@ class Runtime:
         a staged restore.db.gz is restored on the way up. On Render the container keeps running."""
         def go():
             time.sleep(delay)
-            print("Restarting to restore the uploaded backup…", flush=True)
+            logger.info("Restarting to restore the uploaded backup…")
             self.restarter()
         threading.Thread(target=go, name="restart", daemon=True).start()
 
@@ -114,7 +117,7 @@ class Runtime:
             try:
                 self.review.sync()                 # whatever's due; ignored if a sync is already queued
             except Exception as e:
-                reporter.report(e, "scheduler")
+                caught(e, "scheduler")
             self.next_sync = time.time() + minutes * 60
 
     def backup_if_due(self) -> str | None:
@@ -127,6 +130,7 @@ class Runtime:
         try:
             path = make_backup(self.cfg)
         except Exception as e:   # e.g. disk full; try again next time round
+            caught(e, "backup")
             store.set_meta("last_backup_error", f"{int(time.time())}: {e}")
             return None
         store.set_meta("last_backup", int(time.time()))

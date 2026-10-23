@@ -1,4 +1,4 @@
-"""Unexpected errors, reported to GitHub as issues: a request that ends in a 500, a worker job or scheduler
+"""Errors the app catches: logged, and the unexpected ones reported to GitHub as issues: a request that ends in a 500, a worker job or scheduler
 round that fails for a reason that isn't the network, and a thread that dies.
 
 Off until Settings → Connections has a GitHub token (a fine-grained one, for the one repository, with
@@ -11,15 +11,16 @@ Reports go out from their own thread, so a slow or unreachable GitHub never hold
 one that fails is dropped (and printed). Everything sent is scrubbed of the API keys and anything that
 looks like one, and of the home directory.
 
-There's one per process, `reporter` below, like activity.log."""
+There's one per process, `reporter` below, like activity.log. `caught(e, where)` is what an `except` calls:
+it logs (a warning for the outside world failing, an error with the traceback for anything else) and reports."""
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import platform
 import queue
 import re
-import sys
 import threading
 import time
 import traceback
@@ -34,11 +35,28 @@ COMMENT_EVERY = 3600        # seconds between comments on one issue
 NEW_PER_HOUR = 10
 TIMEOUT = 15
 PACKAGE = Path(__file__).parent
-# Not bugs: the outside world being down or slow. Those show on the Status page instead.
+# Not bugs: the outside world being down, slow or saying no. Those show on the Status page instead.
 EXPECTED = (OSError, requests.RequestException)
+OUTSIDE = {"anthropic", "openai", "httpx", "flickrapi", "websockets", "aprslib"}   # their errors are theirs
+logger = logging.getLogger(__name__)
 SECRET_PARAM = re.compile(r"(?i)\b(api_key|api_secret|token|secret|passcode|password|oauth_[a-z_]+|sig|signature)"
                           r"(['\"]?\s*[=:]\s*['\"]?)([^&\s'\",)]+)")
 BEARER = re.compile(r"(?i)\b(bearer|token)\s+[a-z0-9_\-.]{12,}")
+
+
+def expected(exc: BaseException) -> bool:
+    from .flickr_client import FlickrCallError
+    return (isinstance(exc, (*EXPECTED, FlickrCallError))
+            or any(c.__module__.split(".")[0] in OUTSIDE for c in type(exc).__mro__))
+
+
+def caught(exc: BaseException, where: str) -> None:
+    """For an `except` that carries on: log it, and report it unless it's expected()."""
+    if expected(exc):
+        logger.warning("%s: %s: %s", where, type(exc).__name__, exc)
+    else:
+        logger.error("%s: %s: %s", where, type(exc).__name__, exc, exc_info=exc)
+    reporter.report(exc, where)
 
 
 def fingerprint(exc: BaseException) -> str:
@@ -102,9 +120,9 @@ class Reporter:
 
     # ---- reporting -----------------------------------------------------------------
     def report(self, exc: BaseException, where: str) -> None:
-        """Queue exc for GitHub, unless reporting is off or it's the network (EXPECTED). Never raises."""
+        """Queue exc for GitHub, unless reporting is off or it's expected(). Never raises."""
         try:
-            if not self.enabled() or isinstance(exc, EXPECTED):
+            if not self.enabled() or expected(exc):
                 return
             fp = fingerprint(exc)
             with self.lock:
@@ -116,7 +134,7 @@ class Reporter:
             self._q.put_nowait((fp, type(exc).__qualname__, str(exc), text, where, time.time()))
             self._start()
         except Exception as e:   # noqa: BLE001 - reporting must never be the next error
-            print(f"error report not queued: {e}", file=sys.stderr, flush=True)
+            logger.warning("error report not queued: %s", e)
 
     def _start(self) -> None:
         with self.lock:
@@ -132,7 +150,7 @@ class Reporter:
                 self.sent, self.last_at, self.last_error = self.sent + 1, time.time(), None
             except Exception as e:   # noqa: BLE001 - dropped; the error itself is still in the server's log
                 self.last_error = scrub(f"{type(e).__name__}: {e}", self._secrets())
-                print(f"error report not sent: {self.last_error}", file=sys.stderr, flush=True)
+                logger.warning("error report not sent: %s", self.last_error)
 
     def _call(self, method: str, path: str, **kw) -> requests.Response:
         token, repo = self._github()
@@ -194,7 +212,7 @@ _hooked = False
 
 
 def _install_thread_hook() -> None:
-    """A thread that dies of an exception is reported, then handled as before."""
+    """A thread that dies of an exception is logged (with the traceback) and reported."""
     global _hooked
     if _hooked:
         return
@@ -202,7 +220,9 @@ def _install_thread_hook() -> None:
     previous = threading.excepthook
 
     def hook(args):
-        if args.exc_value is not None and not isinstance(args.exc_value, SystemExit):
-            reporter.report(args.exc_value, f"thread {args.thread.name if args.thread else '?'}")
-        previous(args)
+        if args.exc_value is None or isinstance(args.exc_value, SystemExit):
+            return previous(args)
+        name = f"thread {args.thread.name if args.thread else '?'}"
+        logger.error("%s died", name, exc_info=args.exc_value)
+        reporter.report(args.exc_value, name)
     threading.excepthook = hook

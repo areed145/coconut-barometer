@@ -8,7 +8,7 @@ With no login yet, the page offers first-run setup: create one, or restore a bac
 from __future__ import annotations
 
 import json
-import sys
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,7 +19,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..errors import reporter
+from ..errors import caught, reporter
 from ..store import SchemaTooNew
 from .api import admin, analytics, aprs, auth, gallery, home, maps, review, setup, status, sync, weather
 from .deps import session
@@ -28,6 +28,7 @@ from .runtime import Runtime
 from .security import security_headers
 
 STATIC = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 class NoExit:
@@ -46,7 +47,7 @@ class NoExit:
         try:
             await self.app(scope, receive, tracking_send)
         except (SystemExit, SchemaTooNew) as e:
-            print(f"ERROR {scope.get('path')}: {e if isinstance(e, SchemaTooNew) else e.code}", file=sys.stderr, flush=True)
+            logger.error("%s: %s", scope.get("path"), e if isinstance(e, SchemaTooNew) else e.code)
             if started:
                 return
             body = json.dumps({"detail": "The server needs attention; see its log."}).encode()
@@ -138,7 +139,8 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
             rt.flickr_login_finish(oauth_token, oauth_verifier)
         except PermissionError as e:
             return JSONResponse({"detail": str(e)}, status_code=400)
-        except Exception:
+        except Exception as e:
+            caught(e, "flickr login")
             return JSONResponse({"detail": "Flickr didn't accept the login; start again from Settings"}, status_code=502)
         return RedirectResponse("/#/settings/connections", status_code=303)
 

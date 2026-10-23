@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import requests
 
 from .. import activity
+from ..errors import caught
 
 IEM = "https://mesonet.agron.iastate.edu"
 GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
@@ -106,6 +107,7 @@ class Imagery:
                 valid = _epoch(meta["valid"])
                 a["detail"] = f"IEM NEXRAD composite · newest {meta['valid']}"
         except Exception as e:  # noqa: BLE001 - any failure just means no radar this time
+            caught(e, "radar")
             return {"frames": [], "error": str(e)[:200]}
         frames = [{"t": valid - k * RADAR_STEP, "layer": "nexrad-n0q-900913" + (f"-m{k * 5:02d}m" if k else "")}
                   for k in range(RADAR_FRAMES - 1, -1, -1)]
@@ -124,6 +126,7 @@ class Imagery:
                 times = expand_periods(m.group(1)) if m else []
                 a["detail"] = f"NASA GIBS GOES-East · {len(times)} frames"
         except Exception as e:  # noqa: BLE001
+            caught(e, "satellite")
             return {"frames": [], "max_zoom": zoom, "url": url, "error": str(e)[:200]}
         return {"frames": [{"t": t, "time": _iso(t)} for t in times[-SAT_FRAMES:]], "max_zoom": zoom,
                 "url": url, "error": None}

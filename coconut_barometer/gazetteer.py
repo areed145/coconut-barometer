@@ -11,6 +11,7 @@ addresses too). It's asked only when you search, at most once a second, as its u
 from __future__ import annotations
 
 import csv
+import logging
 import os
 import re
 import threading
@@ -21,6 +22,8 @@ from functools import lru_cache
 
 from . import activity
 from .geo import US_STATES, country_names
+
+logger = logging.getLogger(__name__)
 
 ACCURACY = {"city": 11, "state": 6, "country": 3}   # Flickr's scale: 1 world ... 16 street
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
@@ -181,6 +184,7 @@ def search(query: str, limit: int = 8, gazetteer: Gazetteer | None = None, get=N
     try:
         return {"source": "nominatim", "places": search_online(query, limit, get)}
     except Exception as e:     # offline, refused, rate-limited
+        logger.warning("place search: %s; using the offline towns", e)
         places = (gazetteer or default()).search(query, limit)
         return {"source": "offline", "error": str(e)[:200],
                 "places": [{"label": p.label, "lat": p.lat, "lon": p.lon, "accuracy": p.accuracy, "bbox": None}

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from . import activity
 from .config import VISION_CONCURRENCY, VISION_THUMBNAIL
+from .errors import caught
 
 PROMPT_VERSION = 3
 
@@ -191,6 +192,7 @@ def classify_photos(store, provider, vcfg: dict, photos, log=print, downloader=_
             except Exception as e:  # keep going; failed photos are retried next run
                 stats["failed"] += 1
                 log(f"  ! failed: {e}")
+                caught(e, "vision")
                 continue
             usage = result.pop("_usage", {})
             stats["input_tokens"] += usage.get("input", 0)

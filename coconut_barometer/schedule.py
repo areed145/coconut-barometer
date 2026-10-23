@@ -9,12 +9,15 @@ Flickr. `sync` runs it; the web app's scheduler will call it hourly.
 """
 from __future__ import annotations
 
+import logging
 import time
 
 from . import stats_history
 from .config import VISION_THUMBNAIL
 from .incremental import sync_incremental, sync_photo_list
 from .sync import sync as full_sync
+
+logger = logging.getLogger(__name__)
 
 
 def due(cfg: dict, store, now: float | None = None) -> list[str]:
@@ -51,6 +54,7 @@ def run_due(cfg: dict, client, store, force: str | None = None, stats: bool | No
         except Exception as e:   # stats need Flickr Pro; never let them break a sync
             out["stats"] = {"error": str(e)}
             log(f"  ! stats: {e}")
+            logger.warning("stats: %s", e)
     out["calls"] = client.call_count - started_calls
     store.set_meta("last_sync", int(time.time()))
     return out

@@ -10,6 +10,7 @@ import time
 from collections import deque
 
 from .. import activity
+from ..errors import caught
 
 FILL_EVERY = 3600      # seconds between REST gap-fills while connected
 WS_URL = "wss://ws.weatherflow.com/swd/data?token={token}"
@@ -101,6 +102,7 @@ class WeatherStream(threading.Thread):
                 self._session(token, devices)
                 delay = 5
             except Exception as e:
+                caught(e, "wx-stream")
                 self.service.hub.update(state="reconnecting", error=f"{type(e).__name__}: {e}"[:200])
                 activity.log.record("wx-stream", "disconnected", f"{type(e).__name__}: {e}"[:200], "reconnecting",
                                     error=True, kind="connect")

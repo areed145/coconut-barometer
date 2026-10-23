@@ -235,6 +235,13 @@ def cmd_serve(cfg, store, args):
 
     import logging
 
+    # One format for everything, the app's own lines and uvicorn's (its log_config=None below leaves
+    # its loggers to this): to stdout, where Render's Logs (or the terminal) pick it up.
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True,
+                        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    for chatty in ("httpx", "flickrapi", "aprslib", "websockets"):   # a line per call or packet otherwise
+        logging.getLogger(chatty).setLevel(logging.WARNING)
+    logger = logging.getLogger("coconut_barometer.serve")
     web = cfg["web"]
     store = _restore_on_start(cfg, store)
 
@@ -247,19 +254,19 @@ def cmd_serve(cfg, store, args):
     logging.getLogger("uvicorn.access").addFilter(_NoQuery())
     host, port = args.host or web["host"], args.port or web["port"]
     if host not in ("127.0.0.1", "localhost", "::1"):
-        print(f"! Listening on {host}: anyone who can reach it gets the login page. "
-              "On a server, keep 127.0.0.1 and put Caddy (HTTPS) in front.")
+        logger.warning("Listening on %s: anyone who can reach it gets the login page. "
+                       "On a server, keep 127.0.0.1 and put Caddy (HTTPS) in front.", host)
         if not web["secure_cookies"]:
             sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
     vcfg = cfg["vision"]
     provider = lambda: _provider(cfg)   # made on first use, from the settings at the time
     client = _new_client(cfg)
     if client is None:
-        print("! No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
+        logger.warning("No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
     app = create_app(cfg, client, provider_factory=provider, cfg_path=args.config, client_factory=_new_client)
-    print(f"Serving on http://{host}:{port}  (sync every {web['sync_every_minutes']} min; Ctrl-C stops)")
+    logger.info("Serving on http://%s:%s  (sync every %s min; Ctrl-C stops)", host, port, web["sync_every_minutes"])
     uvicorn.run(app, host=host, port=port, proxy_headers=True, server_header=False,
-                forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info")
+                forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info", log_config=None)
 
 
 def cmd_settings(cfg, store, args):

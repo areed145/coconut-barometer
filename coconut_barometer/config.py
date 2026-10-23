@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import copy
 import difflib
+import logging
 import os
 import re
 import string
-import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, Any] = {
     "flickr": {"api_key": None, "api_secret": None},
@@ -464,7 +466,7 @@ def load_config(path: str | os.PathLike, admin: bool = True) -> dict:
             raw, _sources, problems = layer(file_raw, store)
             store.close()
             for problem in problems:
-                print(f"warning: {problem}", file=sys.stderr)
+                logger.warning("%s", problem)
     cfg = _merge(DEFAULTS, raw)
     errors, _warnings = validate(raw, cfg)
     if errors:

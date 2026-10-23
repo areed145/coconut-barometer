@@ -15,7 +15,7 @@ from .. import activity
 from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
-from ..errors import reporter
+from ..errors import caught
 from ..planner import photo_page
 from ..util import norm_tag
 
@@ -488,7 +488,7 @@ class ReviewApp:
                 else:
                     out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
             except Exception as e:  # network trouble etc.
-                reporter.report(e, f"{kind} job")   # unless it's the network (errors.EXPECTED)
+                caught(e, f"{kind} job")
                 if kind == "apply":   # back in review, to apply again
                     store.queue_finish(pid, "pending", {"error": str(e), "failed_at": int(time.time())})
                 if kind == "sync":
@@ -658,6 +658,7 @@ class ReviewApp:
             try:   # (apply_changes re-reads the photo from Flickr before any title/description write.)
                 stats["applied"] += apply_changes(self.client, store, todo, log=self.log)["applied"]
             except Exception as e:      # network trouble: whatever it didn't reach is retried
+                caught(e, f"apply {photo_id}")
                 errors.append(str(e))
             todo = unfinished(store, todo, since)
             no = store.turned_down_since(photo_id, since)
