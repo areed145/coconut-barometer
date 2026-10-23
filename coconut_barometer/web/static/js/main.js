@@ -1,18 +1,38 @@
 // The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages: Home (#/), Photos, Weather
 // and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
-import { Photos, Albums, SinglePhoto } from "./gallery.js";
-import { Reviewer } from "./review.js";
-import { BulkReview, AppliedList } from "./review_bulk.js";
-import { Analytics } from "./analytics.js";
-import { MapPage } from "./map.js";
-import { QueuePage } from "./queue.js";
-import { Weather, WEATHER_TABS } from "./weather.js";
-import { Aprs } from "./aprs.js";
-import { Igate } from "./igate.js";
-import { Admin } from "./admin.js";
-import { Setup } from "./setup.js";
 import { Home } from "./home.js";
+
+// Every page but Home (the landing page, which comes with the app) loads its code the first time it's
+// opened. If that fails - usually the site was updated since this tab opened - it offers a reload.
+function lazy(load, name) {
+  let Page = null, waiting = null;
+  return function Lazy(props) {
+    const [, setReady] = useState(false);
+    const [failed, setFailed] = useState(false);
+    useEffect(() => {
+      if (Page) return;
+      waiting = waiting || load().then((m) => { Page = m[name]; });
+      waiting.then(() => setReady(true), () => { waiting = null; setFailed(true); });
+    }, []);
+    if (failed) return html`<div class="empty">This page couldn't load. <a href="" onClick=${() => location.reload()}>Reload</a></div>`;
+    return Page ? html`<${Page} ...${props} />` : html`<div class="boot">Loading…</div>`;
+  };
+}
+const Photos = lazy(() => import("./gallery.js"), "Photos");
+const Albums = lazy(() => import("./gallery.js"), "Albums");
+const SinglePhoto = lazy(() => import("./gallery.js"), "SinglePhoto");
+const Reviewer = lazy(() => import("./review.js"), "Reviewer");
+const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
+const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
+const Analytics = lazy(() => import("./analytics.js"), "Analytics");
+const MapPage = lazy(() => import("./map.js"), "MapPage");
+const QueuePage = lazy(() => import("./queue.js"), "QueuePage");
+const Weather = lazy(() => import("./weather.js"), "Weather");
+const Aprs = lazy(() => import("./aprs.js"), "Aprs");
+const Igate = lazy(() => import("./igate.js"), "Igate");
+const Admin = lazy(() => import("./admin.js"), "Admin");
+const Setup = lazy(() => import("./setup.js"), "Setup");
 
 function Login({ onLogin, note }) {
   const [username, setUsername] = useState("");
@@ -73,6 +93,7 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map"
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["queue", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
+const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];
 
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();

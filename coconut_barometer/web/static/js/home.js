@@ -2,7 +2,7 @@
 // photo, each station's weather, when each tracked callsign was last heard); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
 import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick } from "./lib.js";
-import { show, compass } from "./weather.js";
+import { show, compass } from "./units.js";
 
 function useGlance(path, ms) {
   const [d, setD] = useState(null);

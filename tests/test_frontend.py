@@ -60,7 +60,8 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('stream=${d.stream}', weather)
         self.assertNotIn("StreamBadge", weather)
         self.assertIn('export function WxStations()', weather)
-        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];', weather)   # Stations is in Settings
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];', main)   # Stations is in Settings
         self.assertIn('section === "weather" && html`<${WxStations} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 
@@ -117,6 +118,16 @@ class FrontendTest(unittest.TestCase):
         preloaded = re.findall(r'<link rel="modulepreload" href="/static/([^"]+)">', page)
         self.assertEqual(len(preloaded), len(set(preloaded)))           # no duplicates
         self.assertEqual(set(preloaded), seen - {os.path.join("js", "main.js")})
+
+    def test_pages_load_when_opened_and_exist(self):
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        pages = re.findall(r'const (\w+) = lazy\(\(\) => import\("\./([\w.]+)"\), "(\w+)"\);', main)
+        self.assertGreaterEqual(len(pages), 14)
+        for const, module, name in pages:
+            src = open(os.path.join(STATIC, "js", module)).read()
+            self.assertRegex(src, rf"export (function|const) {name}\b", f"{const}: {module} has no export {name}")
+        statics = re.findall(r'^import\s[^;]*?from\s+"\./([\w.]+)"', main, re.M)
+        self.assertEqual(sorted(statics), ["home.js", "lib.js"])                  # nothing else up front
 
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
