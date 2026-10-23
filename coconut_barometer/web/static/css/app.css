@@ -281,6 +281,7 @@ header.top .brand .health-dot { margin-left: var(--s1); }
 .health-dot.busy { animation: pulse 1.2s ease-in-out infinite; }
 nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-align: middle; }
 .health { margin-top: var(--s5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); }
+.health + .card { margin-top: var(--s4); }    /* e.g. Jobs, under it on the Status page */
 .health-head { display: flex; align-items: center; gap: var(--s2); width: 100%; text-align: left; padding: 0; }
 .health-head.link, .health-head.link b { color: var(--fg); font-size: var(--text-base); text-decoration: none; }
 .health-head .muted { margin-left: auto; font-size: var(--text-sm); }
