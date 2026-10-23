@@ -177,8 +177,18 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     app.mount("/static", static_files, name="static")
     app.include_router(share.router)       # /p/<id>, /a/<id> (share links with previews), robots.txt, sitemap.xml
 
+    # The icons browsers and iPhones look for at the root on their own, whatever the page links (Safari for a
+    # notification's icon, iOS for a Home Screen one).
+    ROOT_ICONS = {"apple-touch-icon.png": "apple-touch-icon.png", "apple-touch-icon-precomposed.png": "apple-touch-icon.png",
+                  "favicon.ico": "favicon-32.png"}
+
     @app.get("/{rest:path}", include_in_schema=False)
     def frontend(rest: str, request: Request):
+        if rest in ROOT_ICONS:
+            return FileResponse(STATIC / "img" / ROOT_ICONS[rest], media_type="image/png",
+                                headers={"Cache-Control": "public, max-age=86400"})
+        if "." in rest.rsplit("/", 1)[-1]:     # a file that isn't here: a 404, not the page (which isn't an icon)
+            return JSONResponse({"detail": "not found"}, status_code=404)
         return share.page(request, rt)
 
     return app

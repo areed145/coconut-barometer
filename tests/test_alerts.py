@@ -165,5 +165,12 @@ class PushApiTest(Base):
         for f in d["files"]:
             self.assertEqual(self.c.get(f).status_code, 200, f)
 
+    def test_the_icons_browsers_look_for_at_the_root_are_images(self):
+        for path in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"):
+            r = self.c.get(path)
+            self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"), path)
+        self.assertEqual(self.c.get("/no-such-icon.png").status_code, 404)        # not the page
+        self.assertIn("<!doctype html>", self.c.get("/weather").text)              # other addresses still are
+
 if __name__ == "__main__":
     unittest.main()
