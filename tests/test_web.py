@@ -126,6 +126,16 @@ class WebTest(unittest.TestCase):
         self.assertNotIn("1", {p[0] for p in self.c.get("/api/map/points").json()["points"]})
         for a in self.c.get("/api/albums").json():
             self.assertNotIn("1", {p["id"] for p in self.c.get(f"/api/albums/{a['id']}").json()["photos"]})
+        # An album with a private photo as its cover, and in its count (both from Flickr): neither shown.
+        album, public = x("SELECT album_id, COUNT(*) FROM memberships WHERE photo_id<>'1' GROUP BY album_id "
+                          "ORDER BY album_id LIMIT 1").fetchone()
+        x("INSERT OR IGNORE INTO memberships (photo_id, album_id) VALUES ('1', ?)", (album,))
+        x("UPDATE albums SET cover_url='https://live.staticflickr.com/1/1_abc.jpg', count=99 WHERE id=?", (album,))
+        self.store.db.commit()
+        seen = next(a for a in self.c.get("/api/albums").json() if a["id"] == album)
+        self.assertNotIn("/1_", seen["cover_url"])
+        self.assertEqual(seen["count"], public)
+        self.assertEqual(self.c.get(f"/api/albums/{album}").json()["count"], public)
         x("UPDATE photos SET geo_public=0 WHERE id='2'")              # public photo, location hidden on Flickr
         x("UPDATE photos SET geo_public=NULL WHERE id='3'")           # not synced since: unknown, so hidden too
         self.store.db.commit()

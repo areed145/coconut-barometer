@@ -139,16 +139,26 @@ class GalleryStore(Database):
 
     # An album visitors may see: one with a public photo in it.
     HAS_PUBLIC = f"EXISTS (SELECT 1 FROM memberships m JOIN photos p ON p.id = m.photo_id WHERE m.album_id = a.id AND {PUBLIC})"
+    # ... and what they see of it: Flickr's count and cover include private photos, so count the public
+    # ones, and if the cover is private (or not in the library), use the newest public photo instead.
+    PUBLIC_ALBUM = (
+        "a.id, a.title, a.description, a.date_update, "
+        f"(SELECT COUNT(*) FROM memberships m JOIN photos p ON p.id = m.photo_id WHERE m.album_id = a.id AND {PUBLIC}) AS count, "
+        f"CASE WHEN EXISTS (SELECT 1 FROM photos p WHERE p.id = regexp_extract(a.cover_url, '/([0-9]+)_', 1) AND {PUBLIC}) "
+        "THEN a.cover_url ELSE (SELECT 'https://live.staticflickr.com/' || p.server || '/' || p.id || '_' || p.secret || '.jpg' "
+        f"FROM memberships m JOIN photos p ON p.id = m.photo_id WHERE m.album_id = a.id AND {PUBLIC} "
+        "AND p.server IS NOT NULL AND p.secret IS NOT NULL ORDER BY p.date_upload DESC, p.id LIMIT 1) END AS cover_url")
 
     def album_list(self, public_only: bool = False) -> list[dict]:
         return [{"id": r["id"], "title": r["title"], "description": r["description"], "count": r["count"],
                  "date_update": r["date_update"], "cover_url": r["cover_url"]}
-                for r in self.db.execute(f"SELECT * FROM albums a{' WHERE ' + self.HAS_PUBLIC if public_only else ''} "
+                for r in self.db.execute(f"SELECT {self.PUBLIC_ALBUM if public_only else '*'} FROM albums a"
+                                         f"{' WHERE ' + self.HAS_PUBLIC if public_only else ''} "
                                          f"ORDER BY date_update DESC, title COLLATE NOCASE")]
 
     def album(self, album_id: str, public_only: bool = False) -> dict | None:
-        r = self.db.execute(f"SELECT * FROM albums a WHERE id=?{' AND ' + self.HAS_PUBLIC if public_only else ''}",
-                            (album_id,)).fetchone()
+        r = self.db.execute(f"SELECT {self.PUBLIC_ALBUM if public_only else '*'} FROM albums a "
+                            f"WHERE id=?{' AND ' + self.HAS_PUBLIC if public_only else ''}", (album_id,)).fetchone()
         return dict(r) if r else None
 
     def photo_detail(self, photo_id: str, public_only: bool = False) -> dict | None:

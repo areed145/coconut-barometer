@@ -1,4 +1,5 @@
 """Incremental sync, what's due when, and the per-day stats history."""
+import calendar
 import datetime as dt
 import os
 import tempfile
@@ -121,11 +122,17 @@ class StatsHistoryTest(unittest.TestCase):
 
     def test_recent_days_refetched_until_final(self):
         stats_history.update(self.fl, self.store, max_backfill=0, log=lambda *a: None)
-        now = time.time()
+        # As if fetched at 1am GMT, before yesterday settled (else it depends on the time of day).
+        now = calendar.timegm(dt.datetime.now(dt.timezone.utc).date().timetuple()) + 3600
+        with self.store.db:
+            self.store.db.execute("UPDATE stats_days SET fetched_at = ?", (now,))
         self.assertEqual(stats_history.days_due(self.store, 0, now=now), [])           # just fetched
-        later = now + 7 * 3600              # past the re-fetch interval (and maybe past midnight GMT)
-        yesterday = (dt.datetime.fromtimestamp(later, dt.timezone.utc).date() - dt.timedelta(days=1)).isoformat()
-        self.assertEqual(stats_history.days_due(self.store, 0, now=later)[:1], [yesterday])
+        later = now + 7 * 3600              # past the re-fetch interval, not yet settled
+        self.assertEqual(stats_history.days_due(self.store, 0, now=later)[:1], [self.day(1)])
+        settled = now + 12 * 3600           # fetched again then, it would be final
+        with self.store.db:
+            self.store.db.execute("UPDATE stats_days SET fetched_at = ?", (settled,))
+        self.assertNotIn(self.day(1), stats_history.days_due(self.store, 0, now=settled + 7 * 3600))
 
 
 if __name__ == "__main__":
