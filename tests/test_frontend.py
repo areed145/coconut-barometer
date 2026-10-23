@@ -67,6 +67,12 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("gradient = false", weather)
         self.assertIn("gradient ? shade(share)", weather)
 
+    def test_map_crowds_at_one_spot_open_without_endless_zooming(self):
+        m = open(os.path.join(STATIC, "js", "map.js")).read()
+        self.assertIn("else if (apart < RADIUS || m.getZoom() >= max)", m)   # never splits: open its photos now
+        self.assertIn("else c.zoomToBounds({ padding: [30, 30] });", m)      # else straight to where it splits
+        self.assertNotIn("m.getZoom() + 1", m)
+
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)

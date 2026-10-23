@@ -1,7 +1,8 @@
 // The Map page: every geotagged photo, clustered. A cluster's size and color follow its
-// photo count on a log scale (map.color_low → map.color_high). Clicking one zooms in a
-// level; once it holds map.expand_at photos or fewer it opens into thumbnails. A spot
-// with more photos than that (all at one point) opens them in the lightbox.
+// photo count on a log scale (map.color_low → map.color_high). Clicking one with map.expand_at
+// photos or fewer opens it into thumbnails; a bigger one zooms straight to where it splits up.
+// A bigger one that never would (its photos all at one spot, even at the closest zoom) opens
+// them in the lightbox at once.
 import { html, useState, useEffect, useRef, api, num, toast } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Lightbox } from "./gallery.js";
@@ -10,6 +11,7 @@ const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
 const ink = ([r, g, b]) => (0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#1b1b1b" : "#ffffff");
 const short = (n) => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
+const RADIUS = 60;          // px: markers this close are clustered (maxClusterRadius)
 const thumb = (id, server, secret) => (server && secret ? `https://live.staticflickr.com/${server}/${id}_${secret}_q.jpg` : "");
 
 function clusterIcon(L, n, total, lo, hi) {
@@ -74,7 +76,7 @@ export function MapPage({ at }) {
     const total = data.points.length;
     const group = L.markerClusterGroup({
       zoomToBoundsOnClick: false, spiderfyOnMaxZoom: false, showCoverageOnHover: false, chunkedLoading: true,
-      maxClusterRadius: 60, spiderfyDistanceMultiplier: 2.4,
+      maxClusterRadius: RADIUS, spiderfyDistanceMultiplier: 2.4,
       iconCreateFunction: (c) => clusterIcon(L, c.getChildCount(), total, lo, hi),
     });
     group.addLayers(data.points.map(([id, lat, lon, server, secret]) => {
@@ -84,11 +86,13 @@ export function MapPage({ at }) {
       return mk;
     }));
     group.on("clusterclick", (e) => {
-      const c = e.layer, n = c.getChildCount(), b = c.getBounds();
+      const c = e.layer, n = c.getChildCount(), b = c.getBounds(), max = m.getMaxZoom();
+      // How far apart its photos would be at the closest zoom: closer than a cluster's radius, it never splits.
+      const apart = m.project(b.getNorthEast(), max).distanceTo(m.project(b.getSouthWest(), max));
       if (n <= data.expand_at) c.spiderfy();
-      else if (m.getZoom() >= m.getMaxZoom() || b.getNorthEast().equals(b.getSouthWest()))
+      else if (apart < RADIUS || m.getZoom() >= max)
         open(c.getAllChildMarkers().map((x) => x.photoId), 0);       // all at one spot: browse them
-      else m.setView(c.getLatLng(), m.getZoom() + 1);
+      else c.zoomToBounds({ padding: [30, 30] });                     // straight to where it splits, not a level a click
     });
     group.on("click", (e) => {     // a thumbnail: browse it with the others it opened with
       const spread = group._spiderfied?.getAllChildMarkers();
@@ -117,7 +121,7 @@ export function MapPage({ at }) {
       </select>
       <span class="muted">${data ? `${num(data.points.length)} geotagged photo${data.points.length === 1 ? "" : "s"}` : "Loading…"}</span>
       <span class="spacer"></span>
-      <span class="muted small hint-pointer">Click a cluster to zoom in; small ones open into thumbnails</span>
+      <span class="muted small hint-pointer">Click a cluster to zoom in; small ones open into thumbnails, a crowd at one spot opens its photos</span>
     </div>
     <div class="mapwrap" ref=${el}></div>
     ${box && html`<${Lightbox} photos=${box.photos} index=${box.index} onIndex=${(i) => setBox({ ...box, index: i })}
