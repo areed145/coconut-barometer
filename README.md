@@ -48,7 +48,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 Photos, Weather and APRS are public: visitors see public photos only, and the rest (Analytics, Review, Queue, Settings) needs the login.
 
-- **Home** (`/`, and the logo): a large link to Photos, Weather and APRS, each with a glance at it now (the newest photo, each station's temperature and wind, when each callsign was last heard); below them, **On this day**: photos taken on today's date in earlier years; signed in, links to Review, Analytics, Queue and Settings.
+- **Home** (`/`, and the logo): a large link to Photos, Weather and APRS, each with a glance at it now (the newest photo, each station's temperature and wind, when each callsign was last heard); below them, **Highlights** (days since it rained, this month's rain and extremes, this year's 100 °F days or freezing nights, the last lightning within 10 miles and this month's strikes, the igate's farthest station heard this month, photos taken this year and the top upload this month, each linking to its page) and **On this day**: photos taken on today's date in earlier years; signed in, links to Review, Analytics, Queue and Settings.
 - **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos, or **On this day** (taken on today's date, any year).
 - **Albums**: covers and counts; open one for its photos.
 - **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps. The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
@@ -87,6 +87,7 @@ The API behind the public pages (photos, albums, map, weather, APRS, share links
 | `GET /api/analytics/gainers?days=`, `/breakdown?by=album\|camera\|year\|media`, `/photos/{id}` | views, faves and comments over time |
 | `GET/PUT /api/admin/settings`, `PUT /secrets/{name}`, `/sessions`, `/backups`, `POST /restore`, `/flickr/connect` | Settings |
 | `GET /api/setup`, `POST /api/setup/user`, `/restore` | the first-run setup page (with the code from the server's log) |
+| `GET /api/highlights` | Home's Highlights (weather streaks, the igate's farthest, this year's photos; public, no positions) |
 | `GET /api/sync/status`, `POST /api/sync/run {"mode": null\|"incremental"\|"photo_list"\|"full"}` | the scheduler |
 | `GET /api/wx/stations`, `/live`, `/history?device=&hours=`, `/days?device=`, `/records?device=`, `/rose?device=`, `/lightning?device=`, `/map`, `POST /api/wx/sync` | the Weather pages: WeatherFlow Tempest stations (REST history + live WebSocket; the token is in Settings → Connections) |
 | `GET /api/aprs/stations`, `/track?callsign=&hours=`, `/packets?callsign=` | the APRS page: positions of the callsigns in Settings → APRS, heard live from APRS-IS |

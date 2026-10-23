@@ -96,6 +96,15 @@ class WebTest(unittest.TestCase):
         for bad in ("13-01", "10-32", "1023", "10-2"):
             self.assertEqual(self.c.get("/api/photos", params={"on": bad}).status_code, 422, bad)
 
+    def test_photo_highlights_count_public_photos_for_visitors(self):
+        x = self.store.db.execute
+        x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")
+        x("UPDATE photos SET date_taken='2023-06-01 10:00:00', date_taken_unknown=0, ispublic=0, views=900, date_upload=2000 WHERE id='2'")
+        self.store.db.commit()
+        mine, theirs = self.store.photo_highlights(2023, 1000), self.store.photo_highlights(2023, 1000, public_only=True)
+        self.assertEqual((mine["taken"], mine["top_upload"]["id"]), (2, "2"))
+        self.assertEqual((theirs["taken"], theirs["top_upload"]["id"]), (1, "1"))          # the private one stays out
+
     def test_static_files_are_revalidated(self):
         r = self.c.get("/static/js/main.js")
         self.assertEqual(r.headers["cache-control"], "no-cache")

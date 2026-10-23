@@ -50,6 +50,17 @@ CELLS = {"0.02": (0.02, 0.02), "0.05": (0.05, 0.05), "0.1": (0.1, 0.1), "0.25": 
          "subsquare": (1 / 24, 1 / 12), "square": (1.0, 2.0)}
 
 
+def igate_home(rt, db, gate: str) -> dict | None:
+    """Where the igate is, for distances: the location in Settings → APRS, else its own last beacon."""
+    try:
+        fixed = parse_location(rt.cfg["aprs"]["igate_location"])
+    except ValueError:
+        fixed = None
+    beacon = db.igate_placed(gate)
+    return ({"lat": fixed[0], "lon": fixed[1], "source": "setting"} if fixed
+            else {"lat": beacon["lat"], "lon": beacon["lon"], "source": "beacon", "ts": beacon["ts"]} if beacon else None)
+
+
 @router.get("/igate")
 def igate(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
           direct: bool = True, count: str = Query("packets", pattern="^(packets|stations)$"),
@@ -68,13 +79,7 @@ def igate(start: int | None = None, end: int | None = None, hours: float = Query
     rows = db.igate_cells(gate, start, end, dlat, dlon, direct)
     out |= {"totals": db.igate_totals(gate, start, end),
             "cells": {"dlat": dlat, "dlon": dlon, "rows": [[r["lat"], r["lon"], r["n"], r["stations"]] for r in rows]}}
-    try:
-        fixed = parse_location(rt.cfg["aprs"]["igate_location"])
-    except ValueError:
-        fixed = None
-    beacon = db.igate_placed(gate)
-    home = ({"lat": fixed[0], "lon": fixed[1], "source": "setting"} if fixed
-            else {"lat": beacon["lat"], "lon": beacon["lon"], "source": "beacon", "ts": beacon["ts"]} if beacon else None)
+    home = igate_home(rt, db, gate)
     out["home"] = home
     if not home:
         return out

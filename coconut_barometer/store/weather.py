@@ -37,6 +37,9 @@ GUST_FACTOR_SQL = "CASE WHEN o.wind_avg >= 1 THEN o.wind_gust / o.wind_avg END"
 # A strike's distance, for the closest-lightning record. The sensor's nearest is 1 km ("overhead"); the odd 0 is
 # an observation without a distance, so it doesn't count.
 _NEAR = "CASE WHEN o.strike_count > 0 AND o.strike_dist > 0 THEN o.strike_dist END"
+HOT_C = (100 - 32) / 1.8          # a "hot day": a high of 100 °F or more
+MEASURABLE_MM = 0.254             # rain that counts: 0.01 in, the usual "measurable"
+NEAR_KM = 16.0934                 # lightning "near": within 10 miles
 PARTS = {"night": (0, 6), "morning": (6, 12), "afternoon": (12, 18), "evening": (18, 24)}
 
 
@@ -266,6 +269,69 @@ class WeatherStore(Database):
                 "days": len(days), "all": best.get("all", {}),
                 "months": [{"month": m, **best[str(m)]} for m in range(1, 13) if str(m) in best],
                 "this_date": this_date, "almanac": almanac(lat, lon, zone, now) if lat is not None and lon is not None else None}
+
+    def wx_highlights(self, device_id: int, now: int | None = None) -> dict:
+        """For Home, by local time at the station (metric): the rain streak, this month so far, this year's
+        hot days (high ≥ 100 °F) and freezing nights (low ≤ 0 °C), and lightning (the last strike within
+        10 miles, this month's count). `record` lists what this month holds the all-time record for, once
+        there's more than a year of history (before that nearly every month would). All as of the newest
+        observation (`as_of`), so a station that has stopped reporting isn't counted as dry since."""
+        now = int(now or time.time())
+        zone, _, _ = self._place(device_id)
+        newest = self.db.execute("SELECT max(ts) FROM wx_obs WHERE device_id=? AND ts <= ?", (device_id, now)).fetchone()[0]
+        if newest is None:
+            return {"since": None}
+        now = newest
+        local = datetime.fromtimestamp(now, zone)
+        today = local.date()
+        month_start = int(local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
+        year_start = int(local.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
+        rows = self.db.execute(
+            "SELECT (ts // 3600) * 3600 AS t, sum(rain), max(temp), arg_max(ts, temp), min(temp), arg_min(ts, temp), "
+            "sum(strike_count) FROM wx_obs WHERE device_id=? AND ts <= ? GROUP BY 1 ORDER BY 1", (device_id, now)).fetchall()
+        days: dict = {}
+        month = {"rain": 0.0, "high": None, "low": None, "strikes": 0}
+        hot = cold = 0
+        ever = {"high": None, "low": None, "rain_day": 0.0}
+        for t, rain, hi, hi_ts, lo, lo_ts, strikes in rows:
+            day = datetime.fromtimestamp(t, zone).date()
+            d = days.setdefault(day, {"rain": 0.0, "high": None, "low": None})
+            d["rain"] += rain or 0.0
+            if hi is not None:
+                d["high"] = hi if d["high"] is None else max(d["high"], hi)
+                d["low"] = lo if d["low"] is None else min(d["low"], lo)
+                ever["high"] = hi if ever["high"] is None else max(ever["high"], hi)
+                ever["low"] = lo if ever["low"] is None else min(ever["low"], lo)
+            if t >= month_start:
+                month["rain"] += rain or 0.0
+                month["strikes"] += int(strikes or 0)
+                if hi is not None and (month["high"] is None or hi > month["high"]["v"]):
+                    month["high"] = {"v": hi, "ts": int(hi_ts)}
+                if lo is not None and (month["low"] is None or lo < month["low"]["v"]):
+                    month["low"] = {"v": lo, "ts": int(lo_ts)}
+        for day, d in days.items():
+            ever["rain_day"] = max(ever["rain_day"], d["rain"])
+            if day.year == today.year and d["high"] is not None:
+                hot += d["high"] >= HOT_C
+                cold += d["low"] <= 0
+        wet = [day for day, d in days.items() if d["rain"] >= MEASURABLE_MM]
+        last = max(wet) if wet else None
+        near = self.db.execute(
+            "SELECT ts, km FROM (SELECT ts, strike_dist AS km FROM wx_obs WHERE device_id=? AND strike_count > 0 AND strike_dist > 0 "
+            "UNION ALL SELECT ts, value FROM wx_events WHERE device_id=? AND kind='strike' AND value > 0) "
+            "WHERE km <= ? AND ts <= ? ORDER BY ts DESC LIMIT 1", (device_id, device_id, NEAR_KM, now)).fetchone()
+        record = []
+        if rows[-1][0] - rows[0][0] > 366 * 86400:
+            wettest = max((d["rain"] for day, d in days.items() if day >= today.replace(day=1)), default=0)
+            record = [k for k, hit in (("high", month["high"] and month["high"]["v"] >= ever["high"]),
+                                       ("low", month["low"] and month["low"]["v"] <= ever["low"]),
+                                       ("rain_day", wettest and wettest >= ever["rain_day"])) if hit]
+        return {"timezone": zone.key, "since": rows[0][0], "as_of": now, "today": today.isoformat(),
+                "rain": {"last_day": last.isoformat() if last else None, "last_amount": days[last]["rain"] if last else None,
+                         "days_since": (today - last).days if last else None, "today": days.get(today, {}).get("rain", 0.0)},
+                "month": {"start": month_start, **month}, "year": {"start": year_start, "hot_days": hot, "freezing_nights": cold},
+                "lightning": {"last_near": {"ts": near[0], "km": near[1]} if near else None, "near_km": NEAR_KM},
+                "record": record}
 
     def wx_lightning(self, device_id: int, start: int, end: int, step: int = 1800) -> dict:
         """Strikes per `step`-second bin and kilometre of distance, for a heatmap. The station reports one

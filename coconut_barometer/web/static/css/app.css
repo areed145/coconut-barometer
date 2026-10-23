@@ -274,6 +274,12 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .homebg.rings { right: 0; bottom: 0; width: 200px; height: 200px; }
 .homebg.rings circle { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .3; }
 .homebg.rings .dot { fill: var(--accent); stroke: none; opacity: .45; }
+.highlights { margin-top: var(--s6); }
+.hltiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--s2); }
+.wxtile.hl { padding: var(--s3); background: var(--surface); }
+.wxtile.hl b { font-size: var(--text-lg); }
+.hl-record { font-style: normal; text-transform: none; letter-spacing: 0; margin-left: var(--s1); padding: 0 6px;
+  border-radius: var(--r-pill); background: var(--accent); color: var(--accent-fg); font-size: var(--text-2xs); }
 .onthisday { margin-top: var(--s6); }
 .onthisday h2 { display: flex; align-items: baseline; gap: var(--s2); }
 .onthisday h2 a { margin-left: auto; font-size: var(--text-sm); font-weight: 500; }

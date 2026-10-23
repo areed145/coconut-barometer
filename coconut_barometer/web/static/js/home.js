@@ -90,6 +90,59 @@ function AprsCard() {
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
 }
 
+// Highlights: running totals and streaks that mean something from the first week of history, each linking to
+// where it comes from. "Record" only once there's more than a year to compare with (the server decides).
+function Hl({ href, label, value, note, record }) {
+  return html`<a class="wxtile hl" href=${href}><span>${label}${record ? html` <i class="hl-record">record</i>` : ""}</span>
+    <b>${value}</b><small>${note || " "}</small></a>`;
+}
+
+function Highlights() {
+  const d = useGlance("/api/highlights", 300000);
+  if (!d) return null;
+  const { units: u, weather: w, igate: g, photos: p } = d;
+  const rainDigits = u === "imperial" ? 2 : 1;
+  const tz = { timeZone: w?.timezone || undefined };
+  const date = (ts) => new Date(ts * 1000).toLocaleDateString(undefined, { ...tz, month: "short", day: "numeric" });
+  const isoDate = (iso) => date(new Date(iso + "T12:00:00Z").getTime() / 1000);
+  const monthName = (ts) => new Date(ts * 1000).toLocaleDateString(undefined, { ...tz, month: "long" });
+  const tiles = [];
+  if (w) {
+    const r = w.rain, m = w.month, y = w.year, since = w.since > y.start ? ` (since ${date(w.since)})` : "";
+    tiles.push(r.today >= 0.254 ? html`<${Hl} key="rain" href="#/weather/history?range=24h&chart=rain" label="Rain today"
+        value=${show(u, "rain", r.today, rainDigits)} note=${w.name} />`
+      : html`<${Hl} key="rain" href="#/weather/history?range=30d&chart=rain" label="Since it rained"
+        value=${r.last_day ? (r.days_since === 1 ? "1 day" : `${r.days_since} days`) : "no rain yet"}
+        note=${r.last_day ? `${isoDate(r.last_day)} · ${show(u, "rain", r.last_amount, rainDigits)}` : `since ${date(w.since)}`} />`);
+    tiles.push(html`<${Hl} key="month" href="#/weather/records" label=${`${monthName(m.start)} so far`}
+      value=${`${show(u, "rain", m.rain, rainDigits)} rain`} record=${w.record.length > 0}
+      note=${[m.high && `high ${show(u, "temp", m.high.v, 0)} ${date(m.high.ts)}`, m.low && `low ${show(u, "temp", m.low.v, 0)} ${date(m.low.ts)}`].filter(Boolean).join(" · ")} />`);
+    const warm = (() => { const mo = new Date(w.as_of * 1000).toLocaleDateString("en-US", { ...tz, month: "numeric" }); return mo >= 4 && mo <= 10; })();
+    const year = new Date(w.as_of * 1000).toLocaleDateString("en-US", { ...tz, year: "numeric" });
+    tiles.push(warm ? html`<${Hl} key="season" href="#/weather/records" label=${`Days ${u === "imperial" ? "≥ 100 °F" : "≥ 37.8 °C"} in ${year}`}
+        value=${num(y.hot_days)} note=${`highs that hot${since}`} />`
+      : html`<${Hl} key="season" href="#/weather/records" label=${`Freezing nights in ${year}`}
+        value=${num(y.freezing_nights)} note=${`lows of ${u === "imperial" ? "32 °F" : "0 °C"} or below${since}`} />`);
+    const l = w.lightning;
+    tiles.push(html`<${Hl} key="strike" href="#/weather/history?range=30d&chart=lightning"
+      label=${`Lightning within ${u === "imperial" ? "10 mi" : "16 km"}`} value=${l.last_near ? date(l.last_near.ts) : "none yet"}
+      note=${`${num(m.strikes)} strike${m.strikes === 1 ? "" : "s"} in ${monthName(m.start)}`} />`);
+  }
+  if (g?.farthest) tiles.push(html`<${Hl} key="igate" href="#/aprs/igate" label="Farthest heard this month"
+    value=${show(u, "dist", g.farthest.km, 0)} note=${`${g.farthest.callsign} · ${date(g.farthest.ts)}`} />`);
+  if (p) {
+    tiles.push(html`<${Hl} key="taken" href=${photosLink({ year: p.year, sort: "taken" })} label=${`Photos taken in ${p.year}`}
+      value=${num(p.taken)} note="see them, newest first" />`);
+    if (p.top_upload) tiles.push(html`<${Hl} key="top" href=${`#/photos/photo/${p.top_upload.id}`} label="Top upload this month"
+      value=${`${num(p.top_upload.views)} views`} note=${p.top_upload.title || "Untitled"} />`);
+  }
+  if (!tiles.length) return null;
+  const stale = w && Date.now() / 1000 - w.as_of > 3 * 3600;
+  return html`<section class="highlights" aria-label="Highlights">
+    <h2 class="section">Highlights${stale ? html` <span class="muted">weather as of ${date(w.as_of)}</span>` : ""}</h2>
+    <div class="hltiles">${tiles}</div></section>`;
+}
+
 // Photos taken on today's date in earlier years (not this year's: those are just "recent").
 function OnThisDay() {
   const on = today(), year = new Date().getFullYear();
@@ -115,6 +168,7 @@ export function Home({ session, pending, queued }) {
     <nav class="homecards" aria-label="Sections">
       <${PhotosCard} /><${WeatherCard} /><${AprsCard} />
     </nav>
+    <${Highlights} />
     <${OnThisDay} />
     ${session && html`<nav class="homelinks" aria-label="Signed in">
       <a href="#/photos/review">Review${pending ? html`<span class="badge">${pending}</span>` : ""}</a>

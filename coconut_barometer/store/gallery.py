@@ -92,6 +92,15 @@ class GalleryStore(Database):
                                f"LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
         return {"total": total, "offset": offset, "photos": [photo_card(r) for r in rows]}
 
+    def photo_highlights(self, year: int, month_start: int, public_only: bool = False) -> dict:
+        """For Home: how many photos were taken in `year`, and the most viewed one uploaded since `month_start`."""
+        public = f" AND {PUBLIC}" if public_only else ""
+        taken = self.db.execute("SELECT COUNT(*) FROM photos p WHERE substr(p.date_taken, 1, 4) = ? "
+                                f"AND COALESCE(p.date_taken_unknown, 0) = 0{public}", (f"{year:04d}",)).fetchone()[0]
+        top = self.db.execute(f"SELECT p.* FROM photos p WHERE p.date_upload >= ?{public} ORDER BY p.views DESC, p.id LIMIT 1",
+                              (month_start,)).fetchone()
+        return {"year": year, "taken": taken, "top_upload": photo_card(top) if top else None}
+
     GEOTAGGED = "p.lat IS NOT NULL AND p.lon IS NOT NULL AND NOT (p.lat = 0 AND p.lon = 0)"
 
     def map_points(self, album_id: str | None = None, year_from: int | None = None,

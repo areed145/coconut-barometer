@@ -162,6 +162,27 @@ class StoreTest(unittest.TestCase):
         self.assertEqual((r["since"], r["days"]), ((october // 3600) * 3600, 2))
         self.assertEqual([d["date"] for d in r["this_date"]], ["2023-11-14"])
 
+    def test_highlights_streaks_and_month_so_far(self):
+        def obs(ts, temp=20.0, rain=0.0, strike_km=0, strikes=0):
+            a = arr(ts, temp=temp, rain=rain)
+            a[14], a[15] = strike_km, strikes
+            return a
+        # NOW is 2023-11-14 16:13 in Chicago. Rain on Nov 10 (and a trace on the 12th that doesn't count).
+        self.store.wx_save_obs(11, [
+            obs(NOW - 40 * DAY, temp=39.0),                            # Oct 5: a 100 °F day (102 °F)
+            obs(NOW - 4 * DAY, rain=1.5), obs(NOW - 2 * DAY, rain=0.1),
+            obs(NOW - DAY, temp=30.0, strike_km=12, strikes=3),         # within 10 miles
+            obs(NOW - 600, temp=-1.0, strike_km=30, strikes=5), obs(NOW, temp=15.0)])
+        h = self.store.wx_highlights(11, now=NOW + 5 * DAY)           # the station stopped: as of its last reading
+        self.assertEqual((h["as_of"], h["today"]), (NOW, "2023-11-14"))
+        self.assertEqual(h["rain"], {"last_day": "2023-11-10", "last_amount": 1.5, "days_since": 4, "today": 0.0})
+        m = h["month"]
+        self.assertAlmostEqual(m["rain"], 1.6)
+        self.assertEqual((m["high"]["v"], m["low"]["v"], m["strikes"]), (30.0, -1.0, 8))
+        self.assertEqual((h["year"]["hot_days"], h["year"]["freezing_nights"]), (1, 1))
+        self.assertEqual(h["lightning"]["last_near"], {"ts": NOW - DAY, "km": 12})     # the 30 km one is too far
+        self.assertEqual(h["record"], [])                                               # under a year of history
+
     def test_almanac_matches_the_published_times(self):
         from coconut_barometer.store.weather import almanac
         from zoneinfo import ZoneInfo
@@ -324,6 +345,15 @@ class WeatherApiTest(unittest.TestCase):
         store.close()
         self.assertEqual(self.c.get("/api/wx/live").json()["stations"][0]["obs"]["temp"], 25.0)   # shown at once
         self.assertEqual(calls, [11])
+
+    def test_highlights_are_public_and_position_free(self):
+        r = self.c.get("/api/highlights")
+        self.assertEqual(r.status_code, 200)
+        d = r.json()
+        self.assertEqual(d["weather"]["name"], "Backyard")
+        self.assertEqual(d["photos"]["taken"], 0)                     # no photos in this library
+        self.assertIsNone(d["igate"])                                  # no igate set
+        self.assertNotRegex(r.text, r'"(lat|lon|latitude|longitude|serial)"')
 
     def test_records_api(self):
         r = self.c.get("/api/wx/records", params={"device": 11}).json()           # public, like the other weather pages
