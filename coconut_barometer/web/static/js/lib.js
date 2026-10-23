@@ -84,6 +84,8 @@ export const along = (stops, t) => {
 };
 // t in 0..1 -> "rgb(…)" along the gradient.
 export const shade = (t) => `rgb(${along(gradient, t).join(",")})`;
+// The whole gradient as a CSS linear-gradient, left to right, through every stop (for meters and keys).
+export const ramp = () => `linear-gradient(90deg, ${gradient.map((c) => `rgb(${c.join(",")})`).join(", ")})`;
 // Where v sits between lo and hi on a log scale: 0 for the smallest, 1 for the largest.
 export const logShare = (v, hi, lo = 0) => {
   const a = Math.log1p(Math.max(0, lo)), b = Math.log1p(Math.max(0, hi));

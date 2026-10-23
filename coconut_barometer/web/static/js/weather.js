@@ -2,7 +2,7 @@
 // stream, sync) are under Settings → Weather.
 // Everything is stored metric; Settings → Display → Units only changes how it's shown here (units.js).
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare, every, signedIn } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, ramp, logShare, every, signedIn } from "./lib.js";
 import { WxMap } from "./weather_map.js";
 import { unitsFor, fmt, show, compass } from "./units.js";
 
@@ -98,7 +98,7 @@ function StationCard({ s, rapid, unit, now, events, stream }) {
         <b>${show(unit, "temp", o.temp)}</b>
         <span class="muted">feels ${show(unit, "temp", o.feels_like, 0)} · dew point ${show(unit, "temp", o.dew_point, 0)}</span>
         ${o.temp_low != null && html`
-          <${Meter} share=${range > 0 ? (o.temp - o.temp_low) / range : 0.5} background=${`linear-gradient(90deg, ${shade(0)}, ${shade(1)})`} />
+          <${Meter} share=${range > 0 ? (o.temp - o.temp_low) / range : 0.5} background=${ramp()} />
           <div class="ends"><span>${show(unit, "temp", o.temp_low, 0)} low</span><span>today</span><span>high ${show(unit, "temp", o.temp_high, 0)}</span></div>`}
         <${Spark} values=${r.temp} values2=${r.dew_point} />
       </a>
@@ -305,7 +305,7 @@ function Lightning({ device, start, end, unit }) {
   if (!d) return html`<div class="boot">Loading…</div>`;
   if (!d.total) return html`<p class="muted">No lightning in this range.</p>`;
   return html`<div class="chart" ref=${box}></div>
-    <p class="muted heatkey"><span>${num(d.total)} strikes · fewer</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i><span>more per 30 min</span></p>`;
+    <p class="muted heatkey"><span>${num(d.total)} strikes · fewer</span><i style=${`background: ${ramp()}`}></i><span>more per 30 min</span></p>`;
 }
 
 // One cell per local day, weeks across and weekdays down, colored by the picked daily value.
@@ -340,7 +340,7 @@ function Calendar({ days, unit }) {
           return html`<rect key=${c.date} x=${L + col * P} y=${T + row * P} width=${P - 2} height=${P - 2} rx="2" fill=${tone(c.v)}>
             <title>${c.date} · ${fmt(c.v, digits)}${label ? " " + label : ""}</title></rect>`; })}
       </svg>
-      <p class="muted heatkey"><span>${fmt(lo, digits)}</span><i style=${`background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})`}></i>
+      <p class="muted heatkey"><span>${fmt(lo, digits)}</span><i style=${`background: ${ramp()}`}></i>
         <span>${fmt(hi, digits)}${label ? " " + label : ""}${metric === "rain" ? " · grey: dry" : ""}</span></p>`}`;
 }
 
@@ -433,7 +433,7 @@ function HourHeat({ d, unit }) {
       axes: [axisStyle(), { ...yAxisStyle(), label: "hour", splits: () => [0, 6, 12, 18, 24], values: (u, ticks) => ticks.map((h) => `${h}:00`) }],
       series: [{}, { points: { show: false } }], hooks: { draw: [paint], setCursor: [hover] } }, [span, [null, null]]];
   }} />
-  <p class="muted heatkey"><span>colder</span><i style="background: linear-gradient(90deg, ${shade(0)}, ${shade(1)})"></i>
+  <p class="muted heatkey"><span>colder</span><i style=${`background: ${ramp()}`}></i>
     <span>warmer · hours in ${d.timezone}</span> <span ref=${readout}></span></p>`;
 }
 
