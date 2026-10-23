@@ -73,14 +73,17 @@ export function DropZone({ onFiles, accept, disabled, children }) {
 }
 
 // ---- the color gradient (Settings → Display → Colors), for anything showing an amount ---
-let gradient = [[0xf7, 0xd1, 0x25], [0x1d, 0xab, 0x45]];
+let gradient = [[0xf7, 0xd1, 0x25], [0x8a, 0xbe, 0x35], [0x1d, 0xab, 0x45]];
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 export const loadTheme = () => api("/api/theme").then((t) => { gradient = t.colors.map(rgbOf); }).catch(() => {});
-// t in 0..1 -> "rgb(…)" between the low and high colors.
-export const shade = (t) => {
-  const [a, b] = gradient, k = Math.max(0, Math.min(1, t || 0));
-  return `rgb(${a.map((x, i) => Math.round(x + (b[i] - x) * k)).join(",")})`;
+// t in 0..1 -> [r, g, b] along the stops (low, medium, high): evenly spaced, mixed between neighbours.
+export const along = (stops, t) => {
+  const s = Math.max(0, Math.min(1, t || 0)) * (stops.length - 1), j = Math.min(stops.length - 2, Math.floor(s));
+  const [a, b] = [stops[j], stops[j + 1]];
+  return a.map((x, i) => Math.round(x + (b[i] - x) * (s - j)));
 };
+// t in 0..1 -> "rgb(…)" along the gradient.
+export const shade = (t) => `rgb(${along(gradient, t).join(",")})`;
 // Where v sits between lo and hi on a log scale: 0 for the smallest, 1 for the largest.
 export const logShare = (v, hi, lo = 0) => {
   const a = Math.log1p(Math.max(0, lo)), b = Math.log1p(Math.max(0, hi));

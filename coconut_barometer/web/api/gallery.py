@@ -33,7 +33,12 @@ def photos(q: str = Query("", max_length=100), sort: Sort = "newest", media: Lit
 @router.get("/theme")
 def theme(rt=Depends(runtime)):
     """The color gradient (Settings → Display → Colors) for the map and the charts."""
-    return {"colors": [rt.cfg["theme"]["color_low"], rt.cfg["theme"]["color_high"]]}
+    return {"colors": gradient(rt.cfg)}
+
+
+def gradient(cfg: dict) -> list[str]:
+    """Low, medium, high."""
+    return [cfg["theme"][f"color_{k}"] for k in ("low", "mid", "high")]
 
 
 _PRESET_COUNTS: dict[tuple[str, bool], tuple[float, list]] = {}    # (database path, public only) -> (when, counts)

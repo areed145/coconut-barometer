@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from ..deps import runtime, store, viewer
+from .gallery import gradient
 
 router = APIRouter(prefix="/api/map", tags=["map"])
 
@@ -21,8 +22,8 @@ class Ids(BaseModel):
 def config(rt=Depends(runtime)):
     """What the browser needs to draw a map. The CARTO key is public by design (it's in every
     tile URL), unlike the API keys kept encrypted."""
-    mcfg, theme = rt.cfg["map"], rt.cfg["theme"]
-    return {"carto_key": mcfg["carto_key"] or "", "colors": [theme["color_low"], theme["color_high"]],
+    mcfg = rt.cfg["map"]
+    return {"carto_key": mcfg["carto_key"] or "", "colors": gradient(rt.cfg),
             "expand_at": mcfg["expand_at"]}
 
 
@@ -32,10 +33,10 @@ def points(request: Request, album: str | None = Query(None, max_length=40),
            rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     """{points: [[id, lat, lon, server, secret], ...], years, colors, expand_at}. Gzipped here
     (it's the one big response, ~10 bytes a photo compressed); nothing secret is in it."""
-    mcfg, theme = rt.cfg["map"], rt.cfg["theme"]
+    mcfg = rt.cfg["map"]
     body = json.dumps({"points": db.map_points(album, year_from, year_to, public_only=me is None),
                        "years": db.map_years(public_only=me is None),
-                       "colors": [theme["color_low"], theme["color_high"]], "expand_at": mcfg["expand_at"]},
+                       "colors": gradient(rt.cfg), "expand_at": mcfg["expand_at"]},
                       separators=(",", ":")).encode()
     headers = {"Vary": "Accept-Encoding"}
     if "gzip" in request.headers.get("accept-encoding", ""):

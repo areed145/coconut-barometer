@@ -1,23 +1,22 @@
 // The Map page: every geotagged photo, clustered. A cluster's size and color follow its
-// photo count on a log scale (map.color_low → map.color_high). Clicking one with map.expand_at
+// photo count on a log scale (theme.color_low → color_mid → color_high). Clicking one with map.expand_at
 // photos or fewer opens it into thumbnails; a bigger one zooms straight to where it splits up.
 // A bigger one that never would (its photos all at one spot, even at the closest zoom) opens
 // them in the lightbox at once.
-import { html, useState, useEffect, useRef, api, num, toast } from "./lib.js";
+import { html, useState, useEffect, useRef, api, num, toast, along } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Lightbox } from "./gallery.js";
 
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
 const ink = ([r, g, b]) => (0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#1b1b1b" : "#ffffff");
 const short = (n) => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 const RADIUS = 60;          // px: markers this close are clustered (maxClusterRadius)
 const thumb = (id, server, secret) => (server && secret ? `https://live.staticflickr.com/${server}/${id}_${secret}_q.jpg` : "");
 
-function clusterIcon(L, n, total, lo, hi) {
+function clusterIcon(L, n, total, stops) {
   const t = Math.min(1, Math.log(n) / Math.log(Math.max(3, total)));
   const size = Math.round(30 + 34 * t);
-  const color = mix(lo, hi, t);
+  const color = along(stops, t);
   const el = document.createElement("div");
   el.className = "mc";
   el.style.width = el.style.height = size + "px";
@@ -72,12 +71,12 @@ export function MapPage({ at }) {
     const m = map.current, L = window.L;
     if (!ready || !m || !data) return;
     layer.current?.remove();
-    const [lo, hi] = data.colors.map(rgb);
+    const stops = data.colors.map(rgb);
     const total = data.points.length;
     const group = L.markerClusterGroup({
       zoomToBoundsOnClick: false, spiderfyOnMaxZoom: false, showCoverageOnHover: false, chunkedLoading: true,
       maxClusterRadius: RADIUS, spiderfyDistanceMultiplier: 2.4,
-      iconCreateFunction: (c) => clusterIcon(L, c.getChildCount(), total, lo, hi),
+      iconCreateFunction: (c) => clusterIcon(L, c.getChildCount(), total, stops),
     });
     group.addLayers(data.points.map(([id, lat, lon, server, secret]) => {
       const mk = L.marker([lat, lon], { keyboard: false, title: "",

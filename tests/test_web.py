@@ -169,7 +169,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(tc.get("/api/photos", headers={"Accept-Encoding": "gzip"}).headers.get("content-encoding"), "gzip")
 
     def test_theme(self):
-        self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})   # public
+        self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#8abe35", "#1dab45"]})   # public
 
     def test_status_jobs_and_activity_need_login(self):
         self.assertEqual(self.c.get("/api/status/jobs").status_code, 401)

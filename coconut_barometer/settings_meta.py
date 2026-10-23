@@ -177,6 +177,7 @@ META = {
                         options={"metric": "Metric (°C, km/h or m/s, hPa, mm, m)",
                                  "imperial": "Imperial (°F, mph, inHg, in, ft)"}),
     "theme.color_low": _m("display", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
+    "theme.color_mid": _m("display", "Medium", "Halfway along: the gradient runs low → medium → high.", group="Colors"),
     "theme.color_high": _m("display", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
     "map.expand_at": _m("display", "Show thumbnails from (photos)", "On the photo map, clicking a cluster zooms in one "
                         "level; once it holds this many photos or fewer, it opens into thumbnails instead.", group="Map"),

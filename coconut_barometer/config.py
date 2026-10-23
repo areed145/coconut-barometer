@@ -98,6 +98,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "theme": {
         "color_low": "#f7d125",       # the gradient for map clusters and chart bars: low values ...
+        "color_mid": "#8abe35",       # ... through the middle (by default halfway between the other two) ...
         "color_high": "#1dab45",      # ... to high (log scale)
     },
     "map": {
@@ -134,7 +135,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60)}
-COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
+COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
 ENV_OVERRIDES = {"DATABASE_PATH": ("database",)}

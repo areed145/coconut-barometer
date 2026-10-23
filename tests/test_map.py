@@ -43,7 +43,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual({p[0] for p in d["points"]}, geo)
         self.assertNotIn("4", geo)                                       # no geotag: not on the map
         self.assertEqual(d["points"][0][3:], ["1", "s"])                 # server, secret for the thumbnail
-        self.assertEqual((d["colors"], d["expand_at"]), (["#f7d125", "#00ff00"], 40))
+        self.assertEqual((d["colors"], d["expand_at"]), (["#f7d125", "#8abe35", "#00ff00"], 40))
         self.assertEqual(d["years"], [2019, 2024])
 
     def test_filters_by_year_and_album(self):
@@ -80,7 +80,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/map/config").json()["carto_key"], "")
         self.c.app.state.runtime.cfg["map"]["carto_key"] = "abc123-key_XYZ"
         self.assertEqual(self.c.get("/api/map/config").json(),
-                         {"carto_key": "abc123-key_XYZ", "colors": ["#f7d125", "#00ff00"], "expand_at": 40})
+                         {"carto_key": "abc123-key_XYZ", "colors": ["#f7d125", "#8abe35", "#00ff00"], "expand_at": 40})
         raw = {"map": {"carto_key": "bad key with spaces"}}
         self.assertTrue(any("map.carto_key" in e for e in validate(raw, _merge(DEFAULTS, raw))[0]))
 
