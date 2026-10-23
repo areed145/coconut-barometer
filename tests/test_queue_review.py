@@ -110,6 +110,31 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual([c["action"] for c in self.store.queue_item("5")["changes"]], ["set_description"])
         self.assertEqual([j["photo_id"] for j in self.app.jobs_status()["finished"]], ["5"])
 
+    def test_tags_kept_from_both_parts_in_one_update(self):
+        self.fl.photos[0]["tags"] = "oldtag mine"
+        sync(self.fl, self.store, log=lambda *a: None)
+        self.process(photo_ids=["1"])
+        changes = self.store.queue_item("1")["changes"]
+        i = next(k for k, c in enumerate(changes) if c["action"] == "set_tags")
+        choices = [{"approve": False} for _ in changes]
+        choices[i] = {"approve": True, "value": ["food", "ramen", "mine"]}        # proposed, less one; and "mine" kept
+        calls = len(self.fl.calls)
+        self.assertEqual(self.decide("1", choices)["status"], "applied")
+        self.assertEqual(self.fl.photos[0]["tags"], "food ramen mine")
+        self.assertEqual([m for m, _ in self.fl.calls[calls:]].count("flickr.photos.setTags"), 1)
+
+    def test_tags_already_as_chosen_make_no_call(self):
+        self.fl.photos[0]["tags"] = "oldtag mine"
+        sync(self.fl, self.store, log=lambda *a: None)
+        self.process(photo_ids=["1"])
+        changes = self.store.queue_item("1")["changes"]
+        i = next(k for k, c in enumerate(changes) if c["action"] == "set_tags")
+        choices = [{"approve": False} for _ in changes]
+        choices[i] = {"approve": True, "value": ["mine", "oldtag"]}              # proposed off, current kept: as it is
+        calls = len(self.fl.calls)
+        self.decide("1", choices)
+        self.assertNotIn("flickr.photos.setTags", [m for m, _ in self.fl.calls[calls:]])
+
     def test_queued_counts_every_job_running_or_waiting(self):
         app = ReviewApp(self.store, self.fl, background=False)          # no worker to take the jobs meanwhile
         self.assertEqual(app.jobs_status()["queued"], 0)                 # the Queue tab's dot: green

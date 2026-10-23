@@ -15,6 +15,7 @@ from ..apply import apply_changes, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..planner import photo_page
+from ..util import norm_tag
 
 # A photo is in review from being sent there until it's applied or ignored (see store/queue.py):
 # "new" (waiting to be processed), "pending" (ready), "applying". Shown as one list.
@@ -635,9 +636,10 @@ def _with_choice(c: Change, choice: dict) -> Change:
     c.approved = bool(choice.get("approve"))
     value = choice.get("value", choice.get("target"))
     if c.action in TAG_ACTIONS:
-        kept = split_tags(value if value is not None else c.new)
+        kept = split_tags(value if value is not None else c.new)   # set_tags: the whole list, reconciled on the page
         c.edited = kept if kept != c.tags else None
-        c.approved = c.approved and bool(kept)
+        same = c.action == "set_tags" and {norm_tag(t) for t in kept} == {norm_tag(t) for t in c.old.split()}
+        c.approved = c.approved and bool(kept) and not same          # already its tags: nothing to write
     elif value is not None and c.action in META_ACTIONS and str(value).strip() != c.new:
         c.edited = str(value).strip()
     elif c.action == "set_location":

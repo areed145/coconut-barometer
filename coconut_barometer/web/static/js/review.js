@@ -18,9 +18,23 @@ function initialChoices(item) {
       const has = c.new && c.new.lat != null;
       return { approve: has && c.confidence !== "low", value: has ? c.new : null, tags: null };
     }
-    return { approve: true, value: c.new, tags: TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null };
+    const tags = TAGS.has(c.action) ? c.new.map((t) => ({ t, on: true })) : null;
+    if (c.action === "set_tags")                 // proposed tags on; the photo's current ones off (replaced) unless you keep them
+      return { approve: true, value: c.new, tags, keepOld: false, old: (c.old || "").split(/\s+/).filter(Boolean).map((t) => ({ t, on: true })) };
+    return { approve: true, value: c.new, tags };
   });
 }
+
+// set_tags: the photo's tags once applied, reconciled into one list (one setTags call): the proposed tags
+// kept, then its current ones kept if that section is on, each once.
+function finalTags(ch) {
+  const out = [], seen = new Set();
+  const add = (t) => { const k = norm(t); if (k && !seen.has(k)) { seen.add(k); out.push(t); } };
+  if (ch.approve) ch.tags.filter((x) => x.on).forEach((x) => add(x.t));
+  if (ch.keepOld) ch.old.filter((x) => x.on).forEach((x) => add(x.t));
+  return out;
+}
+const sameTags = (a, b) => a.length === b.length && a.every((t) => b.map(norm).includes(norm(t)));
 
 const coords = (v) => `${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}`;
 const ACCURACY = (a) => (a >= 15 ? "street" : a >= 12 ? "neighborhood" : a >= 9 ? "town" : a >= 5 ? "region" : "country");
@@ -101,20 +115,13 @@ function Change({ c, ch, i, editable, out, onChange }) {
   const why = [c.source, c.confidence, c.reason].filter(Boolean).join(" · ");
   const status = out && out.status ? html` <span class=${"status s-" + out.status}>${out.status}</span>` : "";
   const set = (patch) => onChange(i, { ...ch, ...patch });
-  if (TAGS.has(c.action)) {
+  if (c.action === "set_tags") return html`<${TagSections} c=${c} ch=${ch} editable=${editable} out=${out} set=${set} />`;
+  if (TAGS.has(c.action)) {                              // add_tags: proposals made before tags were one list
     const srcs = c.source.split(",").map((s) => s.replace(/^(std|vision|geo):/, "")).join(", ");
-    const kept = new Set(ch.tags.filter((x) => x.on).map((x) => norm(x.t)));
-    const had = new Set((c.old || "").split(/\s+/).filter(Boolean).map(norm));
-    const whole = c.action === "set_tags";                 // the photo's whole tag list (add_tags: older proposals)
-    const dropped = whole ? [...had].filter((t) => !kept.has(t)) : [];
-    const fresh = whole ? ch.tags.filter((x) => !had.has(norm(x.t))).length : 0;
-    return html`<div class="row"><div class="what">${whole ? html`<b>Tags</b> (replace the photo's tags with these)` : "Add tags"}
-      <span class="why">· ${srcs}${whole ? ` · ${fresh} new (bold), ${ch.tags.length - fresh} kept` : ""}${editable ? " · click a tag to drop it" : ""}</span>
-      ${dropped.length > 0 && html`<div class="chips removed mt-1" title="Removed from the photo on approval">
-        <span class="why">removes:</span>${dropped.map((t) => html`<span class="chip gone">${t}</span>`)}</div>`}
+    return html`<div class="row"><div class="what">Add tags <span class="why">· ${srcs}${editable ? " · click a tag to drop it" : ""}</span>
       <div class="chips mt-1">${ch.tags.map((ts, j) => {
         const st = out?.tags?.[ts.t];
-        return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off")) + (whole && !had.has(norm(ts.t)) ? " fresh" : "")} disabled=${!editable}
+        return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on ? "" : " off"))} disabled=${!editable}
           aria-pressed=${ts.on} onClick=${() => set({ tags: ch.tags.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
       })}</div></div></div>`;
   }
@@ -135,6 +142,35 @@ function Change({ c, ch, i, editable, out, onChange }) {
       ${c.old && html`<div class="replaces">replaces: ${plain(c.old)}</div>`}
       <textarea value=${ch.value} disabled=${!editable} onInput=${(e) => set({ value: e.target.value })}></textarea></div></div>`;
   return html`<div class="row"><div class="what">${c.action}: ${String(c.new)}</div></div>`;
+}
+
+// The photo's tags, in two parts like the other changes: the tags processing proposed (on: they go on), and
+// the ones it has now (off: they're replaced; on: kept too). Click a tag to drop it from its part.
+function TagSections({ c, ch, editable, out, set }) {
+  const srcs = c.source.split(",").map((s) => s.replace(/^(std|vision|geo|always):/, "")).join(", ");
+  const had = new Set(ch.old.map((x) => norm(x.t)));
+  const proposed = new Set(ch.tags.filter((x) => x.on).map((x) => norm(x.t)));
+  const final = finalTags(ch), finalSet = new Set(final.map(norm));
+  const added = final.filter((t) => !had.has(norm(t))).length, removed = [...had].filter((t) => !finalSet.has(t)).length;
+  const chips = (list, key, on, cls) => html`<div class="chips mt-1">${list.map((ts, j) => {
+    const st = out?.tags?.[ts.t];
+    return html`<button type="button" class=${"chip " + (st || "prop" + (ts.on && on ? "" : " off")) + cls(ts)}
+      disabled=${!editable || !on} aria-pressed=${ts.on}
+      onClick=${() => set({ [key]: list.map((x, k) => (k === j ? { ...x, on: !x.on } : x)) })}>${ts.t}</button>`;
+  })}</div>`;
+  return html`
+    <div class="row"><input type="checkbox" checked=${ch.approve} disabled=${!editable} aria-label="Use the proposed tags"
+        onChange=${(e) => set({ approve: e.target.checked })} />
+      <div class="what"><b>Proposed tags</b> <span class="why">· ${srcs} · bold: not on the photo yet${editable ? " · click a tag to drop it" : ""}</span>
+        ${chips(ch.tags, "tags", ch.approve, (ts) => (had.has(norm(ts.t)) ? "" : " fresh"))}</div></div>
+    <div class="row"><input type="checkbox" checked=${ch.keepOld} disabled=${!editable || !ch.old.length} aria-label="Keep its current tags"
+        onChange=${(e) => set({ keepOld: e.target.checked })} />
+      <div class="what"><b>Current tags</b> <span class="why">· ${ch.keepOld ? "kept too" : "replaced"}${ch.keepOld && editable ? " · click a tag to drop it" : ""}</span>
+        ${ch.old.length ? chips(ch.old, "old", ch.keepOld, (ts) => (ch.approve && proposed.has(norm(ts.t)) ? " also" : ""))
+          : html`<div class="why">none</div>`}
+        <div class="why mt-1">${sameTags(final, ch.old.map((x) => x.t)) ? "No change to its tags."
+          : !final.length ? "No tags kept: its tags stay as they are."
+          : `Result: ${final.length} tags · ${added} added · ${removed} removed, in one update.`}</div></div></div>`;
 }
 
 function Engagement({ s }) {
@@ -218,7 +254,9 @@ export function Reviewer({ onCount, targetPhotoId }) {
   };
   const apply = async () => {
     if (!item || busy) return; setBusy(true);
-    const payload = choices.map((ch, i) => TAGS.has(item.changes[i].action)
+    const payload = choices.map((ch, i) => item.changes[i].action === "set_tags"
+      ? ((tags) => ({ approve: tags.length > 0 && !sameTags(tags, ch.old.map((x) => x.t)), value: tags }))(finalTags(ch))
+      : TAGS.has(item.changes[i].action)
       ? { approve: ch.tags.some((t) => t.on), value: ch.tags.filter((t) => t.on).map((t) => t.t) }
       : item.changes[i].action === "set_location" ? { approve: ch.approve && !!ch.value, value: ch.value }
       : { approve: ch.approve, value: ch.value });

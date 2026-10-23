@@ -121,6 +121,7 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip.prop { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; min-height: 0; }
 .chip.prop.off { background: none; border-color: var(--line); color: var(--muted); text-decoration: line-through; }
 .chip.prop.fresh { font-weight: 700; }
+.chip.prop.also { opacity: .6; }
 .chip.applied { border-color: var(--ok); color: var(--ok); }
 .chip.rejected { color: var(--muted); text-decoration: line-through; }
 .chip.failed { border-color: var(--no); color: var(--no); }
