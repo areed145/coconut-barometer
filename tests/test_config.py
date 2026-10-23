@@ -45,12 +45,12 @@ class ValidateTest(unittest.TestCase):
         errors, _ = problems({
             "vision": {"title": {"instructions": "Up to {max_words} words, {mood}"}},
             "standard_tags": {"date": {"formats": ["y{year}", "{decade}"]},
-                              "camera": {"rules": [{"match": "iphone("}], "albums": [{"match": "x"}]}},
+                              "camera": {"albums": [{"match": "iphone(", "album": "iPhone"}, {"match": "x"}]}},
             "geo": {"cities": [{"album": "Austin", "lat": "30.2", "lon": -97.7, "radius": 30}]},
         })
         joined = "\n".join(errors)
         for expected in ("unknown placeholder {mood}", "formats[1]: unknown placeholder {decade}",
-                         "rules[0].match: not a valid regular expression", "albums[0]: missing album",
+                         "albums[0].match: not a valid regular expression", "albums[1]: missing album",
                          "geo.cities[0].radius: unknown setting", "geo.cities[0]: lat, lon and radius_km should be numbers"):
             self.assertIn(expected, joined)
         self.assertNotIn("y{year}", joined)

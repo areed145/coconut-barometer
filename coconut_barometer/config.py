@@ -97,8 +97,8 @@ DEFAULTS: dict[str, Any] = {
     },
     "standard_tags": {
         "date": {"enabled": False, "formats": ["y{year}", "m{month:02d}", "d{day:02d}"]},
-        "place": {"enabled": False, "extra": {}},
-        "camera": {"enabled": False, "name_words": True, "rules": [], "albums": []},
+        "place": {"enabled": False},
+        "camera": {"enabled": False, "name_words": True, "albums": []},
     },
 }
 
@@ -110,7 +110,7 @@ VISION_CONCURRENCY = 4
 MAX_TAGS_PER_PHOTO = 75             # Flickr's limit
 
 # Settings whose keys are yours (album titles, country codes, category names...).
-FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("standard_tags", "place", "extra")}
+FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories")}
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
             ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
@@ -181,7 +181,6 @@ def retire(raw: dict) -> dict:
 
 
 ITEM_KEYS = {("geo", "cities"): ({"album", "lat", "lon"}, {"radius_km", "name", "tag"}),
-             ("standard_tags", "camera", "rules"): ({"match"}, {"tags"}),
              ("standard_tags", "camera", "albums"): ({"match", "album"}, set())}
 
 
@@ -290,9 +289,8 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
     checks.append(city_numbers)
 
     def regexes():
-        patterns = [(f"standard_tags.camera.{kind}[{i}].match", r.get("match", ""))
-                     for kind in ("rules", "albums") for i, r in enumerate(get(("standard_tags", "camera", kind)))
-                     if isinstance(r, dict)]
+        patterns = [(f"standard_tags.camera.albums[{i}].match", r.get("match", ""))
+                     for i, r in enumerate(get(("standard_tags", "camera", "albums"))) if isinstance(r, dict)]
         for where, pat in patterns:
             try:
                 re.compile(pat)

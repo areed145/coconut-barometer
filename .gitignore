@@ -1,6 +1,6 @@
 .venv/
 *.db
-config.yaml
+config.yaml*
 plans/
 __pycache__/
 *.db-shm

@@ -22,9 +22,8 @@ class StandardTagsTest(unittest.TestCase):
         on = {"enabled": True}
         self.cfg = from_dict({**CFG, "vision": {**CFG["vision"], "enabled": False}, "standard_tags": {
             "date": on,
-            "place": {"enabled": True, "extra": {"Texas": ["southwest"]}},
-            "camera": {"enabled": True, "rules": [{"match": "iphone", "tags": ["mobile"]}],
-                       "albums": [{"match": "^nikon", "album": "Landscapes"}]}}})
+            "place": on,
+            "camera": {"enabled": True, "albums": [{"match": "^nikon", "album": "Landscapes"}]}}})
         self.store = Store(os.path.join(self.tmp, "db.duckdb"))
         self.fl = FakeFlickr()
         self.fl.photos[0]["datetaken"] = "2019-07-17 19:03:25"
@@ -50,9 +49,9 @@ class StandardTagsTest(unittest.TestCase):
     def test_all_groups_in_priority_order(self):
         t = self.tags()
         self.assertEqual(t["1"], ["y2019", "m07", "d17", "japan", "asia", "tokyo", "nikon", "d90"])
-        # Austin: configured city name, state extras.
+        # Austin: configured city name.
         self.assertEqual(t["2"], ["y2024", "m01", "d01", "unitedstates", "americas", "northamerica", "texas",
-                                  "tx", "austin", "southwest", "apple", "iphone", "x", "mobile"])
+                                  "tx", "austin", "apple", "iphone", "x"])
         self.assertIn("y2024", t["3"])                       # an older-style year tag doesn't stop the date tags
         self.assertNotIn("houston", t["3"])                  # accuracy 6: no city tag
         self.assertNotIn("4", t)                             # no geo, date unknown, no camera: nothing

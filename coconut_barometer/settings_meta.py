@@ -124,13 +124,11 @@ META = {
     "standard_tags.place.enabled": _location("Place tags", "Country, region (americas, westerneurope …), state, "
                                              "US state abbreviation and town, each only as precise as the geotag.",
                                              group="Place tags"),
-    "standard_tags.place.extra": _location("Extra tags", "Country code, country or state → tags.", group="Place tags"),
 
     # ---- Photos: Cameras & dates
     "standard_tags.camera.albums": _cameras("Camera albums", "Camera name (regex) → album.", group="Cameras"),
     "standard_tags.camera.enabled": _cameras("Camera tags", "From each photo's EXIF (fetched once).", group="Cameras"),
     "standard_tags.camera.name_words": _cameras("Words of the camera name", group="Cameras"),
-    "standard_tags.camera.rules": _cameras("Extra tags", "When the camera name matches (regex).", group="Cameras"),
     "standard_tags.date.enabled": _cameras("Date tags", group="Dates"),
     "standard_tags.date.formats": _cameras("Formats", "{year} {month:02d} {day:02d} {season}", group="Dates"),
 

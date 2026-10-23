@@ -10,7 +10,7 @@ import re
 
 from .geo import country_names, haversine_km
 from .geo import US_STATES
-from .util import norm_tag, norm_title
+from .util import norm_tag
 
 SEASONS = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
            6: "summer", 7: "summer", 8: "summer", 9: "fall", 10: "fall", 11: "fall"}
@@ -47,8 +47,6 @@ class StandardTagger:
     def __init__(self, scfg: dict, geo_cfg: dict):
         self.cfg = scfg
         self.geo_cfg = geo_cfg
-        self.camera_rules = [(re.compile(r["match"], re.I), r.get("tags") or []) for r in scfg["camera"]["rules"] or []]
-        self.extra_place = {norm_title(k): v for k, v in (scfg["place"]["extra"] or {}).items()}
 
     def any_enabled(self) -> bool:
         return any(self.cfg[g]["enabled"] for g in ("date", "place", "camera"))
@@ -92,8 +90,6 @@ class StandardTagger:
                 names.append(US_STATES[state])
         if acc >= min_acc["city"]:
             names.append(self.city_name(photo, place))
-        for key in (cc, country, state):
-            names += self.extra_place.get(norm_title(key), []) if key else []
         return [norm_tag(n) for n in names if n]
 
     def city_name(self, photo, place: dict) -> str:
@@ -104,11 +100,7 @@ class StandardTagger:
         return place.get("name") or ""
 
     def camera_tags(self, camera: str) -> list[str]:
-        tags = [norm_tag(w) for w in camera.split()] if self.cfg["camera"]["name_words"] else []
-        for rx, extra in self.camera_rules:
-            if rx.search(camera):
-                tags += extra
-        return tags
+        return [norm_tag(w) for w in camera.split()] if self.cfg["camera"]["name_words"] else []
 
     def camera_albums(self, camera: str) -> list[str]:
         return [r["album"] for r in self.cfg["camera"]["albums"] or [] if re.search(r["match"], camera, re.I)]

@@ -51,8 +51,9 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('class=${"wxstatus-dot " + (connected ? "s-applied" : "s-failed")}', weather)
         self.assertIn('stream=${d.stream}', weather)
         self.assertNotIn("StreamBadge", weather)
-        self.assertIn('api("/api/wx/stations")', admin)
-        self.assertIn('section === "weather" && html`<${WeatherStream} />`', admin)
+        self.assertIn('export function WxStations()', weather)
+        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];', weather)   # Stations is in Settings
+        self.assertIn('section === "weather" && html`<${WxStations} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 
     def test_aprs_sparks_and_tracks_use_metric_gradients_and_refresh(self):
@@ -79,7 +80,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "connections" && html`<${FlickrPanel} />`', admin)
         self.assertIn('newPart && s.part === "Sync" && html`<${SyncPanel} />`', admin)
         self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
-        self.assertIn('useState("photos")', admin)
+        self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
 
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())

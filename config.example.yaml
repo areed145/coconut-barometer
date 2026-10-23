@@ -307,8 +307,6 @@ standard_tags:
   #    e.g. unitedstates americas northamerica california ca bakersfield
   place:
     enabled: true
-    extra:                    # more tags by country code, country or state name
-      California: [west, coast, pacific]
 
   # 3. Camera, from EXIF. Run `python -m coconut_barometer camera` first (one call per
   #    photo, cached; `process` keeps it up to date). Tags are the words of Flickr's camera
@@ -316,9 +314,6 @@ standard_tags:
   camera:
     enabled: true
     name_words: true
-    rules:                    # extra tags when the camera name matches (regex)
-      - match: "iphone"
-        tags: [mobile, cellphone, phone, onthego, snapshot]
     albums:                   # also add to your camera albums
       - {match: "^nikon", album: "Nikon"}
       - {match: "^canon", album: "Canon"}
