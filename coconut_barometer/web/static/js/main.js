@@ -195,3 +195,9 @@ function App() {
 const shared = location.pathname.match(/^\/([pa])\/(\d+)\/?$/);
 if (shared) history.replaceState(null, "", "/" + (shared[1] === "p" ? `#/photos/photo/${shared[2]}` : photosLink({ album: shared[2] })));
 render(html`<${App} />`, document.getElementById("app"));
+
+// The service worker (sw.js): alerts as notifications, and what makes the site installable (Add to Home Screen).
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.open) location.href = e.data.open; });
+}

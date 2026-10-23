@@ -17,6 +17,7 @@ dependencies = [
     "duckdb>=1.4.0",
     "websockets>=13",
     "aprslib>=0.7",
+    "pywebpush>=2.5.0",
 ]
 
 [project.optional-dependencies]

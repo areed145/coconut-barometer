@@ -16,12 +16,12 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..errors import caught, reporter
 from ..store import SchemaTooNew
-from .api import admin, analytics, aprs, auth, gallery, home, maps, review, setup, status, sync, weather
+from .api import admin, analytics, aprs, auth, gallery, home, maps, push, review, setup, status, sync, weather
 from .deps import session
 from . import assets, share
 from .runtime import Runtime
@@ -121,8 +121,13 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         reporter.report(exc, f"{request.method} {request.url.path}")
         return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
-    for module in (auth, setup, gallery, home, status, maps, review, analytics, sync, weather, aprs, admin):
+    for module in (auth, setup, gallery, home, status, maps, review, analytics, sync, weather, aprs, push, admin):
         app.include_router(module.router)
+
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker():
+        """At the root, so it covers the whole site (a worker only controls the pages under its own address)."""
+        return FileResponse(STATIC / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/healthz", include_in_schema=False)
     def healthz():

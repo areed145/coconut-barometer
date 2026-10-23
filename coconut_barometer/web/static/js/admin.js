@@ -190,6 +190,79 @@ function AprsStream() {
   </div>`;
 }
 
+// ---- Alerts: Web Push to this device (sw.js shows them; alerts.py decides what) -----------------------------
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const INSTALLED = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const PUSH = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const keyBytes = (b64) => Uint8Array.from(atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+const deviceName = () => {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || IOS ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac"
+    : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "A device";
+  const app = INSTALLED ? "app" : /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+  return app ? `${os} · ${app}` : os;
+};
+
+function AlertsPanel() {
+  const [d, setD] = useState(null);
+  const [mine, setMine] = useState(null);       // this browser's subscription's device id, if it's on
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const data = await api("/api/push");
+    setD(data);
+    if (!PUSH) return;
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    setMine(sub ? await idOf(sub.endpoint, data) : null);
+  };
+  const idOf = async (endpoint, data) => {     // push.device_id(): the endpoint's sha256, first 16 hex digits
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint))))
+      .map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+    return data.devices.some((x) => x.id === hash) ? hash : null;
+  };
+  useEffect(() => { load().catch((e) => toast(e.message)); }, []);
+  const on = async () => {
+    setBusy(true);
+    try {
+      if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked for this site in the browser's settings.");
+      const reg = await navigator.serviceWorker.ready;
+      const sub = (await reg.pushManager.getSubscription())
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(d.public_key) });
+      const dev = await api("/api/push/subscribe", { method: "POST", body: { subscription: sub.toJSON(), label: deviceName() } });
+      await api("/api/push/test", { method: "POST", body: { id: dev.id } });
+      toast("Alerts on: a test notification is on its way.");
+      await load();
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const off = async (id) => {
+    setBusy(true);
+    try {
+      if (id === mine) await (await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.unsubscribe();
+      await api("/api/push/unsubscribe", { method: "POST", body: { id } });
+      await load();
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const test = async () => {
+    try { const r = await api("/api/push/test", { method: "POST", body: {} }); toast(`Sent to ${r.sent} device${r.sent === 1 ? "" : "s"}` + (r.failed.length ? `; ${r.failed.join("; ")}` : "")); }
+    catch (e) { toast(e.message); }
+  };
+  if (!d) return null;
+  return html`<div class="card"><h2>Devices</h2>
+    ${!PUSH ? html`<p class="why">${IOS && !INSTALLED
+        ? html`On iPhone and iPad, alerts reach the app on the Home Screen, not Safari: tap Share → <b>Add to Home Screen</b>, open it from there, and turn alerts on here.`
+        : "This browser can't receive notifications from websites."}</p>`
+      : mine ? html`<p><b class="up">On for this device</b> <button class="link" onClick=${() => off(mine)} disabled=${busy}>Turn off</button></p>`
+      : html`<p><button class="primary" onClick=${on} disabled=${busy}>${busy ? "Turning on…" : "Turn on alerts for this device"}</button></p>
+        <p class="why">The browser asks to allow notifications, then a test one arrives.</p>`}
+    ${d.devices.length > 0 && html`
+      ${d.devices.map((x) => html`<div class="sessionrow" key=${x.id}>
+        <span>${x.label}${x.id === mine ? html` <span class="muted">(this one)</span>` : ""} <span class="muted">· ${x.username} · since ${day(x.added)}</span></span>
+        <button class="link" onClick=${() => off(x.id)} disabled=${busy}>Remove</button></div>`)}
+      <button onClick=${test}>Send a test to all</button>`}
+  </div>`;
+}
+
 function SyncPanel() {
   const [s, setS] = useState(null);
   const load = () => api("/api/sync/status").then(setS).catch(() => {});
@@ -318,6 +391,7 @@ export function Admin({ at }) {
         ${section === "display" && html`<${ThemeSetting} />`}
         ${section === "weather" && html`<${WxStations} />`}
         ${section === "aprs" && html`<${AprsStream} />`}
+        ${section === "alerts" && html`<${AlertsPanel} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => {
           const newPart = s.part && s.part !== shown[i - 1]?.part;

@@ -35,6 +35,13 @@ DEFAULTS: dict[str, Any] = {
         "cwop": {},                   # station name -> the callsign-SSID it reports to CWOP as; none: nothing sent
         "cwop_minutes": 10,           # how often each reports (CWOP asks for 5-10 minutes, no more often than 5)
     },
+    "alerts": {                       # notifications to the devices turned on in Settings → Alerts; 0 turns one off
+        "lightning_km": 15,           # a strike this close to a station
+        "gust_kmh": 60,               # a gust this strong
+        "pressure_drop_hpa": 2.0,     # pressure down this much in 3 hours (a storm sign)
+        "callsign_quiet_hours": 6,    # a tracked callsign heard after this long without a packet
+        "cooldown_minutes": 60,       # the same alert (same kind, same station or callsign) at most this often
+    },
     "github": {
         "token": None,                # fine-grained, Issues: read and write; set: unexpected errors become issues
         "repo": "areed145/coconut-barometer",   # owner/name the issues go to
@@ -134,7 +141,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
-          ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60)}
+          ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),
+          ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
+          ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).

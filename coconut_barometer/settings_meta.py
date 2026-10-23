@@ -14,6 +14,8 @@ SECTIONS = [
     ("aprs", "APRS", "Callsigns to follow on the APRS page, and the igate whose packets the Igate page counts. Both are "
                      "heard live from APRS-IS (read-only, nothing is transmitted) and kept, so tracks and counts start "
                      "from when the app began listening."),
+    ("alerts", "Alerts", "Notifications on your phone or computer when something worth knowing happens. Turn them on for "
+                         "each device below; the thresholds apply to all of them. 0 turns an alert off."),
     ("display", "Display", "How the app looks: theme, units, colors and maps."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
@@ -176,6 +178,15 @@ META = {
                         "so changing this changes nothing saved.", group="Units",
                         options={"metric": "Metric (°C, km/h or m/s, hPa, mm, m)",
                                  "imperial": "Imperial (°F, mph, inHg, in, ft)"}),
+    "alerts.lightning_km": _m("alerts", "Lightning within (km)", "A strike this close to any station. The Tempest "
+                              "senses up to about 40 km.", group="Weather"),
+    "alerts.gust_kmh": _m("alerts", "Gust over (km/h)", "60 km/h is about 37 mph.", group="Weather"),
+    "alerts.pressure_drop_hpa": _m("alerts", "Pressure falling (hPa in 3 hours)", "Down this much: a storm sign. "
+                                   "2 hPa is about 0.06 inHg.", group="Weather"),
+    "alerts.callsign_quiet_hours": _m("alerts", "Callsign heard after quiet (hours)", "A callsign from Settings → APRS "
+                                      "heard again after this long without a packet.", group="APRS"),
+    "alerts.cooldown_minutes": _m("alerts", "Repeat at most every (minutes)", "Per alert and station (or callsign), so "
+                                  "one storm isn't fifty notifications.", group="All alerts"),
     "theme.color_low": _m("display", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
     "theme.color_mid": _m("display", "Medium", "Halfway along: the gradient runs low → medium → high.", group="Colors"),
     "theme.color_high": _m("display", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
