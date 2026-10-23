@@ -87,6 +87,26 @@ class WebTest(unittest.TestCase):
         again = self.c.get("/static/js/main.js", headers={"If-None-Match": r.headers["etag"]})
         self.assertEqual(again.status_code, 304)                         # unchanged: nothing re-sent
 
+    def test_responses_are_compressed_except_auth(self):
+        from fastapi import FastAPI
+        from fastapi.responses import PlainTextResponse
+        from fastapi.testclient import TestClient
+
+        from coconut_barometer.web.app import Compress
+
+        r = self.c.get("/static/js/weather.js", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(r.headers.get("content-encoding"), "gzip")
+        self.assertIn("export function Weather", r.text)                 # still the file, once decoded
+        again = self.c.get("/static/js/weather.js", headers={"Accept-Encoding": "gzip", "If-None-Match": r.headers["etag"]})
+        self.assertEqual(again.status_code, 304)
+        tiny = FastAPI()
+        tiny.add_middleware(Compress)
+        for path in ("/api/auth/session", "/api/photos"):
+            tiny.add_api_route(path, lambda: PlainTextResponse("csrf " * 1000))
+        tc = TestClient(tiny)
+        self.assertNotIn("content-encoding", tc.get("/api/auth/session", headers={"Accept-Encoding": "gzip"}).headers)
+        self.assertEqual(tc.get("/api/photos", headers={"Accept-Encoding": "gzip"}).headers.get("content-encoding"), "gzip")
+
     def test_theme(self):
         self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})   # public
 

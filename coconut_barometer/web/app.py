@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -53,6 +54,19 @@ class NoExit:
             await send({"type": "http.response.body", "body": body})
 
 
+class Compress:
+    """gzip for everything worth it (Starlette leaves images, fonts, archives and responses that are
+    already encoded alone), except /api/auth/: those responses carry the CSRF token, and a compressed
+    secret beside text an attacker can influence is what BREACH reads."""
+    def __init__(self, app):
+        self.app, self.gzip = app, GZipMiddleware(app, minimum_size=1000)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/auth/"):
+            return await self.app(scope, receive, send)
+        return await self.gzip(scope, receive, send)
+
+
 def create_app(cfg: dict, client, provider_factory=None, background: bool = True, scheduler: bool = True,
                process_kw: dict | None = None, cfg_path: str | None = None, client_factory=None) -> FastAPI:
     rt = Runtime(cfg, client, provider_factory, background=background, process_kw=process_kw,
@@ -89,6 +103,8 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
             # scripts import each other, so one stale file after a deploy breaks the whole app.
             response.headers["Cache-Control"] = "no-cache"
         return response
+
+    app.add_middleware(Compress)
 
     # Outermost: refuse Host headers that aren't ours (DNS rebinding, stray vhosts).
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=web["allowed_hosts"])
