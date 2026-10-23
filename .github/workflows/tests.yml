@@ -1,5 +1,5 @@
-# The whole test suite on every push and pull request, with the versions in uv.lock.
-# 3.14 is what the Docker image runs; 3.15 is the local .python-version.
+# The whole test suite on every push and pull request, with the versions in uv.lock, on
+# Python 3.14: what the Docker image runs.
 name: Tests
 
 on:
@@ -17,16 +17,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.14", "3.15"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          version: "0.13.4"       # as in the Dockerfile
-          python-version: ${{ matrix.python }}
+          version: "0.13.4"       # uv and Python as in the Dockerfile
+          python-version: "3.14"
           enable-cache: true
       - run: uv sync --locked
       - run: uv run python -m unittest discover -s tests -v
