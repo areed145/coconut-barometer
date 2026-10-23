@@ -8,8 +8,8 @@ from .db import Database
 
 
 class StatsStore(Database):
-    def save_stats_day(self, day: str, totals: dict, photos: list[dict]) -> None:
-        """One day, fetched completely: its totals and every photo viewed that day."""
+    def save_stats_day(self, day: str, totals: dict, photos: list[dict], status: str = "done") -> None:
+        """One day: its totals and every photo viewed that day. status "partial": today, so far."""
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO account_daily VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (day, totals.get("total"), totals.get("photos"), totals.get("photostream"),
@@ -21,8 +21,8 @@ class StatsStore(Database):
             self.db.executemany("INSERT INTO photo_daily VALUES (:photo_id, :day, :views, :comments, :favorites) "
                                 "ON CONFLICT(photo_id, day) DO UPDATE SET views=excluded.views, "
                                 "comments=excluded.comments, favorites=excluded.favorites", rows)
-            self.db.execute("INSERT OR REPLACE INTO stats_days VALUES (?, 'done', ?, ?)",
-                            (day, len(photos), int(time.time())))
+            self.db.execute("INSERT OR REPLACE INTO stats_days VALUES (?, ?, ?, ?)",
+                            (day, status, len(photos), int(time.time())))
 
     def mark_stats_day(self, day: str, status: str) -> None:
         """'none' when Flickr has no stats that far back (where backfill stops)."""

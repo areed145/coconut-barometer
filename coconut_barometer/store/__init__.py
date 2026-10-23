@@ -27,7 +27,7 @@ Tables
   social_fetched   the count each photo had when its comments/faves were last fetched
   photo_daily      views / comments / faves per photo per day (Flickr stats, days in GMT)
   account_daily    the account's views per day, split by photos / photostream / albums ...
-  stats_days       which days have been fetched completely ('done'), or have no stats ('none')
+  stats_days       which days have been fetched completely ('done'), so far ('partial': today), or have no stats ('none')
   users, sessions  the web app's owner login; sessions by sha256 of their token
   queue            per-photo proposed changes for the review tool:
                    pending | applying | none (nothing to change) | applied | rejected | failed

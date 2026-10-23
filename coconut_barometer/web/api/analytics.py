@@ -24,12 +24,13 @@ def _since(days: int) -> str:
 
 @router.get("/overview")
 def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
-    """The period's daily series, the period before it (for "vs before"), and highlights."""
+    """The period's daily series, the period before it (for "vs before"), and highlights. The totals
+    are of whole days: today's views so far are in the series (partial) but not in them."""
     since, before = _since(days), _since(2 * days)
     series = db.daily_series(before)
     current = [r for r in series if r["day"] >= since]
     previous = [r for r in series if r["day"] < since]
-    total = lambda rows, k: sum(r[k] or 0 for r in rows)
+    total = lambda rows, k: sum(r[k] or 0 for r in rows if not r["partial"])
     recent_faves = [dict(r) for r in db.db.execute(
         "SELECT f.photo_id, p.title, COALESCE(NULLIF(f.real_name, ''), f.username) AS who, f.date_faved AS \"at\" FROM faves f "
         "JOIN photos p ON p.id = f.photo_id ORDER BY f.date_faved DESC LIMIT 8")]

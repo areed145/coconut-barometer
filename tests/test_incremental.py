@@ -101,10 +101,23 @@ class StatsHistoryTest(unittest.TestCase):
         self.assertEqual(sum(1 for s in days.values() if s == "done"), 5)
         before = len(self.fl.calls)
         stats_history.update(self.fl, self.store, max_backfill=10, log=lambda *a: None)
-        self.assertEqual(len(self.fl.calls), before)                    # nothing left; recent days re-fetched later
+        self.assertEqual([m for m, _ in self.fl.calls[before:]], ["flickr.stats.getTotalViews"])   # just today so far
+        self.assertNotIn(self.day(0), self.store.stats_days())          # Flickr had none yet: not where they run out
         top = self.store.top_photos(self.day(5))
         self.assertEqual((top[0]["photo_id"], top[0]["views"]), ("1", 150))
         self.assertEqual(len(self.store.photo_history("1")), 5)
+
+    def test_today_so_far_then_final_once_it_ends(self):
+        self.fl.daily[self.day(0)] = {"total": 7, "photos": [("1", 7, 0, 0)]}
+        stats_history.update(self.fl, self.store, max_backfill=0, log=lambda *a: None)
+        self.assertEqual(self.store.stats_days()[self.day(0)], "partial")
+        series = self.store.daily_series(self.day(2))
+        self.assertEqual([(r["views"], r["partial"]) for r in series][-2:], [(100, False), (7, True)])
+        # The day ends: it's fetched again as a past day, and final.
+        later = time.time() + 86400 + 13 * 3600
+        self.assertIn(self.day(0), stats_history.days_due(self.store, 0, now=later))
+        self.store.mark_stats_day(self.day(2), "partial")               # missed while it was going (app off): refetched
+        self.assertIn(self.day(2), stats_history.days_due(self.store, 5, now=time.time()))
 
     def test_recent_days_refetched_until_final(self):
         stats_history.update(self.fl, self.store, max_backfill=0, log=lambda *a: None)

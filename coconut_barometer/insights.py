@@ -408,7 +408,8 @@ IMPACT = {"set_title": "Titles", "set_description": "Descriptions", "add_tag": "
 
 
 def _days_collected(db) -> int:
-    return db.db.execute("SELECT COUNT(DISTINCT day) FROM photo_daily").fetchone()[0]
+    return db.db.execute("SELECT COUNT(DISTINCT day) FROM photo_daily "
+                         "WHERE day NOT IN (SELECT day FROM stats_days WHERE status='partial')").fetchone()[0]
 
 
 def impact(db, window: int = 14) -> dict:

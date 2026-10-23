@@ -2,8 +2,9 @@
 comments and faves that day, plus the account's daily totals.
 
 A day costs 1 call for the totals + 1 per 100 photos viewed that day (typically 3-7).
-Flickr's days run midnight to midnight GMT; a day is fetched once it has ended, and the
-last two are fetched again later the same day in case Flickr was still counting.
+Flickr's days run midnight to midnight GMT. Today is fetched on every run as it goes ("partial",
+shown as "so far today"); a day is final once it has ended, and the last two are fetched again
+later the same day in case Flickr was still counting.
 Backfill walks back one day at a time until Flickr says it has no stats for a date
 (around a year back), and never retries past that point.
 """
@@ -19,13 +20,15 @@ SETTLE_HOURS = 12     # a just-finished day is re-fetched until a fetch this lon
 REFETCH_HOURS = 6     # ... but no more often than this
 
 
-def fetch_day(client, store, day: str) -> int:
-    """One day's stats, all pages. Returns photos viewed, or -1 if Flickr has none for it."""
+def fetch_day(client, store, day: str, partial: bool = False) -> int:
+    """One day's stats, all pages. Returns photos viewed, or -1 if Flickr has none for it.
+    partial: today, still going (none for it yet is not where the stats run out)."""
     try:
         totals = client.call("flickr.stats.getTotalViews", date=day)["stats"]
     except FlickrCallError as e:
         if e.code == NO_STATS:
-            store.mark_stats_day(day, "none")
+            if not partial:
+                store.mark_stats_day(day, "none")
             return -1
         raise
     flat = {k: int(v.get("views") or 0) for k, v in totals.items() if isinstance(v, dict)}
@@ -38,7 +41,7 @@ def fetch_day(client, store, day: str) -> int:
         if page >= int(r.get("pages") or 1):
             break
         page += 1
-    store.save_stats_day(day, flat, photos)
+    store.save_stats_day(day, flat, photos, "partial" if partial else "done")
     return len(photos)
 
 
@@ -59,7 +62,7 @@ def days_due(store, max_backfill: int, now: float | None = None) -> list[str]:
         if back <= 2 and not settled:
             if now - fetched.get(day, 0) > REFETCH_HOURS * 3600:
                 due.append(day)
-        elif day not in status:
+        elif status.get(day) in (None, "partial"):      # never fetched, or only while it was going
             if backfill >= max_backfill:
                 break
             due.append(day)
@@ -68,7 +71,10 @@ def days_due(store, max_backfill: int, now: float | None = None) -> list[str]:
 
 
 def update(client, store, max_backfill: int = 7, log=print) -> dict:
-    """Fetch the days that are due. Stops early (without error) where stats run out."""
+    """Today so far, then the days that are due. Stops early (without error) where stats run out."""
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    if store.stats_days().get(today) != "none":
+        fetch_day(client, store, today, partial=True)
     days = days_due(store, max_backfill)
     done = 0
     for day in days:

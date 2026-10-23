@@ -21,7 +21,15 @@ function Overview({ days, setDays }) {
   useEffect(() => { setD(null); api("/api/analytics/overview", { params: { days } }).then(setD); }, [days]);
   const series = d?.series || [];
   const dayList = useMemo(() => series.map((r) => r.day), [d]);
-  const views = useMemo(() => [{ label: "views", values: series.map((r) => r.views), color: "--chart-1" }], [d]);
+  // Today's views so far: a dashed line on from yesterday, not part of the solid one.
+  const views = useMemo(() => {
+    const at = series.findIndex((r) => r.partial);
+    const out = [{ label: "views", values: series.map((r) => (r.partial ? null : r.views)), color: "--chart-1" }];
+    if (at >= 0 && series[at].views != null)
+      out.push({ label: "so far today", values: series.map((r, i) => (i === at || i === at - 1 ? r.views : null)),
+                 color: "--chart-1", dash: [5, 4], fill: false });
+    return out;
+  }, [d]);
   const social = useMemo(() => [
     { label: "faves", values: series.map((r) => r.faves), color: "--chart-2", bars: true },
     { label: "comments", values: series.map((r) => r.comments), color: "--chart-3", bars: true }], [d]);
@@ -50,7 +58,8 @@ function Overview({ days, setDays }) {
           <img alt="" loading="lazy" src=${c.sizes.q || ""} /><span><b>${c.who}</b> on <i>${c.title || "Untitled"}</i>
           <span class="muted"> · ${ago(c.at)}</span><br /><span class="quote">${plain(c.text).slice(0, 140)}</span></span></div>`)}</div>
     </div>
-    <p class="muted small">Per-day numbers cover the ${num(d.days_collected)} days collected so far; they grow by one each day.</p>
+    <p class="muted small">Per-day numbers cover the ${num(d.days_collected)} days collected so far; they grow by one each day.
+      Flickr's days run midnight to midnight GMT: today's views so far are dashed, and not in the totals until the day is over.</p>
     ${box}`;
 }
 

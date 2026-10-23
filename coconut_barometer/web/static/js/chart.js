@@ -4,7 +4,7 @@ import { html, useEffect, useRef, useThemeTick } from "./lib.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// series: [{label, values, color: "--chart-1", bars?}], x: day strings (YYYY-MM-DD, GMT)
+// series: [{label, values, color: "--chart-1", bars?, dash?: [on, off], fill?: false}], x: day strings (YYYY-MM-DD, GMT)
 export function Chart({ days, series, height = 220 }) {
   const box = useRef(null);
   const theme = useThemeTick();            // colors come from the CSS variables: redraw on a theme switch
@@ -19,8 +19,8 @@ export function Chart({ days, series, height = 220 }) {
       scales: { x: { time: true } },
       axes: [axis, { ...axis, size: 56, values: (u, vals) => vals.map((v) => v == null ? "" : v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k" : v) }],
       series: [{}, ...series.map((s) => ({
-        label: s.label, stroke: css(s.color), width: 2, points: { show: false },
-        fill: s.bars ? css(s.color) : css(s.color) + "22",
+        label: s.label, stroke: css(s.color), width: 2, points: { show: false }, dash: s.dash,
+        fill: s.fill === false ? undefined : s.bars ? css(s.color) : css(s.color) + "22",
         paths: s.bars ? uPlot.paths.bars({ size: [0.7, 24] }) : undefined,
       }))],
     };
