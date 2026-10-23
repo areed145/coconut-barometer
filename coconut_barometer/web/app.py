@@ -15,12 +15,13 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..store import SchemaTooNew
 from .api import activity, admin, analytics, aprs, auth, gallery, maps, review, setup, sync, weather
 from .deps import session
+from . import share
 from .runtime import Runtime
 from .security import security_headers
 
@@ -124,9 +125,10 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         return JSONResponse({"detail": "not found"}, status_code=404)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.include_router(share.router)       # /p/<id>, /a/<id> (share links with previews), robots.txt, sitemap.xml
 
     @app.get("/{rest:path}", include_in_schema=False)
-    def frontend(rest: str):
-        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    def frontend(rest: str, request: Request):
+        return share.page(request, rt)
 
     return app

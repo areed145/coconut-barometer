@@ -1,7 +1,7 @@
 // The app shell: first-run setup, top bar (tabs, review count, whether the queue is busy), and the pages. Photos, Weather
 // and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every } from "./lib.js";
-import { Photos, Albums } from "./gallery.js";
+import { Photos, Albums, SinglePhoto } from "./gallery.js";
 import { Reviewer } from "./review.js";
 import { BulkReview, AppliedList } from "./review_bulk.js";
 import { Analytics } from "./analytics.js";
@@ -109,6 +109,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (sub === "review" && route[2] === "applied") page = html`<${AppliedList} />`;
   else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} targetPhotoId=${route.params.photo_id} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
+  else if (sub === "photo") page = html`<${SinglePhoto} id=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
@@ -118,7 +119,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
-  const subSection = sub === "photostream" && route.params.album ? "albums" : sub;
+  const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photo" ? "photostream" : sub;
   const subtabs = inPhotos ? html`
     <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.filter(([t]) => session || !PRIVATE_PHOTO_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/photos/" + t}
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`
@@ -164,4 +165,7 @@ function App() {
     <${Toasts} />`;
 }
 
+// A share link (/p/<id>, /a/<id>) is its own page only for the link preview; the app lives at / under #/.
+const shared = location.pathname.match(/^\/([pa])\/(\d+)\/?$/);
+if (shared) history.replaceState(null, "", "/" + (shared[1] === "p" ? `#/photos/photo/${shared[2]}` : photosLink({ album: shared[2] })));
 render(html`<${App} />`, document.getElementById("app"));

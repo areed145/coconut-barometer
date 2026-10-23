@@ -49,6 +49,7 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 - **Albums**: covers and counts; open one for its photos.
 - **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps (or `map.carto_key` in config). The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.
+- **Share** (in the lightbox, and on an album): a link of its own, `/p/<photo id>` or `/a/<album id>`, that shows a preview (title, description, image) wherever it's pasted, then opens the photo or album. Public photos and albums only: a private one gets the plain page, as if it weren't there. `/sitemap.xml` lists them all for search engines (`/robots.txt` points to it).
 - **Review**: the photos in review, one at a time (see "Workflow" below), with how many are waiting in the tab.
 - **Analytics**: views, faves and comments for 7/30/90/365 days or all of it; views per day, faves and comments per day, most viewed and most faved photos, photos gaining views, and views by album, camera, year or photo/video.
 - The top bar shows when the last sync ran and the next is due, with **Sync now**.

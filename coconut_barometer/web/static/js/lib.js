@@ -152,6 +152,16 @@ export const photosLink = (params = {}) => {
   return "#/photos/photostream" + (qs ? "?" + qs : "");
 };
 
+// Share a page by its share link (/p/<id>, /a/<id>: the server gives those link previews): the device's
+// share sheet where there is one, otherwise the link is copied.
+export async function share(path, title) {
+  const url = location.origin + path;
+  try {
+    if (navigator.share) await navigator.share({ title, url });
+    else { await navigator.clipboard.writeText(url); toast("Link copied"); }
+  } catch (e) { if (e.name !== "AbortError") toast("Couldn't share: " + e.message); }
+}
+
 // ---- formatting --------------------------------------------------------------------
 const nf = new Intl.NumberFormat();
 export const num = (n) => (n === null || n === undefined ? "–" : nf.format(n));

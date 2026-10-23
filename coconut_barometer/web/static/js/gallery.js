@@ -1,5 +1,5 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn } from "./lib.js";
+import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -103,7 +103,8 @@ export function Photos({ params = {} }) {
   const groups = [...new Set(presets.map((p) => p.group))];
   return html`
     ${f.album && html`<a href="#/photos/albums">← Albums</a>
-      <h1 class="title">${album ? album.title : "…"}</h1>
+      <h1 class="title">${album ? album.title : "…"}
+        ${album && html` <button class="link share" onClick=${() => share(`/a/${album.id}`, album.title)}>Share</button>`}</h1>
       ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}`}
     ${f.tag && !f.album && html`<h1 class="title">#${f.tag}</h1>`}
     <div class="toolbar">
@@ -153,6 +154,15 @@ export function Albums() {
         <div class="meta"><b>${a.title}</b><span>${num(a.count)} items${a.date_update ? " · updated " + day(a.date_update) : ""}</span></div>
       </a>`)}
     </div>`;
+}
+
+// One photo on its own: where a share link (/p/<id>) lands. Closing it goes to the photostream.
+export function SinglePhoto({ id }) {
+  const [p, setP] = useState(undefined);         // undefined = loading, null = not found (or private)
+  useEffect(() => { setP(undefined); api(`/api/photos/${encodeURIComponent(id)}`).then(setP).catch(() => setP(null)); }, [id]);
+  if (p === undefined) return html`<div class="boot">Loading…</div>`;
+  if (p === null) return html`<div class="empty">This photo isn't here. <a href=${photosLink()}>See the photostream</a></div>`;
+  return html`<${Lightbox} photos=${[p]} index=${0} onIndex=${() => {}} onClose=${() => location.replace(photosLink())} />`;
 }
 
 export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
@@ -226,7 +236,8 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
           onClick=${onClose} title=${`All photos tagged ${t}`}>${t}</a>`)}</div>`}
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}
-      ${d && html`<p><a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}
+      ${d && html`<p>${p.ispublic === 1 && html`<button onClick=${() => share(`/p/${p.id}`, p.title || "Photo")}>Share</button> `}
+        <a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}
       ${signedIn() && html`<p><button onClick=${sendToReview} disabled=${sending}>${sending ? "Sending…" : "Send to Review"}</button></p>`}
       <p class="hint"><kbd>←</kbd> <kbd>→</kbd> browse · <kbd>Z</kbd> zoom · <kbd>I</kbd> info · <kbd>Esc</kbd> close</p>
     </aside>`}

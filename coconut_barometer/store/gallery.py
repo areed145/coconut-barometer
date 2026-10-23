@@ -137,6 +137,12 @@ class GalleryStore(Database):
         return {r["id"]: photo_card(r) for r in self.db.execute(
             f"SELECT * FROM photos p WHERE id IN ({marks}){' AND ' + PUBLIC if public_only else ''}", photo_ids)}
 
+    def public_photo_ids(self, limit: int) -> list[tuple[str, int]]:
+        """(id, last updated) of public photos, newest uploads first: the sitemap's photo pages."""
+        return [tuple(r) for r in self.db.execute(
+            f"SELECT p.id, COALESCE(p.last_update, p.date_upload) FROM photos p WHERE {PUBLIC} "
+            f"ORDER BY p.date_upload DESC, p.id LIMIT ?", (limit,))]
+
     # An album visitors may see: one with a public photo in it.
     HAS_PUBLIC = f"EXISTS (SELECT 1 FROM memberships m JOIN photos p ON p.id = m.photo_id WHERE m.album_id = a.id AND {PUBLIC})"
     # ... and what they see of it: Flickr's count and cover include private photos, so count the public
