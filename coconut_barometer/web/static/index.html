@@ -18,6 +18,27 @@
 <link rel="stylesheet" href="/static/vendor/uPlot.min.css">
 <link rel="stylesheet" href="/static/css/app.css">
 <script type="module" src="/static/js/main.js"></script>
+<!-- Everything main.js imports, fetched at once instead of one import level at a time (a test keeps this complete). -->
+<link rel="modulepreload" href="/static/vendor/preact-htm.module.js">
+<link rel="modulepreload" href="/static/js/lib.js">
+<link rel="modulepreload" href="/static/vendor/uPlot.esm.js">
+<link rel="modulepreload" href="/static/js/chart.js">
+<link rel="modulepreload" href="/static/js/leaflet.js">
+<link rel="modulepreload" href="/static/js/gallery.js">
+<link rel="modulepreload" href="/static/js/viz.js">
+<link rel="modulepreload" href="/static/js/analytics_tags.js">
+<link rel="modulepreload" href="/static/js/analytics_more.js">
+<link rel="modulepreload" href="/static/js/analytics.js">
+<link rel="modulepreload" href="/static/js/weather_map.js">
+<link rel="modulepreload" href="/static/js/weather.js">
+<link rel="modulepreload" href="/static/js/aprs.js">
+<link rel="modulepreload" href="/static/js/igate.js">
+<link rel="modulepreload" href="/static/js/map.js">
+<link rel="modulepreload" href="/static/js/review_bulk.js">
+<link rel="modulepreload" href="/static/js/review.js">
+<link rel="modulepreload" href="/static/js/queue.js">
+<link rel="modulepreload" href="/static/js/setup.js">
+<link rel="modulepreload" href="/static/js/admin.js">
 </head>
 <body>
 <div id="app"><div class="boot">Loading…</div></div>

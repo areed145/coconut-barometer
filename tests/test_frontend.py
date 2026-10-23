@@ -90,6 +90,21 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
         self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
 
+    def test_every_module_main_imports_is_preloaded(self):
+        seen, todo = set(), [os.path.join("js", "main.js")]
+        while todo:
+            f = todo.pop()
+            if f in seen:
+                continue
+            seen.add(f)
+            src = open(os.path.join(STATIC, f)).read()
+            todo += [os.path.normpath(os.path.join(os.path.dirname(f), m))
+                     for m in re.findall(r'^\s*import\s[^;]*?from\s+"(\.\.?/[^"]+)"', src, re.M)]
+        page = open(os.path.join(STATIC, "index.html")).read()
+        preloaded = re.findall(r'<link rel="modulepreload" href="/static/([^"]+)">', page)
+        self.assertEqual(len(preloaded), len(set(preloaded)))           # no duplicates
+        self.assertEqual(set(preloaded), seen - {os.path.join("js", "main.js")})
+
     def test_everything_the_page_loads_exists(self):
         refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
         for path in OURS:
