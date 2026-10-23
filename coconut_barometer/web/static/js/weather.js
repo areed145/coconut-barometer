@@ -64,9 +64,12 @@ function WindDial({ dir, speed, gust, trail = [], unit }) {
   </svg>`;
 }
 
-function Tile({ label, value, note, children }) {
-  return html`<div class="wxtile"><span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}</div>`;
+function Tile({ label, value, note, href, children }) {
+  return html`<a class="wxtile" href=${href} title=${`${label} history`}><span>${label}</span><b>${value}</b><small>${note || " "}</small>${children}</a>`;
 }
+
+// The History view for one station's chart of a variable, over the last day.
+const historyOf = (device, chart) => `#/weather/history?range=24h&station=${device}&chart=${chart}`;
 
 function StationCard({ s, rapid, unit, now, events, stream }) {
   const o = s.obs;
@@ -94,39 +97,41 @@ function StationCard({ s, rapid, unit, now, events, stream }) {
   const sunShare = o.clear_sky >= 100 && o.solar != null ? Math.min(1, o.solar / o.clear_sky) : null;
   const range = o.temp_high - o.temp_low;
   const mine = events.filter((e) => e.device_id === s.device_id).slice(-3).reverse();
+  const to = (chart) => historyOf(s.device_id, chart);
   return html`<div class=${"card wxcard" + (stale ? " stale" : "")}>
     <h2>${dot} ${s.name} <span class="muted">${stale ? `last report ${ago(o.ts)}` : live ? "live" : ago(o.ts)}</span>
       ${o.battery != null && html`<span class="muted wxbatt" title="Battery">${fmt(o.battery, 2)} V</span>`}</h2>
     <div class="wxhero">
-      <div class="wxtemp">
+      <a class="wxtemp" href=${to("temperature")} title="Temperature history">
         <b>${show(unit, "temp", o.temp)}</b>
         <span class="muted">feels ${show(unit, "temp", o.feels_like, 0)} · dew point ${show(unit, "temp", o.dew_point, 0)}</span>
         ${o.temp_low != null && html`
           <${Meter} share=${range > 0 ? (o.temp - o.temp_low) / range : 0.5} background=${`linear-gradient(90deg, ${shade(0)}, ${shade(1)})`} />
           <div class="ends"><span>${show(unit, "temp", o.temp_low, 0)} low</span><span>today</span><span>high ${show(unit, "temp", o.temp_high, 0)}</span></div>`}
         <${Spark} values=${r.temp} values2=${r.dew_point} />
-      </div>
-      <${WindDial} dir=${dir} speed=${speed} gust=${live ? null : o.wind_gust} trail=${r.wind_dir} unit=${unit} />
+      </a>
+      <a class="wxdial" href=${to("wind")} title="Wind history">
+        <${WindDial} dir=${dir} speed=${speed} gust=${live ? null : o.wind_gust} trail=${r.wind_dir} unit=${unit} /></a>
     </div>
     <div class="wxtiles">
-      <${Tile} label="Humidity" value=${`${fmt(o.humidity, 0)}%`} note=${`dew point ${show(unit, "temp", o.dew_point, 0)}`}>
+      <${Tile} href=${to("humidity")} label="Humidity" value=${`${fmt(o.humidity, 0)}%`} note=${`dew point ${show(unit, "temp", o.dew_point, 0)}`}>
         <${Spark} values=${r.humidity} /><//>
-      <${Tile} label="Pressure" value=${show(unit, "pressure", o.pressure_sl, pDigits)}
+      <${Tile} href=${to("pressure")} label="Pressure" value=${show(unit, "pressure", o.pressure_sl, pDigits)}
         note=${trend == null ? "" : `${trend > 0.1 ? "▲ rising" : trend < -0.1 ? "▼ falling" : "steady"} ${fmt(Math.abs(unitsFor(unit).pressure[1](trend)), pDigits + 1)} / 3 h`}>
         <${Spark} values=${r.pressure} /><//>
-      <${Tile} label=${`Wind · ${compass(dir) || "calm"}`} value=${show(unit, "speed", o.wind_avg)}
+      <${Tile} href=${to("wind")} label=${`Wind · ${compass(dir) || "calm"}`} value=${show(unit, "speed", o.wind_avg)}
         note=${`gust ${show(unit, "speed", o.wind_gust, 0)}${o.gust_high != null ? ` · ${show(unit, "speed", o.gust_high, 0)} today` : ""}`}>
         <${Spark} values=${r.wind_avg} values2=${r.wind_gust} lo=${0} /><//>
-      <${Tile} label="Rain today" value=${show(unit, "rain", o.rain_today, rDigits)}
+      <${Tile} href=${to("rain")} label="Rain today" value=${show(unit, "rain", o.rain_today, rDigits)}
         note=${lastHour > 0 ? `${show(unit, "rain", lastHour, rDigits)} in the last hour` : "dry this hour"}>
         <${Spark} values=${r.rain} bars lo=${0} color="--chart-3" /><//>
-      <${Tile} label="UV" value=${fmt(o.uv, 1)} note=${uvBand}><${Meter} share=${o.uv == null ? null : o.uv / 12} background=${UV_SCALE} /><//>
-      <${Tile} label="Sun" value=${`${fmt(o.solar, 0)} W/m²`}
+      <${Tile} href=${to("uv")} label="UV" value=${fmt(o.uv, 1)} note=${uvBand}><${Meter} share=${o.uv == null ? null : o.uv / 12} background=${UV_SCALE} /><//>
+      <${Tile} href=${to("solar")} label="Sun" value=${`${fmt(o.solar, 0)} W/m²`}
         note=${sunShare != null ? `${fmt(sunShare * 100, 0)}% of a clear sky` : o.clear_sky > 0 ? "sun low" : "sun down"}>
         <${Spark} values=${r.solar} values2=${r.clear_sky} lo=${0} color="--chart-2" /><//>
-      <${Tile} label="Cloud base" value=${show(unit, "height", o.cloud_base, 0)} note=${o.cloud_base != null && o.cloud_base < 100 ? "fog or mist likely" : "estimated, cumulus"}>
+      <${Tile} href=${to("cloud_base")} label="Cloud base" value=${show(unit, "height", o.cloud_base, 0)} note=${o.cloud_base != null && o.cloud_base < 100 ? "fog or mist likely" : "estimated, cumulus"}>
         <${Spark} values=${r.cloud_base} lo=${0} /><//>
-      <${Tile} label="Lightning" value=${o.last_strike ? ago(o.last_strike.ts) : "none"}
+      <${Tile} href=${to("lightning")} label="Lightning" value=${o.last_strike ? ago(o.last_strike.ts) : "none"}
         note=${[o.last_strike?.distance != null && `${show(unit, "dist", o.last_strike.distance, 0)} away`, strikes3h && `${num(strikes3h)} in 3 h`].filter(Boolean).join(" · ")}>
         <${Spark} values=${r.strikes} bars lo=${0} color="--chart-2" /><//>
     </div>
@@ -437,6 +442,7 @@ function Rose({ device, start, end, unit }) {
 }
 
 // The view is in the address, so it can be linked: #/weather/history?range=30d&station=123 or ?from=2026-10-01&to=2026-10-07.
+// `chart=pressure` (say) scrolls to that chart and marks it, once everything above it has loaded; the Live tiles link here.
 function History({ params = {} }) {
   const [info, setInfo] = useState(null);
   const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
@@ -475,6 +481,15 @@ function History({ params = {} }) {
       .then((x) => live && setDaily((m) => ({ ...m, [id]: x }))).catch(() => live && setDaily((m) => ({ ...m, [id]: { days: [], timezone: "" } })));
     return () => { live = false; };
   }, [data]);
+  // Scroll once per `chart`, after the per-day cards (which change height as they load) are in.
+  const scrolled = useRef("");
+  const settled = data && shown.every((id) => daily[id]);
+  useEffect(() => {
+    const target = params.chart || "";
+    if (!settled || !target || scrolled.current === target) return;
+    scrolled.current = target;
+    requestAnimationFrame(() => document.getElementById("wx-c-" + target)?.scrollIntoView({ block: "start" }));
+  }, [settled, params.chart]);
   const names = useMemo(() => Object.fromEntries((info?.stations || []).map((s) => [s.device_id, s.name])), [info]);
   if (err) return html`<p class="problem">${err}</p>`;
   if (!info) return html`<div class="boot">Loading…</div>`;
@@ -485,7 +500,8 @@ function History({ params = {} }) {
     color: `--chart-${i + 1}`, dash: opts.dash, thin: opts.thin, digits: opts.digits,
     values: (opts.calc ? opts.calc(data.devices[id]) : data.devices[id][opts.from || field]).map((v) => (v == null ? null : kind ? unitsFor(u)[kind][1](v) : v)),
   }] : []);
-  const chart = (title, series, unit, { note, wide, ...extra } = {}) => html`<div class=${"card" + (wide ? " wide" : "")}><h2>${title}</h2>
+  const focused = (id) => (id && id === params.chart ? " focus" : "");
+  const chart = (title, series, unit, { note, wide, id, ...extra } = {}) => html`<div id=${id && "wx-c-" + id} class=${"card" + (wide ? " wide" : "") + focused(id)}><h2>${title}</h2>
     <${TimeChart} t=${data.t} series=${series} unit=${unit} ...${extra} />${note && html`<p class="muted">${note}</p>`}</div>`;
   // A running total: missing points add nothing.
   const running = (series) => series.map((s) => { let sum = 0; return { ...s, values: s.values.map((v) => (sum += v || 0)) }; });
@@ -536,41 +552,43 @@ function History({ params = {} }) {
         ${SECTIONS.filter(([k]) => k !== "calendar" || longEnough(14)).map(([k, l]) => html`<a key=${k} href="#" onClick=${(e) => jump(e, k)}>${l}</a>`)}</nav>
 
       ${section("temperature", "Temperature & humidity", html`
-        ${chart("Temperature", [...make("temp", "temp"), ...make("dew_point", "temp", { suffix: " dew point", dash: [4, 4], thin: true })], unitsFor(u).temp[0], { wide: true })}
+        ${chart("Temperature", [...make("temp", "temp"), ...make("dew_point", "temp", { suffix: " dew point", dash: [4, 4], thin: true })], unitsFor(u).temp[0], { wide: true, id: "temperature" })}
         ${chart("Feels like", [...make("feels_like", "temp"), ...make("temp", "temp", { suffix: " air", dash: [4, 4], thin: true })], unitsFor(u).temp[0], {
           note: "Heat index above 27 °C (80 °F) and 40% humidity; wind chill at 10 °C (50 °F) or below with some wind." })}
-        ${chart("Humidity", make("humidity", null, { digits: 0 }), "%")}
+        ${chart("Humidity", make("humidity", null, { digits: 0 }), "%", { id: "humidity" })}
         ${longEnough(3) && html`
           ${perStation("Daily high & low", (d) => html`<${DailyBand} d=${d} unit=${u} />`)}
           ${perStation("Average day", (d) => html`<${AverageDay} d=${d} unit=${u} />`)}
           ${perStation("Temperature by hour", (d) => html`<${HourHeat} d=${d} unit=${u} />`, { wide: true })}`}`)}
 
       ${section("pressure", "Pressure", html`
-        ${chart("Sea-level pressure", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0], { wide: data.bucket > 3600 })}
+        ${chart("Sea-level pressure", make("pressure", "pressure", { digits: u === "imperial" ? 2 : 1 }), unitsFor(u).pressure[0], { wide: data.bucket > 3600, id: "pressure" })}
         ${data.bucket <= 3600 && chart("Change over 3 hours", make("pressure", "pressure", { calc: tendency, digits: u === "imperial" ? 3 : 1 }),
           unitsFor(u).pressure[0], { marks: [{ values: anyOf("rain"), color: "--chart-3" }, { values: anyOf("strikes"), color: "--chart-2" }], step: data.bucket,
             note: html`${swatch("--chart-3")} rain ${swatch("--chart-2")} lightning. A fall of more than ${u === "imperial" ? "0.06 inHg" : "2 hPa"} in 3 hours often comes ahead of a storm.` })}`)}
 
       ${section("wind", "Wind", html`
-        ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0], { wide: true })}
+        ${chart("Wind", [...make("wind_avg", "speed", { suffix: " avg" }), ...make("wind_gust", "speed", { suffix: " gust", dash: [4, 4], thin: true })], unitsFor(u).speed[0], { wide: true, id: "wind" })}
         ${shown.map((id) => html`<div class="card" key=${"rose" + id}><h2>Wind rose${suffix(id)}</h2>
           <${Rose} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}
         ${chart("Gustiness", make("gust_factor", null, { digits: 2 }), "gust ÷ avg", { wide: shown.length % 2 === 0,
           note: "Gust over average wind, near-calm readings left out. Around 1.3 is steady; 2 and up is turbulent." })}`)}
 
       ${section("rain", "Rain & lightning", html`
-        ${chart("Rain", make("rain", "rain", { digits: rainDigits }), `${unitsFor(u).rain[0]} per point`, { bars: true })}
+        ${chart("Rain", make("rain", "rain", { digits: rainDigits }), `${unitsFor(u).rain[0]} per point`, { bars: true, id: "rain" })}
         ${chart("Rain, running total", running(make("rain", "rain", { digits: rainDigits })), unitsFor(u).rain[0], {
           note: shown.filter((id) => data.devices[id]).map((id) => { const d = rainDays(id);
             return `${shown.length > 1 ? names[id] + ": " : ""}${d} day${d === 1 ? "" : "s"} with rain`; }).join(" · ") })}
-        ${shown.map((id) => html`<div class=${"card" + (shown.length === 1 ? " wide" : "")} key=${"strike" + id}><h2>Lightning${suffix(id)}</h2>
+        ${shown.map((id, i) => html`<div id=${i ? undefined : "wx-c-lightning"} class=${"card" + (shown.length === 1 ? " wide" : "") + (i ? "" : focused("lightning"))}
+          key=${"strike" + id}><h2>Lightning${suffix(id)}</h2>
           <${Lightning} device=${id} start=${data.start} end=${data.end} unit=${u} /></div>`)}`)}
 
       ${section("sky", "Sun & sky", html`
-        ${chart("Solar radiation", [...make("solar", null, { digits: 0 }), ...make("clear_sky", null, { suffix: " clear sky", dash: [4, 4], thin: true, digits: 0 })], "W/m²", { wide: true })}
+        ${chart("Solar radiation", [...make("solar", null, { digits: 0 }), ...make("clear_sky", null, { suffix: " clear sky", dash: [4, 4], thin: true, digits: 0 })], "W/m²", { wide: true, id: "solar" })}
+        ${chart("UV index", make("uv", null, { digits: 1 }), "UV", { id: "uv", note: "The highest per point. 3 and up calls for sun protection; 8 and up, avoiding the midday sun." })}
         ${chart("Cloud cover (estimated)", make("solar", null, { calc: cover, digits: 0 }), "%", {
           note: "How far the sunlight falls short of a cloudless sky. Daylight only; haze and a dirty sensor read as cloud too." })}
-        ${chart("Cloud base (estimated)", make("cloud_base", "height", { digits: 0 }), unitsFor(u).height[0], {
+        ${chart("Cloud base (estimated)", make("cloud_base", "height", { digits: 0 }), unitsFor(u).height[0], { wide: true, id: "cloud_base",
           note: "The lowest per point, from the temperature–dew point spread: where cumulus would form. Layered overcast can sit lower; near zero means fog." })}`)}
 
       ${longEnough(14) && section("calendar", "Calendar", perStation("By day", (d) => html`<${Calendar} days=${d.days} unit=${u} />`, { any: true }))}

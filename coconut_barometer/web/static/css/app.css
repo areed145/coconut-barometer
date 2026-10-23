@@ -560,6 +560,8 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .wxcard h2 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: var(--s2); }
 .wxbatt { float: right; }
 .wxhero { display: flex; align-items: center; gap: var(--s4); margin-bottom: var(--s3); }
+.wxtemp, .wxtile, .wxdial { color: inherit; }   /* each links to its History chart */
+.wxdial { flex: none; display: flex; }
 .wxtemp { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); }
 .wxtemp b { font-size: 40px; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .wxtemp .meter { margin-top: var(--s2); }
@@ -572,6 +574,7 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .wxtile b { font-size: var(--text-md); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wxtile small { font-size: var(--text-2xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wxtile .spark, .wxtile .meter { margin-top: var(--s2); }
+.wxtile:hover { border-color: var(--accent); }
 .spark { display: block; width: 100%; height: 22px; overflow: visible; }
 .meter { position: relative; height: 6px; border-radius: var(--r-pill); }
 .meter i { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--fg); border: 2px solid var(--surface); transform: translate(-50%, -50%); }
@@ -581,7 +584,10 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .wxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - var(--s4)) / 2))), 1fr)); gap: var(--s4); }
 .wxgrid > .card { margin-bottom: 0; }
 .wxgrid > .card.wide { grid-column: 1 / -1; }
-.wxsection { scroll-margin-top: calc(var(--header-h) + var(--s3)); }
+.wxsection, .wxgrid > .card { scroll-margin-top: calc(var(--header-h) + var(--s3)); }
+/* The chart a Live tile linked to: outlined, fading out */
+.wxgrid > .card.focus { animation: wxfocus 2.4s ease-out; }
+@keyframes wxfocus { 0%, 40% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 2px transparent; } }
 /* Weather map: station pins (temperature + wind arrow), popups, the loop controls */
 .wxpin-wrap { background: none; border: 0; }
 .wxpin { display: flex; align-items: center; justify-content: center; gap: 2px; height: 28px; border-radius: var(--r-pill);
