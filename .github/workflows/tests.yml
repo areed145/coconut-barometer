@@ -18,11 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7               # Node 24 actions (Node 20 is deprecated on the runners)
+      - uses: astral-sh/setup-uv@v10.2.0        # no floating major tags since v8; caches by default (auto)
         with:
           version: "0.13.4"       # uv and Python as in the Dockerfile
           python-version: "3.14"
-          enable-cache: true
       - run: uv sync --locked
       - run: uv run python -m unittest discover -s tests -v
