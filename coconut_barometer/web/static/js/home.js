@@ -1,7 +1,7 @@
 // The home page (#/): a large link per public section, each with a glance at what's there now (the newest
 // photo, each station's weather, when each tracked callsign was last heard); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
-import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick } from "./lib.js";
+import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, today, dayLabel, photosLink } from "./lib.js";
 import { show, compass } from "./units.js";
 
 function useGlance(path, ms) {
@@ -90,6 +90,21 @@ function AprsCard() {
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
 }
 
+// Photos taken on today's date in earlier years (not this year's: those are just "recent").
+function OnThisDay() {
+  const on = today(), year = new Date().getFullYear();
+  const d = useGlance(`/api/photos?on=${on}&sort=taken&limit=40`);
+  const past = (d?.photos || []).filter((p) => +p.date_taken.slice(0, 4) < year).slice(0, 8);
+  if (!past.length) return null;
+  const years = (p) => { const n = year - +p.date_taken.slice(0, 4); return n === 1 ? "1 year ago" : `${n} years ago`; };
+  return html`<section class="onthisday" aria-label="On this day">
+    <h2 class="section">On this day <span class="muted">${dayLabel(on)}</span>
+      <a href=${photosLink({ on, sort: "taken" })}>See all</a></h2>
+    <div class="otd-strip">${past.map((p) => html`<a key=${p.id} href=${`#/photos/photo/${p.id}`} title=${p.title || "Untitled"}>
+      <img src=${pick(p.sizes, ["q", "n", "m"])} alt=${p.title || ""} loading="lazy" decoding="async" /><span>${years(p)}</span></a>`)}</div>
+  </section>`;
+}
+
 export function Home({ session, pending, queued }) {
   return html`<div class="home">
     <header class="home-head">
@@ -100,6 +115,7 @@ export function Home({ session, pending, queued }) {
     <nav class="homecards" aria-label="Sections">
       <${PhotosCard} /><${WeatherCard} /><${AprsCard} />
     </nav>
+    <${OnThisDay} />
     ${session && html`<nav class="homelinks" aria-label="Signed in">
       <a href="#/photos/review">Review${pending ? html`<span class="badge">${pending}</span>` : ""}</a>
       <a href="#/photos/analytics">Analytics</a>

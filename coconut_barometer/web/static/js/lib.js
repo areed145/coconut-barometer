@@ -147,6 +147,9 @@ export function every(fn, ms) {
 export const go = (path) => { location.hash = "#/" + path; };
 
 // The Photos page filtered: photosLink({tag: "ramen"}) -> "#/photos/photostream?tag=ramen". Empty values drop out.
+// "On this day": today's month and day ("MM-DD") by the viewer's own calendar, and how it reads ("Oct 23").
+export const today = () => new Date().toLocaleDateString("sv").slice(5);
+export const dayLabel = (on) => new Date(`2000-${on}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 export const photosLink = (params = {}) => {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
   return "#/photos/photostream" + (qs ? "?" + qs : "");

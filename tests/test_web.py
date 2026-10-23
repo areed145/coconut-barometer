@@ -82,6 +82,20 @@ class WebTest(unittest.TestCase):
         self.assertEqual(counts["popular"]["count"], 1)
         self.assertEqual(counts["popular"]["group"], "Engagement")
 
+    def test_photos_on_this_day(self):
+        x = self.store.db.execute
+        x("UPDATE photos SET date_taken='2019-10-23 09:00:00', date_taken_unknown=0 WHERE id='1'")
+        x("UPDATE photos SET date_taken='2024-10-23 18:30:00', date_taken_unknown=0 WHERE id='2'")
+        x("UPDATE photos SET date_taken='2024-10-23 00:00:00', date_taken_unknown=1 WHERE id='3'")   # date unknown
+        x("UPDATE photos SET date_taken='2024-10-24 08:00:00', date_taken_unknown=0 WHERE id='4'")
+        self.store.db.commit()
+        self.login()
+        got = self.c.get("/api/photos", params={"on": "10-23", "sort": "taken"}).json()
+        self.assertEqual([p["id"] for p in got["photos"]], ["2", "1"])              # newest taken first
+        self.assertEqual(got["total"], 2)
+        for bad in ("13-01", "10-32", "1023", "10-2"):
+            self.assertEqual(self.c.get("/api/photos", params={"on": bad}).status_code, 422, bad)
+
     def test_static_files_are_revalidated(self):
         r = self.c.get("/static/js/main.js")
         self.assertEqual(r.headers["cache-control"], "no-cache")

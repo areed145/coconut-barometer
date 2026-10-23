@@ -55,9 +55,10 @@ def photo_card(p) -> dict:
 class GalleryStore(Database):
     def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
                    limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "",
-                   presets: list[str] | None = None, public_only: bool = False) -> dict:
+                   presets: list[str] | None = None, public_only: bool = False, on: str = "") -> dict:
         """One page of photos, by any mix of filters: album, search text, tag (Flickr's
-        normalized form), year taken, camera, photo or video, and presets (all must hold)."""
+        normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), camera,
+        photo or video, and presets (all must hold)."""
         from ..util import norm_tag
 
         where, args = [PUBLIC] if public_only else [], []
@@ -74,6 +75,9 @@ class GalleryStore(Database):
         if year:
             where.append("substr(p.date_taken, 1, 4) = ?")
             args.append(f"{year:04d}")
+        if on:
+            where.append("substr(p.date_taken, 6, 5) = ? AND COALESCE(p.date_taken_unknown, 0) = 0")
+            args.append(on)
         for name in presets or []:
             where.append(PRESETS[name][2])          # KeyError for an unknown one: the API checks first
         if q:

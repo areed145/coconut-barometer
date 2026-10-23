@@ -48,8 +48,8 @@ Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and 
 
 Photos, Weather and APRS are public: visitors see public photos only, and the rest (Analytics, Review, Queue, Settings) needs the login.
 
-- **Home** (`/`, and the logo): a large link to Photos, Weather and APRS, each with a glance at it now (the newest photo, each station's temperature and wind, when each callsign was last heard); signed in, links to Review, Analytics, Queue and Settings below.
-- **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos.
+- **Home** (`/`, and the logo): a large link to Photos, Weather and APRS, each with a glance at it now (the newest photo, each station's temperature and wind, when each callsign was last heard); below them, **On this day**: photos taken on today's date in earlier years; signed in, links to Review, Analytics, Queue and Settings.
+- **Photos**: your photostream as a thumbnail grid that loads as you scroll; search titles, descriptions and tags, sort by upload, date taken, views, faves or comments, filter photos or videos, or **On this day** (taken on today's date, any year).
 - **Albums**: covers and counts; open one for its photos.
 - **Map**: geotagged photos clustered on a world map; filter by album or year, then open a cluster to browse its photos. Map tiles use CARTO; add a key under Settings → Connections → Maps. The tile provider sees the key in tile requests, so restrict it to your site in CARTO.
 - **Lightbox** (click any photo): the 1024 px image, click or <kbd>Z</kbd> to zoom to 2048 px and pan; <kbd>←</kbd> <kbd>→</kbd> to browse, <kbd>I</kbd> for the info panel (description, views/faves/comments, a views-per-day chart, camera and exposure, albums, tags, latest comments), <kbd>Esc</kbd> to close.

@@ -17,16 +17,17 @@ Sort = Literal["newest", "oldest", "taken", "views", "faves", "comments", "title
 def photos(q: str = Query("", max_length=100), sort: Sort = "newest", media: Literal["photo", "video"] | None = None,
            album: str | None = Query(None, max_length=40), tag: str = Query("", max_length=100),
            year: int | None = Query(None, ge=1800, le=3000), camera: str = Query("", max_length=200),
+           on: str = Query("", pattern=r"^(|(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
            is_: str = Query("", alias="is", max_length=300),
            limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0), db=Depends(store), me=Depends(viewer)):
-    """The Photos page and every filtered view of it (album, tag, year, camera, search, and
-    presets: ?is=untitled,no_album means both)."""
+    """The Photos page and every filtered view of it (album, tag, year, `on` this day of any year
+    ("MM-DD"), camera, search, and presets: ?is=untitled,no_album means both)."""
     presets = [p for p in is_.split(",") if p]
     unknown = [p for p in presets if p not in PRESETS or (me is None and PRESETS[p][1] == "Status")]
     if unknown:
         raise HTTPException(422, f"unknown preset: {', '.join(unknown)}")
     return db.photo_page(album_id=album, q=q, sort=sort, media=media, limit=limit, offset=offset, tag=tag,
-                         year=year, camera=camera, presets=presets, public_only=me is None)
+                         year=year, camera=camera, presets=presets, public_only=me is None, on=on)
 
 
 @router.get("/theme")

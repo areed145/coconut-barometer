@@ -1,5 +1,5 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share } from "./lib.js";
+import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share, today, dayLabel } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -70,10 +70,10 @@ export function PhotoGrid({ paged }) {
 
 const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
                ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
-const FILTERS = ["album", "tag", "year", "camera", "media", "q", "sort", "is"];
+const FILTERS = ["album", "tag", "year", "on", "camera", "media", "q", "sort", "is"];
 
 // The Photos page, and every filtered view of it: the filters live in the address
-// (#/photos/photostream?album=…&tag=…&year=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
+// (#/photos/photostream?album=…&tag=…&year=…&on=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
 export function Photos({ params = {} }) {
   const f = Object.fromEntries(FILTERS.map((k) => [k, params[k] || ""]));
   const set = (patch) => location.replace(photosLink({ ...f, ...patch }));     // no history entry per keystroke
@@ -95,9 +95,10 @@ export function Photos({ params = {} }) {
     if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
-  const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, camera: f.camera,
+  const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera,
     media: f.media, q: f.q, sort: f.sort || "newest", is: f.is, offset, limit: PAGE } }), [key]);
-  const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year], ["camera", "Camera", f.camera]]
+  const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
+                 ["on", "On this day", f.on && dayLabel(f.on)], ["camera", "Camera", f.camera]]
     .filter(([k]) => f[k]);
   const label = Object.fromEntries(presets.map((p) => [p.id, p.label]));
   const groups = [...new Set(presets.map((p) => p.group))];
@@ -119,6 +120,8 @@ export function Photos({ params = {} }) {
       <select value=${f.year} onChange=${(e) => set({ year: e.target.value })} aria-label="Year taken">
         <option value="">Any year</option>${years.map((y) => html`<option value=${y.year}>${y.year} (${num(y.count)})</option>`)}
       </select>
+      <button class=${f.on ? "on" : ""} aria-pressed=${!!f.on} onClick=${() => set({ on: f.on ? "" : today(), sort: f.on ? f.sort : "taken" })}
+              title="Photos taken on today's date, any year">On this day</button>
       <button class=${showPresets || active.length ? "on" : ""} onClick=${() => setShowPresets(!showPresets)}
               aria-expanded=${showPresets}>Presets${active.length ? ` (${active.length})` : ""}</button>
       <span class="muted">${paged.total !== null && `${num(paged.total)} items`}</span>
