@@ -149,14 +149,18 @@ function FlickrPanel() {
 }
 
 function AprsStream() {
-  const [s, setS] = useState(null);
-  const load = () => api("/api/aprs/stations").then((d) => setS(d.stream)).catch(() => {});
+  const [d, setD] = useState(null);
+  const load = () => api("/api/aprs/stations").then(setD).catch(() => {});
   useEffect(() => every(load, 5000), []);
-  if (!s) return null;
-  const ok = s.state === "connected";
+  if (!d) return null;
+  const s = d.stream, c = d.cwop, ok = s.state === "connected";
   return html`<div class="card"><h2>APRS-IS connection</h2>
     <p><span class=${"status " + (ok ? "s-applied" : "s-failed")} title=${s.error || ""}>${ok ? "connected" : s.state}</span>
       <span class="muted"> · ${s.server ? `${s.server} · ` : ""}${s.last_message ? `last packet ${ago(s.last_message)}` : "no packets yet this session"}</span></p>
+    ${c && html`<p>Weather reports (CWOP): ${!c.reporting.length ? html`<span class="muted">off: no station has a callsign below</span>`
+      : html`${c.reporting.map((r) => `${r.station} as ${r.callsign}`).join(", ")}, every ${c.every_minutes} min ·
+        ${c.error ? html`<b class="problem">${c.error}</b>` : c.last_at ? html`<span class="muted">last sent ${ago(c.last_at)} (${c.last_sent.join(", ")})</span>`
+          : html`<span class="muted">first report within a few minutes</span>`}`}</p>`}
   </div>`;
 }
 

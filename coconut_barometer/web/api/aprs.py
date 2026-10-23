@@ -9,7 +9,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...aprs.igate import bin_width, parse_location, weibull_fit
-from ..deps import runtime, store
+from ..deps import runtime, store, viewer
 from .weather import _window
 
 router = APIRouter(prefix="/api/aprs", tags=["aprs"])
@@ -23,10 +23,14 @@ def _tracked(rt, callsign: str) -> str:
 
 
 @router.get("/stations")
-def stations(rt=Depends(runtime), db=Depends(store)):
-    """Each tracked callsign (Settings → APRS) with its newest position, and the APRS-IS connection's state."""
-    return {"units": rt.cfg["display"]["units"], "now": int(time.time()), "stream": rt.aprs.hub.snapshot(),
-            "callsigns": db.aprs_latest(rt.aprs.callsigns())}
+def stations(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """Each tracked callsign (Settings → APRS) with its newest position, and the APRS-IS connection's state;
+    signed in, also the CWOP reporter's (Settings → APRS → Weather reports)."""
+    out = {"units": rt.cfg["display"]["units"], "now": int(time.time()), "stream": rt.aprs.hub.snapshot(),
+           "callsigns": db.aprs_latest(rt.aprs.callsigns())}
+    if me is not None:
+        out["cwop"] = rt.aprs.cwop_status()
+    return out
 
 
 @router.get("/track")

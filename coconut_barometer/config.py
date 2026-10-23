@@ -29,6 +29,9 @@ DEFAULTS: dict[str, Any] = {
         "callsigns": ["KJ4TFD-10"],   # tracked on the APRS page, heard live from APRS-IS
         "igate": "WA5DTR-15",         # the packets APRS-IS credits it with gating, for the Igate page ("" for none)
         "igate_location": "",         # "lat, lon" or a grid locator; empty: where its own beacons put it
+        "passcode": None,             # APRS-IS passcode for the callsign: only for sending (CWOP weather reports)
+        "cwop": {},                   # station name -> the callsign-SSID it reports to CWOP as; none: nothing sent
+        "cwop_minutes": 10,           # how often each reports (CWOP asks for 5-10 minutes, no more often than 5)
     },
     "database": "db.duckdb",
     "albums": {"create_missing": False},
@@ -110,10 +113,10 @@ VISION_CONCURRENCY = 4
 MAX_TAGS_PER_PHOTO = 75             # Flickr's limit
 
 # Settings whose keys are yours (album titles, country codes, category names...).
-FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories")}
+FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("aprs", "cwop")}
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
-            ("vision", "base_url"): str, ("vision", "describe", "instructions"): str,
+            ("vision", "base_url"): str, ("aprs", "passcode"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("review", "when_queued"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
@@ -124,7 +127,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
-          ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50)}
+          ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60)}
 COLORS = {("theme", "color_low"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
@@ -311,6 +314,16 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             if not isinstance(c, str) or not CALLSIGN.match(c.strip().upper()):
                 errors.append(f"aprs.callsigns[{i}]: {c!r} isn't a callsign (like KJ4TFD or KJ4TFD-10)")
     checks.append(callsigns)
+
+    def cwop():
+        from .aprs.stream import CALLSIGN
+        for name, c in (get(("aprs", "cwop")) or {}).items():
+            if not isinstance(c, str) or not CALLSIGN.match(c.strip().upper()):
+                errors.append(f"aprs.cwop.{name}: {c!r} isn't a callsign-SSID (like KK6GPV-13)")
+        code = get(("aprs", "passcode"))
+        if code not in (None, "") and not str(code).strip().isdigit():
+            errors.append("aprs.passcode: an APRS-IS passcode is a number")
+    checks.append(cwop)
 
     def igate():
         from .aprs.stream import CALLSIGN

@@ -270,6 +270,25 @@ class WeatherStore(Database):
                 "months": [{"month": m, **best[str(m)]} for m in range(1, 13) if str(m) in best],
                 "this_date": this_date, "almanac": almanac(lat, lon, zone, now) if lat is not None and lon is not None else None}
 
+    def wx_report(self, device_id: int, now: int | None = None) -> dict | None:
+        """What a CWOP report needs (metric): the station's position, the newest observation, the peak gust over
+        the 5 minutes up to it, and rain over the hour, the 24 hours and since local midnight up to it."""
+        st = self.wx_station(device_id)
+        row = self.db.execute(
+            f"SELECT o.ts, o.wind_dir, o.wind_avg, o.temp, o.humidity, o.solar, {SEA_LEVEL_SQL} AS pressure_sl "
+            "FROM wx_obs o JOIN wx_devices d ON d.device_id = o.device_id JOIN wx_stations s ON s.station_id = d.station_id "
+            "WHERE o.device_id=? AND o.ts <= ? ORDER BY o.ts DESC LIMIT 1", (device_id, int(now or time.time()))).fetchone()
+        if not st or not row:
+            return None
+        o = dict(row)
+        ts, midnight = o["ts"], local_midnight(st["timezone"], o["ts"])
+        gust, hour, day, today = self.db.execute(
+            "SELECT max(wind_gust) FILTER (WHERE ts > ? - 300), sum(rain) FILTER (WHERE ts > ? - 3600), sum(rain), "
+            "sum(rain) FILTER (WHERE ts >= ?) FROM wx_obs WHERE device_id=? AND ts > ? - 86400 AND ts <= ?",
+            (ts, ts, midnight, device_id, ts, ts)).fetchone()
+        return {"name": st["name"], "lat": st["lat"], "lon": st["lon"], **o, "gust_5min": gust,
+                "rain_1h": hour or 0.0, "rain_24h": day or 0.0, "rain_midnight": today or 0.0}
+
     def wx_highlights(self, device_id: int, now: int | None = None) -> dict:
         """For Home, by local time at the station (metric): the rain streak, this month so far, this year's
         hot days (high ≥ 100 °F) and freezing nights (low ≤ 0 °C), and lightning (the last strike within

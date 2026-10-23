@@ -157,6 +157,14 @@ META = {
                      "Empty: none. A change reconnects; packets already counted stay under the igate that gated them."),
     "aprs.igate_location": _m("aprs", "Igate location", "Where it is, for distances: \"lat, lon\" (30.27, -97.74) or "
                               "a grid locator (EM10dg). Empty: wherever its own position beacons put it."),
+    "aprs.cwop": _m("aprs", "Stations that report", "Station name → the callsign-SSID it reports as, e.g. Coconut "
+                    "Barometer → KK6GPV-13 (-13 is the usual SSID for weather). Each sends its current readings and its "
+                    "exact position to CWOP (shown on aprs.fi and CWOP's maps; NOAA uses them). Empty: nothing is sent.",
+                    group="Weather reports (CWOP)"),
+    "aprs.passcode": _m("aprs", "APRS-IS passcode", "For your callsign (the same for every SSID): the one sending "
+                        "connection needs it. Tracking stays receive-only.", group="Weather reports (CWOP)"),
+    "aprs.cwop_minutes": _m("aprs", "Report every (minutes)", "CWOP asks for every 5 to 10 minutes.",
+                            group="Weather reports (CWOP)"),
 
     # ---- Display
     "display.units": _m("display", "Units", "How the Weather and APRS pages show values. Everything is stored metric, "
