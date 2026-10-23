@@ -16,3 +16,4 @@ restored-*
 *.before-restore-*
 *.key
 .env*
+TODO.md
