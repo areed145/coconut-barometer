@@ -83,7 +83,9 @@ export function BulkReview() {
     ${d && GROUP_LABEL[kind] && Object.keys(d.groups).length > 0 && html`<div class="toolbar">
       <select value=${value} onChange=${(e) => setValue(e.target.value)} aria-label=${GROUP_LABEL[kind]}>
         <option value="">${GROUP_LABEL[kind]}: all</option>
-        ${Object.entries(d.groups).map(([g, n]) => html`<option value=${g}>${g} (${num(n)})</option>`)}</select></div>`}
+        ${Object.entries(d.groups).map(([g, n]) => html`<option value=${g}>${g} (${num(n)})${d.held?.[g] ? " · limit reached" : ""}</option>`)}</select></div>`}
+    ${d?.held && Object.entries(d.held).filter(([g]) => !value || g === value).map(([g, why]) => html`<p class="muted small" key=${g}>
+      ⏸ ${why}. Applying those now leaves them in review, without asking Flickr.</p>`)}
     ${d?.busy > 0 && html`<p class="muted small"><span class="spin">⟳</span> ${num(d.busy)} photo${d.busy === 1 ? "" : "s"} still being
       processed or applied: listed here when done.</p>`}
     ${!d ? html`<div class="boot">Loading…</div>` : !items.length ? html`<div class="empty">Nothing of this kind waiting.</div>` : html`

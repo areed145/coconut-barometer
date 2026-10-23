@@ -46,6 +46,8 @@ class FakeFlickr:
         self.fail_next: dict[str, int] = {}      # method -> how many of its next calls fail (a Flickr outage)
         self.pools: dict[str, list[str]] = {}    # group id -> photos added by pools.add
         self.moderated: set[str] = set()         # groups whose additions wait for a moderator
+        self.throttles: dict[str, dict] = {}     # group id -> {count, mode, remaining}: its posting limit
+        self.refusing: dict[str, int] = {}       # group id -> the error code pools.add answers with
 
     @property
     def call_count(self):
@@ -62,7 +64,7 @@ class FakeFlickr:
     def nsid(self):
         return "12345@N00"
 
-    def call(self, method, **p):
+    def call(self, method, expect=(), **p):
         self.calls.append((method, p))
         if self.fail_next.get(method):
             self.fail_next[method] -= 1
@@ -161,7 +163,17 @@ class FakeFlickr:
                 if ph["id"] == p["photo_id"]:
                     ph.update(latitude=0, longitude=0)
             return {}
+        if method == "flickr.groups.getInfo":
+            t = self.throttles.get(p["group_id"])
+            return {"group": {"id": p["group_id"], **({"throttle": {k: str(v) for k, v in t.items()}} if t else {})}}
         if method == "flickr.groups.pools.add":
+            if p["group_id"] in self.refusing:
+                raise FlickrCallError(method, self.refusing[p["group_id"]], "Refused")
+            t = self.throttles.get(p["group_id"])
+            if t is not None:
+                if t["remaining"] <= 0:
+                    raise FlickrCallError(method, 5, "Photo limit reached")
+                t["remaining"] -= 1
             pool = self.pools.setdefault(p["group_id"], [])
             if p["photo_id"] in pool:
                 raise FlickrCallError(method, 3, "Photo already in pool")

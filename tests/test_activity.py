@@ -11,7 +11,7 @@ from coconut_barometer import activity
 from coconut_barometer.activity import Activity
 from coconut_barometer.aprs.stream import Hub, handle
 from coconut_barometer.config import from_dict
-from coconut_barometer.flickr_client import FlickrClient
+from coconut_barometer.flickr_client import FlickrCallError, FlickrClient
 from coconut_barometer.ratelimit import SharedRateLimiter
 from coconut_barometer.review import ReviewApp
 from coconut_barometer.store import Store
@@ -59,6 +59,13 @@ class FakeApi:
         def getInfo(**params):
             return {"photo": params}
 
+    class groups:
+        class pools:
+            @staticmethod
+            def add(**params):
+                from flickrapi.exceptions import FlickrError
+                raise FlickrError("Error: 6: Added to the pending queue", code=6)
+
 
 class InstrumentedTest(unittest.TestCase):
     def test_flickr_calls_record_the_wait_for_the_shared_limit(self):
@@ -78,6 +85,17 @@ class InstrumentedTest(unittest.TestCase):
         self.assertGreater(got[-1]["waited"], 0.1)
         self.assertIn("waiting", seen)
         self.assertGreater(limiter.next_free(), time.time())
+
+    def test_expected_answers_are_not_logged_as_errors(self):
+        client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
+        client.api = FakeApi()
+        seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
+        for expect in ((6, 7), ()):
+            with self.assertRaises(FlickrCallError) as e:
+                client.call("flickr.groups.pools.add", expect=expect, group_id="g", photo_id="1")
+            self.assertEqual(e.exception.code, 6)
+        got = [(e["status"], e["error"]) for e in activity.log.since(seq) if e["source"] == "flickr"]
+        self.assertEqual(got, [("answer 6", False), ("error 6", True)])
 
     def test_aprs_lines_are_logged_and_keepalives_counted(self):
         store, seq = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb")), activity.log.snapshot()

@@ -12,7 +12,7 @@ import time
 from collections import deque
 
 from .. import activity
-from ..apply import apply_changes, outcomes, unfinished
+from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..planner import photo_page
@@ -268,11 +268,13 @@ class ReviewApp:
         """Every ready photo's proposed change of one kind (BULK_KINDS), for approving many at once; value
         narrows it: a location's confidence (high, medium, low, none) or an album's or group's name.
         counts: how many of each kind are waiting (and per confidence, album or group); busy: photos in review
-        not listed yet, still being processed or applied (the page refreshes until they're done)."""
+        not listed yet, still being processed or applied (the page refreshes until they're done); held: groups
+        whose posting limit is used up, and when they take more."""
         action = BULK_KINDS[kind]
         busy = self.processing | set(self.store.queue_ids(["applying"]))
         counts: dict[str, int] = {}
         sub: dict[str, int] = {}
+        group_ids: dict[str, str] = {}
         found = []
         for pid in self.store.queue_ids(["pending"]):
             if pid in busy:
@@ -286,6 +288,8 @@ class ReviewApp:
                     continue
                 group = _bulk_group(c)
                 sub[group] = sub.get(group, 0) + 1
+                if c.get("action") == "add_to_group":
+                    group_ids[group] = c.get("album_id") or ""
                 if not value or group == value:
                     found.append((pid, i, c))
         cards = self.store.cards([pid for pid, _, _ in found[:500]])
@@ -293,8 +297,9 @@ class ReviewApp:
                   "title": (cards.get(pid) or {}).get("title") or "", "tags": (self.store.photo(pid)["tags"] or "").split(),
                   "thumb": ((cards.get(pid) or {}).get("sizes") or {}).get("q", "")} for pid, i, c in found[:500]]
         waiting = (set(self.store.queue_ids(["new"])) | busy) & set(self.store.queue_ids(["new", "pending", "applying"]))
+        held = {name: h["why"] for name, gid in group_ids.items() if (h := group_hold(self.store, gid))}
         return {"counts": counts, "groups": dict(sorted(sub.items(), key=lambda kv: -kv[1])), "items": items,
-                "total": len(found), "busy": len(waiting)}
+                "total": len(found), "busy": len(waiting), "held": held}
 
     def bulk_decide(self, verb: str, picks: list[dict]) -> dict:
         """picks: [{photo_id, index, action}]. verb "apply": those changes, as proposed (each photo's others
@@ -645,6 +650,7 @@ class ReviewApp:
         tags_before = (before["tags"] if before is not None else "") or ""
         started, todo, errors = int(time.time()), changes, []
         stats = {"applied": 0, "failed": 0}
+        turned_down = []        # a group's limit or rules: not tried again now
         for _attempt in range(2):
             since = int(time.time())
             try:   # (apply_changes re-reads the photo from Flickr before any title/description write.)
@@ -652,8 +658,13 @@ class ReviewApp:
             except Exception as e:      # network trouble: whatever it didn't reach is retried
                 errors.append(str(e))
             todo = unfinished(store, todo, since)
+            no = store.turned_down_since(photo_id, since)
+            down = [c for c in todo if c.action == "add_to_group" and (c.action, c.new) in no]
+            turned_down += down
+            todo = [c for c in todo if c not in down]
             if not todo:
                 break
+        todo += turned_down
         left_out = {id(c) for c in todo}
         written = [c for c in changes if id(c) not in left_out and c.approved and _writes(c)]
         if written:

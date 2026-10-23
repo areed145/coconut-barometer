@@ -91,10 +91,26 @@ class QueueStore(Database):
         return [(r["kind"], r["photo_id"]) for r in self.db.execute("SELECT kind, photo_id FROM requested_jobs ORDER BY seq")]
 
     def failures_since(self, photo_id: str, since: int) -> list[str]:
-        """Why this photo's changes failed, from the decisions log, since that time."""
+        """Why this photo's changes didn't go through (failed, or Flickr said no), since that time."""
         return [r[0] for r in self.db.execute(
-            'SELECT DISTINCT detail FROM decisions WHERE photo_id=? AND status=\'failed\' AND "at" >= ? AND detail <> \'\'',
-            (photo_id, since))]
+            'SELECT DISTINCT detail FROM decisions WHERE photo_id=? AND status IN (\'failed\', \'deferred\', \'refused\') '
+            'AND "at" >= ? AND detail <> \'\'', (photo_id, since))]
+
+    def turned_down_since(self, photo_id: str, since: int) -> set[tuple[str, str]]:
+        """(action, target) of this photo's changes Flickr turned down since then for a reason that trying
+        again straight away won't fix (a group's limit or rules): not retried."""
+        return {(r[0], r[1]) for r in self.db.execute(
+            'SELECT action, target FROM decisions WHERE photo_id=? AND status IN (\'deferred\', \'refused\') AND "at" >= ?',
+            (photo_id, since))}
+
+    def refused_groups(self) -> dict[str, set[str]]:
+        """photo_id -> the groups that refused it for good ("*": every group, the photo is in as many as it may be)."""
+        from ..apply import POOL_REFUSED
+        out: dict[str, set[str]] = {}
+        for pid, target, detail in self.db.execute(
+                "SELECT photo_id, target, detail FROM decisions WHERE action='add_to_group' AND status='refused'"):
+            out.setdefault(pid, set()).add("*" if detail.endswith(POOL_REFUSED[4]) else target)
+        return out
 
     def queue_finish(self, photo_id: str, status: str, result) -> None:
         with self.db:

@@ -91,7 +91,9 @@ class FlickrClient:
         return self._nsid
 
     # ---- calls ------------------------------------------------------------
-    def call(self, method: str, **params: Any) -> dict:
+    def call(self, method: str, expect: tuple[int, ...] = (), **params: Any) -> dict:
+        """expect: error codes that are answers rather than failures (groups.pools.add's "waiting for
+        a moderator"): still raised, but not counted as errors in the activity log."""
         fn = self.api
         for part in method.split(".")[1:]:
             fn = getattr(fn, part)
@@ -109,6 +111,9 @@ class FlickrClient:
                 code = _error_code(e)
                 # 105 = service unavailable; anything else is a real API error.
                 retry = code == 105 and attempt < 4
+                if code in expect:
+                    log.end(token, f"answer {code}", str(e)[:300])
+                    raise FlickrCallError(method, code, str(e)) from e
                 log.end(token, "retrying" if retry else f"error {code}", str(e)[:300], error=True)
                 if retry:
                     time.sleep(delay)

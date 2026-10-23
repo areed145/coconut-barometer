@@ -131,7 +131,7 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
 .badge.busy { background: var(--warn); color: #1c1917; }
 .status { font-size: var(--text-2xs); padding: 1px var(--s2); border-radius: var(--r-pill); border: 1px solid currentColor; white-space: nowrap; }
 a.status { cursor: pointer; }
-.s-applied { color: var(--ok); } .s-rejected, .s-none { color: var(--muted); } .s-failed { color: var(--no); }
+.s-applied { color: var(--ok); } .s-rejected, .s-none { color: var(--muted); } .s-failed { color: var(--no); } .s-deferred { color: var(--muted); } .s-refused { color: var(--no); }
 .s-pending, .s-new, .s-applying, .s-processing, .s-unprocessed { color: var(--accent); }
 .wxstatus-dot { display: inline-block; width: .55em; height: .55em; margin-right: .35em; border-radius: 50%; background: currentColor; vertical-align: .08em; }
 .src { font-size: var(--text-2xs); padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--muted); }

@@ -1,6 +1,9 @@
 """Carry out reviewed Changes on Flickr and log what was applied or failed (see changes.py)."""
 from __future__ import annotations
 
+import json
+import time
+
 from .changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from .flickr_client import FlickrCallError
 from .sync import refresh_photo
@@ -8,14 +11,24 @@ from .util import norm_tag, norm_title, quote_tags, same_text
 
 # photosets.addPhoto error 3 = "Photo already in set" → treat as success.
 ALREADY_IN_SET = 3
-# groups.pools.add: 3 already in the pool; 6 / 7 added to (already in) the group's queue for a moderator.
+# groups.pools.add's answers, by error code. Done: 3 already in the pool; 6 / 7 added to (already in) the
+# group's queue for a moderator.
 POOL_DONE = {3: "", 6: "waiting for the group's moderator", 7: "waiting for the group's moderator"}
+# 5: you've added as many as the group allows for now (so many a day, a week...). Deferred: kept in review,
+# and no more calls to that group until its limit has likely reset.
+POOL_LIMIT = 5
+# Refused for good: kept in review saying why (untick it, or re-process), never tried again by itself, and
+# not proposed again for that photo (4: for any group).
+POOL_REFUSED = {2: "the group is gone, or you're no longer in it", 4: "the photo is in as many groups as Flickr allows",
+                8: "the group doesn't take this kind of photo (its content or safety level)", 10: "the group's pool is full"}
+POOL_EXPECTED = (*POOL_DONE, POOL_LIMIT, *POOL_REFUSED)
+LIMIT_SECONDS = {"day": 86400, "week": 7 * 86400, "month": 30 * 86400}   # how long a used-up limit holds
 
 
 def apply_changes(client, store, changes: list[Change], dry_run: bool = False, log=print) -> dict:
     """Albums and tags one call each; a photo's title and description share one setMeta; a location
     is a re-read, setLocation and a re-read (for the location privacy Flickr gave it)."""
-    stats = {"applied": 0, "rejected": 0, "failed": 0, "albums_created": 0, "skipped": 0}
+    stats = {"applied": 0, "rejected": 0, "failed": 0, "deferred": 0, "refused": 0, "albums_created": 0, "skipped": 0}
     created: dict[str, str] = {}  # norm title -> new album id
     meta: dict[str, dict[str, Change]] = {}
     for c in changes:
@@ -190,8 +203,8 @@ def _apply_album(client, store, c: Change, created, dry_run, stats, log) -> None
 
 
 def _apply_group(client, store, c: Change, dry_run, stats, log) -> None:
-    """flickr.groups.pools.add. Group rules and posting limits are Flickr's to enforce: a refusal
-    (limit reached, not allowed there) is a failure, saying why."""
+    """flickr.groups.pools.add. Group rules and posting limits are Flickr's to enforce; its answer
+    decides what happens (see POOL_*). A group whose limit is used up isn't called again until it resets."""
     pid, name = c.photo_id, c.new
     if not c.approved:
         stats["rejected"] += 1
@@ -200,10 +213,24 @@ def _apply_group(client, store, c: Change, dry_run, stats, log) -> None:
         log(f"  [dry-run] {pid} → group {name}")
         stats["applied"] += 1
         return
+
+    def held(status: str, why: str) -> None:
+        store.record(pid, "add_to_group", name, status, why)
+        stats[status] += 1
+        log(f"  - {pid} → group {name}: {why}")
+
+    hold = group_hold(store, c.album_id)
+    if hold:
+        return held("deferred", hold["why"])
     detail = ""
     try:
-        client.call("flickr.groups.pools.add", group_id=c.album_id, photo_id=pid)
+        client.call("flickr.groups.pools.add", expect=POOL_EXPECTED, group_id=c.album_id, photo_id=pid)
     except FlickrCallError as e:
+        if e.code == POOL_LIMIT:
+            hold = _hold_group(client, store, c.album_id, name)
+            return held("deferred", hold["why"]) if hold else held("refused", f"{name}: you've added all it allows")
+        if e.code in POOL_REFUSED:
+            return held("refused", f"{name}: {POOL_REFUSED[e.code]}")
         if e.code not in POOL_DONE:
             store.record(pid, "add_to_group", name, "failed", str(e))
             stats["failed"] += 1
@@ -213,6 +240,31 @@ def _apply_group(client, store, c: Change, dry_run, stats, log) -> None:
     store.add_group_photo(c.album_id, pid)
     store.record(pid, "add_to_group", name, "applied", detail)
     stats["applied"] += 1
+
+
+def group_hold(store, group_id: str) -> dict | None:
+    """{until, why} while a group's posting limit is used up, else None."""
+    hold = json.loads(store.get_meta(f"group_hold:{group_id}") or "null")
+    return hold if hold and hold["until"] > time.time() else None
+
+
+def _hold_group(client, store, group_id: str, name: str) -> dict | None:
+    """The group's limit is used up: hold it until the limit likely resets, which its throttle
+    (groups.getInfo, one call) says: so many a day, week or month; a day if it doesn't say.
+    None: the limit is for all time, so it never resets."""
+    try:
+        throttle = client.call("flickr.groups.getInfo", group_id=group_id)["group"].get("throttle") or {}
+    except (FlickrCallError, KeyError, TypeError):
+        throttle = {}
+    mode, count = throttle.get("mode"), str(throttle.get("count") or "")
+    if mode == "ever":
+        return None
+    until = int(time.time()) + LIMIT_SECONDS.get(mode, LIMIT_SECONDS["day"])
+    limit = f"{count} a {mode}" if mode in LIMIT_SECONDS and count.isdigit() else "no more for now"
+    hold = {"until": until, "why": f"{name} takes {limit}; can go after "
+                                   f"{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(until))}"}
+    store.set_meta(f"group_hold:{group_id}", json.dumps(hold))
+    return hold
 
 
 def _apply_location(client, store, c: Change, dry_run, stats, log) -> None:
