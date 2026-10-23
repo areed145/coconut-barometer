@@ -189,7 +189,7 @@ class ServerTest(unittest.TestCase):
         anon = TestClient(self.app, base_url="https://testserver", follow_redirects=False)   # no cookie on the way back
         self.assertEqual(anon.get("/api/flickr/callback", params={"oauth_token": "forged", "oauth_verifier": "x"}).status_code, 400)
         r = anon.get("/api/flickr/callback", params={"oauth_token": token, "oauth_verifier": "v123"})
-        self.assertEqual((r.status_code, r.headers["location"]), (303, "/#/settings"))
+        self.assertEqual((r.status_code, r.headers["location"]), (303, "/#/settings/connections"))
         self.assertEqual(self.made[0].verified, "v123")
         self.assertIs(self.app.state.runtime.client, self.made[-1])                       # rebuilt with the login
         self.assertEqual(anon.get("/api/flickr/callback", params={"oauth_token": token, "oauth_verifier": "v"}).status_code, 400)

@@ -113,7 +113,7 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
             return JSONResponse({"detail": str(e)}, status_code=400)
         except Exception:
             return JSONResponse({"detail": "Flickr didn't accept the login; start again from Settings"}, status_code=502)
-        return RedirectResponse("/#/settings", status_code=303)
+        return RedirectResponse("/#/settings/connections", status_code=303)
 
     if web["api_docs"]:
         @app.get("/api/docs", include_in_schema=False, dependencies=[Depends(session)])

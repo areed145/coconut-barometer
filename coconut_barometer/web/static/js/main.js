@@ -88,7 +88,6 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     return every(load, 5000);
   }, [session]);
   const tab = route[0];
-  useEffect(() => { if (tab === "review") location.replace("#/photos/review"); }, [tab]);   // the old top-level address
   // On narrow screens the tab rows scroll sideways: keep the selected tab in view.
   useEffect(() => {
     requestAnimationFrame(() => document.querySelectorAll("nav.tabs a.on, .subtabs a.on, .admin .sections button.on")
@@ -114,7 +113,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
-  else if (tab === "settings") page = html`<${Admin} />`;
+  else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;

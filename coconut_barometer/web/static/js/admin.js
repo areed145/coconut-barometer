@@ -1,6 +1,7 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
 import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice, every } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
+import { WxStations } from "./weather.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
 const lines = (v) => (v || []).join("\n");
@@ -147,21 +148,6 @@ function FlickrPanel() {
   </div>`;
 }
 
-function WeatherStream() {
-  const [info, setInfo] = useState(null);
-  const load = () => api("/api/wx/stations").then(setInfo).catch(() => {});
-  useEffect(() => every(load, 5000), []);
-  if (!info) return null;
-  const stream = info.stream;
-  const connected = stream?.state === "connected";
-  const label = !info.configured ? "not configured" : connected ? "live stream connected" : `stream ${stream?.state || "unknown"}`;
-  return html`<div class="card"><h2>WeatherFlow connection</h2>
-    <p><span class=${"status " + (!info.configured ? "s-none" : connected ? "s-applied" : "s-failed")}
-      title=${stream?.error || ""}>${label}</span>
-      ${stream?.last_message && html`<span class="muted"> · last message ${ago(stream.last_message)}</span>`}</p>
-  </div>`;
-}
-
 function AprsStream() {
   const [s, setS] = useState(null);
   const load = () => api("/api/aprs/stations").then((d) => setS(d.stream)).catch(() => {});
@@ -269,9 +255,9 @@ function Account() {
       : html`<p class="muted">No changes yet.</p>`}</div>`;
 }
 
-export function Admin() {
+// The section is in the address (#/settings/weather), so other pages can link straight to it.
+export function Admin({ at }) {
   const [data, setData] = useState(null);
-  const [section, setSection] = useState("photos");
   const [edits, setEdits] = useState({});
   const [errors, setErrors] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -285,6 +271,8 @@ export function Admin() {
     } catch (e) { setErrors(e.status === 422 ? e.message.split("; ") : [e.message]); }
     setSaving(false);
   };
+  const section = at === "account" || data.sections.some((s) => s.id === at) ? at : "photos";
+  const setSection = (id) => location.replace("#/settings/" + id);
   const dirty = Object.keys(edits).length;
   const shown = data.settings.filter((s) => s.section === section);
   return html`<div class="admin">
@@ -298,7 +286,7 @@ export function Admin() {
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "connections" && html`<${FlickrPanel} />`}
         ${section === "display" && html`<${ThemeSetting} />`}
-        ${section === "weather" && html`<${WeatherStream} />`}
+        ${section === "weather" && html`<${WxStations} />`}
         ${section === "aprs" && html`<${AprsStream} />`}
         ${section === "backup" && html`<${BackupsPanel} />`}
         ${shown.map((s, i) => {

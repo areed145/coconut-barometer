@@ -1,4 +1,5 @@
-// The Weather section: Live (the stations now), History (charts), Stations (what's stored, sync).
+// The Weather section: Live (the stations now), History (charts), Map. The stations themselves (what's stored, the
+// stream, sync) are under Settings → Weather.
 // Everything is stored metric; Settings → Display → Units only changes how it's shown here.
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, logShare, every, signedIn } from "./lib.js";
@@ -159,7 +160,7 @@ function Live() {
 function Empty() {
   if (!signedIn()) return html`<div class="card"><h2>No stations yet</h2></div>`;
   return html`<div class="card"><h2>No stations yet</h2>
-    <p>Add your WeatherFlow token under <a href="#/settings">Settings → Connections</a>. The stations on that account are found
+    <p>Add your WeatherFlow token under <a href="#/settings/connections">Settings → Connections</a>. The stations on that account are found
     on the next sync, and their history appears under <a href="#/queue">Queue</a> as it's fetched.</p></div>`;
 }
 
@@ -601,8 +602,8 @@ function History({ params = {} }) {
           note: "Nearby stations should agree closely on sea-level pressure, so a steady offset is one barometer reading off." })}`)}`}`;
 }
 
-// ---- Stations ---------------------------------------------------------------------------
-function Stations() {
+// ---- Stations (shown under Settings → Weather) --------------------------------------------
+export function WxStations() {
   const [info, setInfo] = useState(null);
   const load = () => api("/api/wx/stations").then(setInfo).catch(() => {});
   useEffect(() => every(load, 5000), []);
@@ -612,25 +613,29 @@ function Stations() {
       toast(r.status === "queued" ? "WeatherFlow sync queued." : r.status === "busy" ? "A sync is already queued." : "Add the WeatherFlow token in Settings first.");
     } catch (e) { toast(e.message); }
   };
-  if (!info) return html`<div class="boot">Loading…</div>`;
+  if (!info) return null;
+  const stream = info.stream, connected = stream?.state === "connected";
   return html`
     <div class="card"><h2>Stations</h2>
-      ${!info.configured ? html`<${Empty} />` : html`
-        <p class="muted">History comes from WeatherFlow's REST API, ${info.backfill_days} day${info.backfill_days === 1 ? "" : "s"} back${
-          signedIn() ? html` (<a href="#/settings">Settings → Weather</a>)` : ""}; the live feed from its WebSocket.${
-          signedIn() ? html` Both appear under <a href="#/queue">Queue</a>.` : ""}</p>
+      ${!info.configured ? html`<p>Add your WeatherFlow token under <a href="#/settings/connections">Settings → Connections</a>.
+        The stations on that account are found on the next sync.</p>` : html`
+        <p><span class=${"status " + (connected ? "s-applied" : "s-failed")} title=${stream?.error || ""}>${
+          connected ? "live stream connected" : `stream ${stream?.state || "unknown"}`}</span>
+          ${stream?.last_message && html`<span class="muted"> · last message ${ago(stream.last_message)}</span>`}</p>
+        <p class="muted">History comes from WeatherFlow's REST API, ${info.backfill_days} day${info.backfill_days === 1 ? "" : "s"} back
+          (set below); the live feed from its WebSocket. Both appear under <a href="#/queue">Queue</a>.</p>
         ${info.stations.length ? html`<table class="qdone"><thead><tr><th>Station</th><th>Device</th><th>Place</th><th>History</th><th>Observations</th></tr></thead><tbody>
           ${info.stations.map((s) => html`<tr key=${s.device_id}><td>${s.name}</td><td class="muted">${s.serial || s.device_id}</td>
             <td class="muted">${fmt(s.lat, 3)}, ${fmt(s.lon, 3)} · ${fmt(s.elevation, 0)} m</td>
             <td>${s.first_ts ? `${when(s.first_ts)} → ${when(s.last_ts)}` : "none yet"}</td><td>${num(s.observations)}</td></tr>`)}
         </tbody></table>` : html`<p class="muted">No Tempest found on this token yet.</p>`}
-        ${signedIn() && html`<p><button onClick=${sync}>Sync now</button></p>`}`}
+        <p><button onClick=${sync}>Sync now</button></p>`}
     </div>`;
 }
 
-export const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"], ["stations", "Stations"]];
+export const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["map", "Map"]];
 
 export function Weather({ tab = "live", params = {} }) {
-  return tab === "history" ? html`<${History} params=${params} />` : tab === "stations" ? html`<${Stations} />`
+  return tab === "history" ? html`<${History} params=${params} />`
     : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />` : html`<${Live} />`;
 }

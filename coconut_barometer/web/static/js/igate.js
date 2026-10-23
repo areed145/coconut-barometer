@@ -165,7 +165,7 @@ export function Igate() {
 
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.igate) return html`<div class="card"><h2>No igate yet</h2>
-    ${signedIn() && html`<p>Set the igate to follow under <a href="#/settings">Settings → APRS</a>.</p>`}</div>`;
+    ${signedIn() && html`<p>Set the igate to follow under <a href="#/settings/aprs">Settings → APRS</a>.</p>`}</div>`;
   const t = d.totals, dist = d.distance, fit = dist?.fit, win = WINDOWS.find((w) => w[1] === hours)[0];
   const what = count === "stations" ? "stations (each at its farthest)" : "packets";
   return html`
