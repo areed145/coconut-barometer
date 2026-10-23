@@ -255,8 +255,9 @@ class WeatherApiTest(unittest.TestCase):
     def login(self):
         self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
 
-    def test_needs_login(self):
-        self.assertEqual(self.c.get("/api/wx/live").status_code, 401)
+    def test_public_but_sync_needs_login(self):
+        self.assertEqual(self.c.get("/api/wx/live").status_code, 200)
+        self.assertEqual(self.c.post("/api/wx/sync").status_code, 401)
 
     def test_stations_live_history_and_rose(self):
         self.login()

@@ -8,6 +8,7 @@ from .db import Database
 SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "taken": "p.date_taken DESC",
          "views": "p.views DESC", "faves": "p.faves DESC", "comments": "p.comments DESC", "title": "p.title COLLATE NOCASE"}
 SORTS = {k: v + ", p.id" for k, v in SORTS.items()}      # ties (a batch uploaded together) must page the same way every time
+PUBLIC = "p.ispublic = 1"   # what visitors who aren't signed in may see (public_only)
 
 
 # Presets for the Photos page (?is=a,b: all must hold). Fixed SQL only, chosen by id.
@@ -55,12 +56,12 @@ def photo_card(p) -> dict:
 class GalleryStore(Database):
     def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
                    limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "",
-                   presets: list[str] | None = None) -> dict:
+                   presets: list[str] | None = None, public_only: bool = False) -> dict:
         """One page of photos, by any mix of filters: album, search text, tag (Flickr's
         normalized form), year taken, camera, photo or video, and presets (all must hold)."""
         from ..util import norm_tag
 
-        where, args = [], []
+        where, args = [PUBLIC] if public_only else [], []
         joins = ""
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
@@ -91,10 +92,10 @@ class GalleryStore(Database):
     GEOTAGGED = "p.lat IS NOT NULL AND p.lon IS NOT NULL AND NOT (p.lat = 0 AND p.lon = 0)"
 
     def map_points(self, album_id: str | None = None, year_from: int | None = None,
-                   year_to: int | None = None) -> list[list]:
+                   year_to: int | None = None, public_only: bool = False) -> list[list]:
         """[id, lat, lon, server, secret] per geotagged photo (Flickr's 0,0 means none),
         compact because the map takes all of them at once."""
-        joins, where, args = "", [self.GEOTAGGED], []
+        joins, where, args = "", [self.GEOTAGGED, *([PUBLIC] if public_only else [])], []
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
@@ -109,41 +110,51 @@ class GalleryStore(Database):
                                f"WHERE {' AND '.join(where)} ORDER BY p.date_upload DESC, p.id", args)
         return [[r[0], round(r[1], 5), round(r[2], 5), r[3], r[4]] for r in rows]
 
-    def map_years(self) -> list[int]:
+    def map_years(self, public_only: bool = False) -> list[int]:
         return [r[0] for r in self.db.execute(
             f"SELECT DISTINCT CAST(substr(p.date_taken, 1, 4) AS INTEGER) AS y FROM photos p "
-            f"WHERE {self.GEOTAGGED} AND p.date_taken IS NOT NULL AND y > 1800 ORDER BY y")]
+            f"WHERE {self.GEOTAGGED}{' AND ' + PUBLIC if public_only else ''} AND p.date_taken IS NOT NULL "
+            f"AND y > 1800 ORDER BY y")]
 
-    def preset_counts(self) -> list[dict]:
-        """Each preset with how many photos it matches (over the whole library), in one query."""
-        cols = ", ".join(f"SUM(CASE WHEN {sql} THEN 1 ELSE 0 END)" for _, _, sql in PRESETS.values())
-        counts = self.db.execute(f"SELECT {cols} FROM photos p").fetchone()
+    def preset_counts(self, public_only: bool = False) -> list[dict]:
+        """Each preset with how many photos it matches (over the whole library), in one query.
+        public_only: only public photos, and not the Status presets (they're about this app's work)."""
+        presets = {k: v for k, v in PRESETS.items() if not (public_only and v[1] == "Status")}
+        cols = ", ".join(f"SUM(CASE WHEN {sql} THEN 1 ELSE 0 END)" for _, _, sql in presets.values())
+        counts = self.db.execute(f"SELECT {cols} FROM photos p{' WHERE ' + PUBLIC if public_only else ''}").fetchone()
         return [{"id": k, "label": label, "group": group, "count": counts[i] or 0}
-                for i, (k, (label, group, _)) in enumerate(PRESETS.items())]
+                for i, (k, (label, group, _)) in enumerate(presets.items())]
 
-    def years_taken(self) -> list[dict]:
+    def years_taken(self, public_only: bool = False) -> list[dict]:
         return [{"year": int(r[0]), "count": r[1]} for r in self.db.execute(
-            "SELECT substr(date_taken, 1, 4) y, COUNT(*) FROM photos WHERE date_taken IS NOT NULL "
-            "AND y GLOB '[12][0-9][0-9][0-9]' GROUP BY y ORDER BY y DESC")]
+            f"SELECT substr(date_taken, 1, 4) y, COUNT(*) FROM photos p WHERE date_taken IS NOT NULL "
+            f"{'AND ' + PUBLIC if public_only else ''} AND y GLOB '[12][0-9][0-9][0-9]' GROUP BY y ORDER BY y DESC")]
 
-    def cards(self, photo_ids: list[str]) -> dict[str, dict]:
+    def cards(self, photo_ids: list[str], public_only: bool = False) -> dict[str, dict]:
         """photo_id -> card (title, counts, image sizes) for a list of photos."""
         if not photo_ids:
             return {}
         marks = ",".join("?" * len(photo_ids))
-        return {r["id"]: photo_card(r) for r in self.db.execute(f"SELECT * FROM photos WHERE id IN ({marks})", photo_ids)}
+        return {r["id"]: photo_card(r) for r in self.db.execute(
+            f"SELECT * FROM photos p WHERE id IN ({marks}){' AND ' + PUBLIC if public_only else ''}", photo_ids)}
 
-    def album_list(self) -> list[dict]:
+    # An album visitors may see: one with a public photo in it.
+    HAS_PUBLIC = f"EXISTS (SELECT 1 FROM memberships m JOIN photos p ON p.id = m.photo_id WHERE m.album_id = a.id AND {PUBLIC})"
+
+    def album_list(self, public_only: bool = False) -> list[dict]:
         return [{"id": r["id"], "title": r["title"], "description": r["description"], "count": r["count"],
                  "date_update": r["date_update"], "cover_url": r["cover_url"]}
-                for r in self.db.execute("SELECT * FROM albums ORDER BY date_update DESC, title COLLATE NOCASE")]
+                for r in self.db.execute(f"SELECT * FROM albums a{' WHERE ' + self.HAS_PUBLIC if public_only else ''} "
+                                         f"ORDER BY date_update DESC, title COLLATE NOCASE")]
 
-    def album(self, album_id: str) -> dict | None:
-        r = self.db.execute("SELECT * FROM albums WHERE id=?", (album_id,)).fetchone()
+    def album(self, album_id: str, public_only: bool = False) -> dict | None:
+        r = self.db.execute(f"SELECT * FROM albums a WHERE id=?{' AND ' + self.HAS_PUBLIC if public_only else ''}",
+                            (album_id,)).fetchone()
         return dict(r) if r else None
 
-    def photo_detail(self, photo_id: str) -> dict | None:
-        p = self.db.execute("SELECT * FROM photos WHERE id=?", (photo_id,)).fetchone()
+    def photo_detail(self, photo_id: str, public_only: bool = False) -> dict | None:
+        p = self.db.execute(f"SELECT * FROM photos p WHERE id=?{' AND ' + PUBLIC if public_only else ''}",
+                            (photo_id,)).fetchone()
         if not p:
             return None
         albums = [dict(r) for r in self.db.execute(

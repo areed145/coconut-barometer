@@ -1,4 +1,5 @@
-"""The Weather pages: stations, the live view, history for charts, a wind rose, the radar/satellite map."""
+"""The Weather pages: stations, the live view, history for charts, a wind rose, the radar/satellite map.
+Public (read-only); starting a sync needs a login."""
 from __future__ import annotations
 
 import time
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ...weather.imagery import Imagery
 from ..deps import runtime, session, store
 
-router = APIRouter(prefix="/api/wx", tags=["weather"], dependencies=[Depends(session)])
+router = APIRouter(prefix="/api/wx", tags=["weather"])
 
 
 def _units(rt) -> str:
@@ -23,7 +24,7 @@ def stations(rt=Depends(runtime), db=Depends(store)):
             "stations": db.wx_stations(), "stream": rt.weather.hub.snapshot()["stream"]}
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(session)])
 def sync(rt=Depends(runtime)):
     """Queue a REST sync: refresh the stations, fetch missing history. Shows in the Queue."""
     return rt.review.wx_sync()

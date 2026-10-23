@@ -1,14 +1,14 @@
-"""The APRS page: the tracked callsigns' newest positions, their tracks, and their recent packets."""
+"""The APRS page: the tracked callsigns' newest positions, their tracks, and their recent packets. Public."""
 from __future__ import annotations
 
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..deps import runtime, session, store
+from ..deps import runtime, store
 from .weather import _window
 
-router = APIRouter(prefix="/api/aprs", tags=["aprs"], dependencies=[Depends(session)])
+router = APIRouter(prefix="/api/aprs", tags=["aprs"])
 
 
 def _tracked(rt, callsign: str) -> str:

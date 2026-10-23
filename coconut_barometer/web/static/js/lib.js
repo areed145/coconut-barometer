@@ -6,6 +6,8 @@ import { html, useState, useEffect } from "../vendor/preact-htm.module.js";
 // ---- API ----------------------------------------------------------------------
 let csrf = null;
 export const setCsrf = (token) => { csrf = token; };
+// Signed in (a session's CSRF token is known): Photos, Weather and APRS are public; the rest needs a login.
+export const signedIn = () => csrf !== null;
 
 export class ApiError extends Error {
   constructor(status, detail, headers) { super(detail || `HTTP ${status}`); this.status = status; this.headers = headers; }
@@ -19,7 +21,7 @@ export async function api(path, { method = "GET", body, params } = {}) {
   const r = await fetch(url, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
   let data = null;
   try { data = await r.json(); } catch { /* empty body */ }
-  if (r.status === 401 && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("cb:logged-out"));
+  if (r.status === 401 && csrf && !path.startsWith("/api/auth/login")) window.dispatchEvent(new Event("cb:logged-out"));
   if (!r.ok) {
     const detail = Array.isArray(data?.detail) ? data.detail.map((d) => (typeof d === "string" ? d : d.msg)).join("; ") : data?.detail;
     throw new ApiError(r.status, detail, r.headers);

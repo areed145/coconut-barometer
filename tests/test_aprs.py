@@ -134,8 +134,8 @@ class AprsApiTest(unittest.TestCase):
     def login(self):
         self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
 
-    def test_needs_login(self):
-        self.assertEqual(self.c.get("/api/aprs/stations").status_code, 401)
+    def test_public(self):
+        self.assertEqual(self.c.get("/api/aprs/stations").status_code, 200)
 
     def test_stations_track_and_packets(self):
         self.login()

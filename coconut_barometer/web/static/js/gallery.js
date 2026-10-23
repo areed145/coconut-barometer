@@ -1,5 +1,5 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast } from "./lib.js";
+import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -175,7 +175,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   useEffect(() => {
     setDetail(null); setTimeline(null); setZoom(false);
     api(`/api/photos/${p.id}`).then(setDetail).catch(() => {});
-    api(`/api/analytics/photos/${p.id}`).then(setTimeline).catch(() => {});
+    if (signedIn()) api(`/api/analytics/photos/${p.id}`).then(setTimeline).catch(() => {});
     if (index >= photos.length - 5) onNearEnd?.();
   }, [p.id]);
   useEffect(() => {
@@ -226,7 +226,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}
       ${d && html`<p><a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}
-      <p><button onClick=${sendToReview} disabled=${sending}>${sending ? "Sending…" : "Send to Review"}</button></p>
+      ${signedIn() && html`<p><button onClick=${sendToReview} disabled=${sending}>${sending ? "Sending…" : "Send to Review"}</button></p>`}
       <p class="hint"><kbd>←</kbd> <kbd>→</kbd> browse · <kbd>Z</kbd> zoom · <kbd>I</kbd> info · <kbd>Esc</kbd> close</p>
     </aside>`}
   </div>`;

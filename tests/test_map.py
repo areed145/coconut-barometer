@@ -60,9 +60,14 @@ class MapTest(unittest.TestCase):
         self.assertIn("points", r.json())                                # the client decompresses it
         self.assertEqual(r.headers["cache-control"], "no-store")
 
-    def test_needs_a_login(self):
+    def test_visitors_see_public_photos_only(self):
+        self.store.db.execute("UPDATE photos SET ispublic=0 WHERE id='5'")
+        self.store.db.commit()
         anon = TestClient(self.c.app, base_url="https://testserver")
-        self.assertEqual(anon.get("/api/map/points").status_code, 401)
+        r = anon.get("/api/map/points")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("5", {p[0] for p in r.json()["points"]})
+        self.assertIn("5", {p[0] for p in self.points()["points"]})       # signed in: all of them
 
     def test_cards_in_the_order_asked(self):
         r = self.c.post("/api/map/cards", json={"ids": ["3", "nope", "1"]}, headers=self.h)

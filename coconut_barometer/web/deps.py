@@ -38,6 +38,13 @@ def session(request: Request, db: Store = Depends(store)) -> dict:
     return sess
 
 
+def viewer(request: Request, db: Store = Depends(store)) -> dict | None:
+    """The logged-in session, or None for a visitor: for the public pages (Photos, Weather, APRS),
+    which show visitors less (no private photos). Only for reads, so there's no CSRF check."""
+    token = request.cookies.get(COOKIE)
+    return db.session(token_hash(token)) if token else None
+
+
 def client_ip(request: Request) -> str:
     """uvicorn already resolves X-Forwarded-For for web.trusted_proxies."""
     return request.client.host if request.client else "?"

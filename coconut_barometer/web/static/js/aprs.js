@@ -2,7 +2,7 @@
 // its newest position), and a card per callsign with what it last sent. Positions come in live from APRS-IS;
 // nothing older than when the app started listening is known. Map markers and popups are built as elements,
 // as on the other maps, to suit the page's CSP.
-import { html, useState, useEffect, useRef, api, ago, toast, every, shade, useThemeTick } from "./lib.js";
+import { html, useState, useEffect, useRef, api, ago, toast, every, shade, useThemeTick, signedIn } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Spark } from "./weather.js";
 
@@ -223,7 +223,7 @@ export function Aprs() {
 
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.callsigns.length) return html`<div class="card"><h2>No callsigns yet</h2>
-    <p>Add the callsigns to follow under <a href="#/settings">Settings → APRS</a>.</p></div>`;
+    ${signedIn() && html`<p>Add the callsigns to follow under <a href="#/settings">Settings → APRS</a>.</p>`}</div>`;
   return html`
     <div class="toolbar">
       <span class="seg" aria-label="Track window">${WINDOWS.map(([label, h]) => html`<button key=${h}

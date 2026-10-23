@@ -88,9 +88,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(again.status_code, 304)                         # unchanged: nothing re-sent
 
     def test_theme(self):
-        self.assertEqual(self.c.get("/api/theme").status_code, 401)
-        self.login()
-        self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})
+        self.assertEqual(self.c.get("/api/theme").json(), {"colors": ["#f7d125", "#1dab45"]})   # public
 
     def test_worker_view_needs_login(self):
         self.assertEqual(self.c.get("/api/review/worker").status_code, 401)
@@ -100,16 +98,38 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/activity").status_code, 200)
 
     # ---- security -----------------------------------------------------------
-    def test_everything_but_login_needs_a_session(self):
-        for path in ("/api/photos", "/api/albums", "/api/review/summary", "/api/analytics/overview",
-                     "/api/sync/status", "/api/auth/session"):
+    def test_private_pages_need_a_session(self):
+        for path in ("/api/review/summary", "/api/analytics/overview", "/api/sync/status", "/api/activity",
+                     "/api/admin/settings", "/api/auth/session"):
             self.assertEqual(self.c.get(path).status_code, 401, path)
         self.assertEqual(self.c.post("/api/sync/run", json={}).status_code, 401)
+        self.assertEqual(self.c.post("/api/wx/sync").status_code, 401)
+        self.assertEqual(self.c.post("/api/review/items/1/process").status_code, 401)
         page = self.c.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertIn("script-src 'self'", page.headers["content-security-policy"])
         self.assertEqual(page.headers["x-frame-options"], "DENY")
         self.assertIn("max-age", page.headers["strict-transport-security"])
+
+    def test_visitors_see_only_public_photos(self):
+        x = self.store.db.execute
+        x("UPDATE photos SET ispublic=0 WHERE id='1'")
+        x("INSERT INTO queue (photo_id, status, changes) VALUES ('2', 'pending', '[]')")
+        self.store.db.commit()
+        ids = lambda **p: {ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]}
+        self.assertEqual(ids(), {"2", "3", "4", "5"})
+        self.assertEqual(self.c.get("/api/photos/1").status_code, 404)
+        self.assertEqual(self.c.get("/api/photos/2").status_code, 200)
+        self.assertEqual(self.c.get("/api/photos", params={"is": "to_review"}).status_code, 422)   # app status: private
+        self.assertNotIn("Status", {p["group"] for p in self.c.get("/api/photo-presets").json()})
+        self.assertNotIn("1", {c["id"] for c in self.c.post("/api/map/cards", json={"ids": ["1", "2"]}).json()})
+        self.assertNotIn("1", {p[0] for p in self.c.get("/api/map/points").json()["points"]})
+        for a in self.c.get("/api/albums").json():
+            self.assertNotIn("1", {p["id"] for p in self.c.get(f"/api/albums/{a['id']}").json()["photos"]})
+        self.login()                                                     # signed in: everything
+        self.assertEqual(ids(), {"1", "2", "3", "4", "5"})
+        self.assertEqual(self.c.get("/api/photos/1").status_code, 200)
+        self.assertEqual(ids(**{"is": "to_review"}), {"2"})
 
     def test_login_sets_a_strict_secure_cookie_and_stores_only_a_hash(self):
         self.assertEqual(self.login("wrong password!").status_code, 401)
@@ -143,10 +163,10 @@ class WebTest(unittest.TestCase):
     def test_logout_and_password_change_end_sessions(self):
         headers = self.csrf()
         self.assertEqual(self.c.post("/api/auth/logout", headers=headers).status_code, 200)
-        self.assertEqual(self.c.get("/api/photos").status_code, 401)
+        self.assertEqual(self.c.get("/api/review/summary").status_code, 401)
         self.login()
         self.store.set_password_hash("owner", hash_password("another long password"))
-        self.assertEqual(self.c.get("/api/photos").status_code, 401)
+        self.assertEqual(self.c.get("/api/review/summary").status_code, 401)
 
     # ---- features -------------------------------------------------------------
     def test_gallery(self):

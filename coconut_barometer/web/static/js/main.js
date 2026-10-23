@@ -1,4 +1,5 @@
-// The app shell: login (or first-run setup), top bar (tabs, review count, sync status), and the pages.
+// The app shell: first-run setup, top bar (tabs, review count, sync status), and the pages. Photos, Weather
+// and APRS are public; Review, Analytics, Queue and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, ago, until, photosLink, loadTheme, every } from "./lib.js";
 import { Photos, Albums } from "./gallery.js";
 import { Reviewer } from "./review.js";
@@ -10,7 +11,7 @@ import { Aprs } from "./aprs.js";
 import { Admin } from "./admin.js";
 import { Setup } from "./setup.js";
 
-function Login({ onLogin }) {
+function Login({ onLogin, note }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -31,6 +32,7 @@ function Login({ onLogin }) {
   return html`<form class="login" onSubmit=${submit}>
     <img class="logo hero" src="/static/img/logo-320.png" width="200" height="195" alt="" />
     <h1 class="site-name">Coconut Barometer</h1>
+    ${note && html`<p class="muted">${note}</p>`}
     <label for="u">Username</label>
     <input id="u" autocomplete="username" value=${username} onInput=${(e) => setUsername(e.target.value)} required />
     <label for="p">Password</label>
@@ -54,7 +56,7 @@ function SyncBox() {
     title=${text} aria-label=${text}><span class="dot"></span></a>`;
 }
 
-function AccountMenu({ username, onLogout, onSettings }) {
+function AccountMenu({ username, onLogout, onSettings }) {     // username null: a visitor
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -66,29 +68,36 @@ function AccountMenu({ username, onLogout, onSettings }) {
   return html`<div class="menu">
     <button class=${"link burger" + (onSettings ? " on" : "")} aria-label="Menu" aria-haspopup="menu" aria-expanded=${open}
       onClick=${() => setOpen(!open)}>☰</button>
-    ${open && html`<div class="menu-pop" role="menu">
+    ${open && (username ? html`<div class="menu-pop" role="menu">
       <div class="who muted">${username}</div>
       <a role="menuitem" href="#/settings" onClick=${() => setOpen(false)}>Settings</a>
       <button class="link" role="menuitem" onClick=${onLogout}>Sign out</button>
-    </div>`}
+    </div>` : html`<div class="menu-pop" role="menu">
+      <a role="menuitem" href=${"#/login?next=" + encodeURIComponent(location.hash || "#/photos")}
+         onClick=${() => setOpen(false)}>Sign in</a>
+    </div>`)}
   </div>`;
 }
 
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
+const PRIVATE_PHOTO_TABS = ["analytics", "review"];
+const PRIVATE_TABS = ["queue", "settings"];
 
-function Shell({ session, onLogout }) {
+function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();
   const [pending, setPending] = useState(null);
   const [working, setWorking] = useState(0);         // jobs the background worker is applying or processing
   useEffect(() => {
+    if (!session) { setPending(null); return; }
     const load = () => api("/api/review/summary").then((s) => setPending(s.to_review)).catch(() => {});
     return every(load, 30000);
-  }, []);
+  }, [session]);
   useEffect(() => {
+    if (!session) { setWorking(0); return; }
     const load = () => api("/api/review/jobs", { params: { since: 1e9 } })
       .then((j) => setWorking(j.applying + j.processing + (j.syncing ? 1 : 0))).catch(() => {});
     return every(load, 10000);
-  }, []);
+  }, [session]);
   const tab = route[0];
   useEffect(() => { if (tab === "review") location.replace("#/photos/review"); }, [tab]);   // the old top-level address
   // On narrow screens the tab rows scroll sideways: keep the selected tab in view.
@@ -99,8 +108,10 @@ function Shell({ session, onLogout }) {
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["weather", "aprs", "queue", "settings"].includes(tab);
+  const inPhotos = !["weather", "aprs", "queue", "settings", "login"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
+  const next = route.params.next || "#/photos";
+  useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
@@ -112,10 +123,13 @@ function Shell({ session, onLogout }) {
   else if (tab === "aprs") page = html`<${Aprs} />`;
   else if (tab === "queue") page = html`<${QueuePage} />`;
   else if (tab === "settings") page = html`<${Admin} />`;
+  if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
+  else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
+    page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
   const subSection = sub === "photostream" && route.params.album ? "albums" : sub;
   const subtabs = inPhotos ? html`
-    <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.map(([t, label]) => html`<a href=${"#/photos/" + t}
+    <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.filter(([t]) => session || !PRIVATE_PHOTO_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/photos/" + t}
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.map(([t, label]) => html`<a href=${"#/weather/" + t}
@@ -127,21 +141,21 @@ function Shell({ session, onLogout }) {
         <span class="brand-name">Coconut Barometer</span></a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
-        ${link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
+        ${session && link("queue", "Queue", working ? html`<span class="badge busy" title="Jobs running or waiting">${working}</span>` : "")}
       </nav>
       <div class="account">
-        <${SyncBox} />
-        <${AccountMenu} username=${session.username} onLogout=${logout} onSettings=${tab === "settings"} />
+        ${session && html`<${SyncBox} />`}
+        <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />
       </div>
     </header>
     <main class="page">${subtabs}${page}</main>`;
 }
 
 function App() {
-  const [session, setSession] = useState(undefined);     // undefined = checking, null = signed out
+  const [session, setSession] = useState(undefined);     // undefined = checking, null = a visitor (signed out)
   const [setup, setSetup] = useState(false);              // no login yet: first-run setup
   const signedIn = (s) => { setCsrf(s.csrf); setSetup(false); loadTheme().then(() => setSession(s)); };
-  const signedOut = () => { setCsrf(null); setSession(null); };
+  const signedOut = () => { setCsrf(null); loadTheme().then(() => setSession(null)); };
   useEffect(() => {
     api("/api/auth/session").then(signedIn).catch(() => {
       api("/api/setup").then((s) => setSetup(s.needed)).catch(() => {}).finally(signedOut);
@@ -150,8 +164,8 @@ function App() {
     return () => window.removeEventListener("cb:logged-out", signedOut);
   }, []);
   return html`${session === undefined ? html`<div class="boot">Loading…</div>`
-    : session ? html`<${Shell} session=${session} onLogout=${signedOut} />`
-    : setup ? html`<${Setup} onLogin=${signedIn} />` : html`<${Login} onLogin=${signedIn} />`}
+    : setup ? html`<${Setup} onLogin=${signedIn} />`
+    : html`<${Shell} session=${session} onLogin=${signedIn} onLogout=${signedOut} />`}
     <${Toasts} />`;
 }
 
