@@ -1,5 +1,5 @@
 // The Weather → Map tab: radar and GOES-East satellite over the stations, with the stations' current readings
-// and their recent lightning. Radar is either the smooth one (NOAA MRMS around the stations as shapes per dBZ band,
+// and their recent lightning. Radar is either the smooth one (NOAA MRMS over the US as shapes per dBZ band,
 // in Settings → Display → Radar colors, with the storm cells the NWS radars track and where they're heading), or
 // the US-wide NEXRAD tiles looped over the last hour. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
@@ -242,8 +242,8 @@ export function WxMap({ show, unitsFor, compass }) {
     <p class="muted heatkey">${radar === "loop" && html`<span>radar: light</span><i style=${`background: ${DBZ}`}></i><span>heavy / hail</span>`}
       ${radar === "smooth" && vector && html`<span>radar: light</span><i style=${`background: ${radarScale(vector.colors)}`}></i><span>heavy / hail</span>`}
       <span>${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
-        ${radar === "smooth" && vector && !vector.t ? " The smooth radar starts within a few minutes of the server starting, around stations with a location." : ""}
-        ${radar === "smooth" && vector?.t ? " Radar: NOAA MRMS, cleaned, around the stations. Dots: storms the NWS radars are tracking." : ""}
+        ${radar === "smooth" && vector && !vector.t ? " The smooth radar starts within a few minutes of the server starting." : ""}
+        ${radar === "smooth" && vector?.t ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking near the stations." : ""}
         ${radar === "loop" && info?.radar.error ? " Radar unavailable right now." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
         ${sat ? " Satellite images run about 30–60 minutes behind." : ""}</span></p>`;
 }

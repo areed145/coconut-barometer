@@ -1,11 +1,15 @@
-"""Radar near the stations (#54): smooth reflectivity shapes for the Weather map, the storm cells around them, and
-what the rain and storm alerts need (alerts.py).
+"""Radar (#54): smooth reflectivity shapes for the Weather map, the storm cells near the stations, and what the
+rain and storm alerts need (alerts.py).
 
 - Reflectivity: NOAA MRMS's merged, quality-controlled composite (non-weather echoes already removed, every
-  radar merged), every 2 minutes on a 0.01° grid over the US. The `latest` file is fetched only when it has
-  changed (If-Modified-Since). Its GRIB2 data is a PNG, so Pillow decodes it; it's cropped to a box MARGIN
-  degrees around the stations, cleaned of specks, smoothed, and contoured (contourpy) into a filled polygon per
-  BAND_STEP dBZ band. The browser colors the bands from Settings → Display → Radar colors.
+  radar merged), every 2 minutes on a 0.01° (~1 km) grid over the US. The `latest` file is fetched only when it
+  has changed (If-Modified-Since). Its GRIB2 data is a PNG, so Pillow decodes it, once, and it's used twice:
+    the map    the whole US, each US_BLOCK×US_BLOCK block kept at its strongest (~2 km, so a core isn't averaged
+               away), cleaned of specks, smoothed, and contoured (contourpy) on every US_THIN-th point (~4 km)
+               into a filled polygon per BAND_STEP dBZ band. The browser colors the bands from Settings → Display
+               → Radar colors. Shrinking first keeps the memory down (~150 MB at the peak, not ~500).
+    alerts     MARGIN degrees around the stations at the full ~1 km, cleaned (not smoothed): the distance from
+               each station to the nearest rain.
 - Storm cells: the NWS radars' own storm tracking, as the Iowa Environmental Mesonet publishes it: every
   cell's position, motion, max dBZ, hail probability and rotation flags, every 5 minutes. `drct` is the
   direction a cell moves *from* (checked against successive scans), so it heads `drct` + 180.
@@ -33,12 +37,13 @@ from ..errors import caught
 MRMS_URL = "https://mrms.ncep.noaa.gov/2D/MergedReflectivityQCComposite/MRMS_MergedReflectivityQCComposite.latest.grib2.gz"
 CELLS_URL = "https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py"
 FRAME_EVERY, CELLS_EVERY, TICK = 120, 300, 20     # seconds
-MARGIN = 3.0             # degrees around the stations (~330 km): the map's shapes, and the rain alert's reach
+MARGIN = 3.0             # degrees around the stations (~330 km): the rain alert's reach
 CELLS_KM = 400           # storm cells this close to a station are kept
 MIN_DBZ = 15             # weaker is left out (drizzle, and what's left of clutter)
 SPECK_PX = 6             # connected echo smaller than this many ~1 km² pixels is dropped
 SMOOTH = 1.5             # Gaussian sigma, in pixels, for the shapes (the alerts use the unsmoothed field) ...
 THIN = 2                 # ... which are then traced on every THIN-th pixel: smooth anyway, and far fewer points
+US_BLOCK, US_SPECK, US_SMOOTH, US_THIN = 2, 2, 1.0, 2   # the map's whole-US field: the same, on ~2 km pixels
 MIN_RING = 4e-4          # deg² (~4 km²): smaller rings (specks, pinholes) are left out of the shapes
 SAME_CELL_KM = 8         # cells this close are one storm seen by more than one radar
 BAND_STEP, BAND_TOP = 5, 75
@@ -79,41 +84,56 @@ def decode(grib: bytes) -> dict:
     return out
 
 
-def crop(msg: dict, south: float, north: float, west: float, east: float) -> dict:
-    """The box's reflectivity (dBZ, float32, north at the top; no echo or no coverage: 0), and where it is."""
+def grid(msg: dict) -> np.ndarray:
+    """The whole grid's stored values (uint16, north at the top): decoded once, then cropped as needed."""
     from PIL import Image
 
-    r0, r1 = max(0, int((msg["la1"] - north) / msg["dj"])), min(msg["nj"], int((msg["la1"] - south) / msg["dj"]) + 1)
-    c0, c1 = max(0, int((west - msg["lo1"]) / msg["di"])), min(msg["ni"], int((east - msg["lo1"]) / msg["di"]) + 1)
     with Image.open(io.BytesIO(msg["png"])) as img:
-        box = np.asarray(img.crop((c0, r0, c1, r1)), dtype=np.float32)
+        return np.asarray(img)
+
+
+def crop(msg: dict, south: float | None = None, north: float | None = None, west: float | None = None,
+         east: float | None = None, raw: np.ndarray | None = None, block: int = 1) -> dict:
+    """The box's reflectivity (dBZ, float32, north at the top; no echo or no coverage: 0) and where it is; no box:
+    the whole grid. block > 1: each block×block square at its strongest (the stored values rise with dBZ)."""
+    raw = grid(msg) if raw is None else raw
+    r0 = 0 if north is None else max(0, int((msg["la1"] - north) / msg["dj"]))
+    r1 = msg["nj"] if south is None else min(msg["nj"], int((msg["la1"] - south) / msg["dj"]) + 1)
+    c0 = 0 if west is None else max(0, int((west - msg["lo1"]) / msg["di"]))
+    c1 = msg["ni"] if east is None else min(msg["ni"], int((east - msg["lo1"]) / msg["di"]) + 1)
+    box = raw[r0:r1, c0:c1]
+    if block > 1:
+        h, w = box.shape[0] // block * block, box.shape[1] // block * block
+        box = box[:h, :w].reshape(h // block, block, w // block, block).max(axis=(1, 3))
     ref, b, d = msg["scale"]
-    dbz = (ref + box * b) / d
+    dbz = (box.astype(np.float32) * np.float32(b) + np.float32(ref)) / np.float32(d)
+    dbz[dbz < 0] = 0
     return {"t": msg["t"], "north": msg["la1"] - r0 * msg["dj"], "west": msg["lo1"] + c0 * msg["di"],
-            "di": msg["di"], "dj": msg["dj"], "dbz": np.where(dbz > 0, dbz, 0).astype(np.float32)}
+            "di": msg["di"] * block, "dj": msg["dj"] * block, "dbz": dbz}
 
 
-def clean(dbz: np.ndarray) -> np.ndarray:
-    """Weak echo and specks removed: what the alerts read, and (smoothed) what the map draws."""
+def clean(dbz: np.ndarray, speck_px: int = SPECK_PX) -> np.ndarray:
+    """Weak echo and specks (connected echo of fewer than speck_px pixels) removed: what the alerts read, and
+    (smoothed) what the map draws. In place."""
     from scipy import ndimage
 
-    z = np.where(dbz >= MIN_DBZ, dbz, 0).astype(np.float32)
-    labels, n = ndimage.label(z > 0)
+    dbz[dbz < MIN_DBZ] = 0
+    labels, n = ndimage.label(dbz > 0)
     if n:
-        small = np.bincount(labels.ravel()) < SPECK_PX
+        small = np.bincount(labels.ravel()) < speck_px
         small[0] = False
-        z[small[labels]] = 0
-    return z
+        dbz[small[labels]] = 0
+    return dbz
 
 
-def bands(field: dict, z: np.ndarray) -> list[dict]:
+def bands(field: dict, z: np.ndarray, smooth: float = SMOOTH, thin: int = THIN) -> list[dict]:
     """Filled polygons per BAND_STEP dBZ, as GeoJSON features ({"dbz": the band's floor})."""
     import contourpy
     from scipy import ndimage
 
-    smooth = ndimage.gaussian_filter(z, SMOOTH)[::THIN, ::THIN][::-1]   # south at row 0, for ascending y
+    smooth = ndimage.gaussian_filter(z, smooth)[::thin, ::thin][::-1]   # south at row 0, for ascending y
     ny, nx = smooth.shape
-    di, dj = field["di"] * THIN, field["dj"] * THIN
+    di, dj = field["di"] * thin, field["dj"] * thin
     xs = field["west"] + np.arange(nx) * di
     ys = field["north"] - (ny - 1 - np.arange(ny)) * dj
     gen = contourpy.contour_generator(xs, ys, smooth, fill_type=contourpy.FillType.OuterOffset)
@@ -245,11 +265,15 @@ class RadarService:
             r.raise_for_status()
             a["detail"] = f"{len(r.content) / 1e6:.1f} MB"
         msg = decode(gzip.decompress(r.content))
+        raw = grid(msg)
+        us = crop(msg, raw=raw, block=US_BLOCK)
+        frame = {"t": msg["t"], "box": (msg["la1"] - msg["nj"] * msg["dj"], msg["la1"], msg["lo1"], msg["lo1"] + msg["ni"] * msg["di"]),
+                 "bands": bands(us, clean(us.pop("dbz"), US_SPECK), US_SMOOTH, US_THIN)}
+        del us
         lats, lons = [s["lat"] for s in stations], [s["lon"] for s in stations]
-        box = (min(lats) - MARGIN, max(lats) + MARGIN, min(lons) - MARGIN, max(lons) + MARGIN)
-        field = crop(msg, *box)
+        field = crop(msg, min(lats) - MARGIN, max(lats) + MARGIN, min(lons) - MARGIN, max(lons) + MARGIN, raw=raw)
+        del raw
         z = clean(field.pop("dbz"))
-        frame = {"t": field["t"], "box": box, "bands": bands(field, z)}
         with self.lock:
             self.field, self.frame = {**field, "z": z}, frame
             for s in stations:
