@@ -136,7 +136,7 @@ def _radar(rt, now) -> dict:
     level = "bad" if not t or now - t > 30 * 60 else "warn" if snap["error"] or now - t > 10 * 60 else "ok"
     state = f"MRMS frame {_ago(now, t)}" if t else "no frame yet"
     if snap["cells_at"]:
-        state += f" · {len(snap['cells'])} storm cell{'s' if len(snap['cells']) != 1 else ''} nearby"
+        state += f" · {len(snap['cells'])} nationwide storm cell{'s' if len(snap['cells']) != 1 else ''}"
     return row("radar", "Radar", level, state, snap["error"], "#/weather/map", t)
 
 

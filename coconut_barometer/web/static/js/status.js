@@ -172,7 +172,7 @@ export function StatusPage({ health }) {
       ${a.streams.aprs.callsigns.length > 0 && html`<${StreamCard} ...${card("aprs")} title="APRS-IS" st=${a.streams.aprs} extra="keepalives" />`}
       ${has("imagery") && html`<${ServiceCard} ...${card("imagery")} title="Radar & satellite">
         <span class="svcmeta">Frame lists for the weather map, at most every 4 minutes</span><//>`}
-      ${has("radar") && html`<${ServiceCard} ...${card("radar")} title="Radar near the stations">
+      ${has("radar") && html`<${ServiceCard} ...${card("radar")} title="Radar & nationwide storm cells">
         <span class="svcmeta">NOAA MRMS reflectivity when there's a new frame (checked every 2 min), storm cells every 5 min</span><//>`}
     </div>
     <${ActivityLog} entries=${entries} a=${a} source=${source} setSource=${setSource} errorsOnly=${errorsOnly} setErrorsOnly=${setErrorsOnly}

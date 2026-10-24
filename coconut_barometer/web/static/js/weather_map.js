@@ -243,7 +243,7 @@ export function WxMap({ show, unitsFor, compass }) {
       ${radar === "smooth" && vector && html`<span>radar: light</span><i style=${`background: ${radarScale(vector.colors)}`}></i><span>heavy / hail</span>`}
       <span>${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
         ${radar === "smooth" && vector && !vector.t ? " The smooth radar starts within a few minutes of the server starting." : ""}
-        ${radar === "smooth" && vector?.t ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking near the stations." : ""}
+        ${radar === "smooth" && vector?.t ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking nationwide." : ""}
         ${radar === "loop" && info?.radar.error ? " Radar unavailable right now." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
         ${sat ? " Satellite images run about 30–60 minutes behind." : ""}</span></p>`;
 }

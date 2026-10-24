@@ -128,7 +128,7 @@ def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(ima
 @router.get("/radar")
 def radar(rt=Depends(runtime)):
     """The Map tab's smooth radar: the newest MRMS frame over the US as filled polygons per dBZ band
-    (colored in the browser from Settings → Display → Radar colors), and the storm cells near them with where
+    (colored in the browser from Settings → Display → Radar colors), and nationwide storm cells with where
     each will be in 30 and 60 minutes on its present course."""
     from ...weather.radar import where_at
 
