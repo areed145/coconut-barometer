@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timedelta, timezone
 
 from . import push
 from .weather import radar as rd
@@ -25,6 +26,12 @@ from .weather import radar as rd
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
 SENT_META = "alerts_sent"
+
+
+def _history_url(device: int, chart: str, at: int) -> str:
+    day = datetime.fromtimestamp(at, timezone.utc).date()
+    start, end = (day - timedelta(days=1)).isoformat(), (day + timedelta(days=1)).isoformat()
+    return f"/#/weather/history?from={start}&to={end}&station={device}&chart={chart}"
 
 
 def _dist(km: float, units: str) -> str:
@@ -72,22 +79,31 @@ class Alerts:
                     "ts <= ? AND strike_count > 0 AND strike_dist > 0) WHERE d <= ?",
                     (dev, since, now, dev, since, now, a["lightning_km"])).fetchone()
                 if n:
-                    out.append({"key": f"lightning:{dev}", "url": "/#/weather",
+                    out.append({"key": f"lightning:{dev}", "url": _history_url(dev, "lightning", now),
                                 "title": f"Lightning {_dist(nearest, units)} from {name}",
-                                "body": f"Strikes within {_dist(a['lightning_km'], units)} in the last few minutes."})
+                                "body": f"Strikes within {_dist(a['lightning_km'], units)} in the last few minutes.",
+                                "evidence": {"device_id": dev, "matching_records": n, "nearest_km": nearest,
+                                             "threshold_km": a["lightning_km"], "window_start": since, "window_end": now}})
             if a["gust_kmh"]:
-                gust = store.db.execute("SELECT MAX(wind_gust) FROM wx_obs WHERE device_id=? AND ts > ? AND ts <= ?",
-                                        (dev, since, now)).fetchone()[0]
+                gust_row = store.db.execute("SELECT wind_gust, ts FROM wx_obs WHERE device_id=? AND ts > ? AND ts <= ? "
+                                            "ORDER BY wind_gust DESC, ts DESC LIMIT 1", (dev, since, now)).fetchone()
+                gust, observed_at = gust_row if gust_row else (None, None)
                 if gust is not None and gust * 3.6 >= a["gust_kmh"]:
-                    out.append({"key": f"gust:{dev}", "url": "/#/weather", "title": f"Gust of {_speed(gust, units)} at {name}",
-                                "body": f"Over the {_speed(a['gust_kmh'] / 3.6, units)} you set."})
+                    out.append({"key": f"gust:{dev}", "url": _history_url(dev, "wind", now),
+                                "title": f"Gust of {_speed(gust, units)} at {name}",
+                                "body": f"Over the {_speed(a['gust_kmh'] / 3.6, units)} you set.",
+                                "evidence": {"device_id": dev, "gust_ms": gust, "observed_at": observed_at,
+                                             "threshold_kmh": a["gust_kmh"],
+                                             "window_start": since, "window_end": now}})
             if a["pressure_drop_hpa"]:
                 o = (store.wx_latest(dev) or {}).get("obs")
                 change = o and o.get("pressure_change_3h")
                 if change is not None and o["ts"] > now - STALE and change <= -a["pressure_drop_hpa"]:
-                    out.append({"key": f"pressure:{dev}", "url": "/#/weather",
+                    out.append({"key": f"pressure:{dev}", "url": _history_url(dev, "pressure", now),
                                 "title": f"Pressure falling at {name}",
-                                "body": f"Down {_pressure(-change, units)} in 3 hours, now {_pressure(o['pressure_sl'], units)}."})
+                                "body": f"Down {_pressure(-change, units)} in 3 hours, now {_pressure(o['pressure_sl'], units)}.",
+                                "evidence": {"device_id": dev, "observed_at": o["ts"], "pressure_hpa": o["pressure_sl"],
+                                             "change_3h_hpa": change, "threshold_hpa": a["pressure_drop_hpa"]}})
         if self.radar is not None:
             out += self._radar(store, now, units)
         if a["callsign_quiet_hours"]:
@@ -98,7 +114,9 @@ class Alerts:
                                                     (call, first)).fetchone()[0]
                 if before and first - before >= a["callsign_quiet_hours"] * 3600:
                     out.append({"key": f"callsign:{call}", "url": "/#/aprs", "title": f"{call} heard",
-                                "body": f"Its first packet in {_hours(first - before)}."})
+                                "body": f"Its first packet in {_hours(first - before)}.",
+                                "evidence": {"callsign": call, "first_packet_at": first, "previous_packet_at": before,
+                                             "quiet_seconds": first - before}})
         return out
 
     def _radar(self, store, now: int, units: str) -> list[dict]:
@@ -116,14 +134,21 @@ class Alerts:
                     moving = f"moving {COMPASS[round(c['toward'] / 45) % 8]} at {_speed(c['kmh'] / 3.6, units)}" if c["kmh"] else "barely moving"
                     out.append({"key": f"storm:{dev}", "url": "/#/weather/map",
                                 "title": f"Storm over {name}" if eta == 0 else f"Storm {_minutes(eta)} from {name}",
-                                "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {moving}", *extra])) + "."})
+                                "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {moving}", *extra])) + ".",
+                                "evidence": {"device_id": dev, "cell_id": c.get("id"), "dbz": c["dbz"],
+                                             "hail_probability": c["posh"], "tornado_vortex_signature": c["tvs"],
+                                             "latitude": c["lat"], "longitude": c["lon"], "speed_kmh": c["kmh"],
+                                             "direction_degrees": c["toward"], "radar_observed_at": c["valid"],
+                                             "eta_seconds": eta}})
             if a["rain_minutes"]:
                 r = self.radar.closing(dev, now)
                 if r and r["km"] > rd.HERE_KM and r["kmh"] >= 5 and now - r["t"] < 15 * 60:
                     eta = (r["km"] - rd.HERE_KM) / r["kmh"] * 3600
                     if eta <= a["rain_minutes"] * 60:
                         out.append({"key": f"rain:{dev}", "url": "/#/weather/map", "title": f"Rain {_minutes(eta)} from {name}",
-                                    "body": f"{_dist(r['km'], units)} away, closing at {_speed(r['kmh'] / 3.6, units)}."})
+                                    "body": f"{_dist(r['km'], units)} away, closing at {_speed(r['kmh'] / 3.6, units)}.",
+                                    "evidence": {"device_id": dev, "distance_km": r["km"], "speed_kmh": r["kmh"],
+                                                 "radar_observed_at": r["t"], "eta_seconds": eta}})
         return out
 
     def run_once(self, store, now: float | None = None) -> list[dict]:
@@ -137,7 +162,15 @@ class Alerts:
         cooldown = self.cfg["alerts"]["cooldown_minutes"] * 60
         due = [x for x in self.check(store, now) if now - sent.get(x["key"], 0) >= cooldown]
         for x in due:
-            push.send(store, x["title"], x["body"], x["url"], tag=x["key"])
+            for device in push.devices(store):
+                try:
+                    result = push.send(store, x["title"], x["body"], x["url"], tag=x["key"], only=device["id"])
+                    status = ("sent" if result["sent"] else "failed" if result["failed"]
+                              else "removed" if result["removed"] else "not_sent")
+                    detail = "; ".join(result["failed"]) or ("subscription expired" if result["removed"] else "")
+                except Exception as e:
+                    status, detail = "failed", f"{type(e).__name__}: {e}"
+                store.alert_log_add(now, x, device, status, detail)
             sent[x["key"]] = now
         if due:
             store.set_meta(SENT_META, json.dumps({k: t for k, t in sent.items() if now - t < 7 * 86400}))
