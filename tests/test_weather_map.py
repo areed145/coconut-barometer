@@ -91,3 +91,14 @@ class ImageryTest(unittest.TestCase):
         self.assertIn("https://gibs.earthdata.nasa.gov", img)
         self.assertNotIn("mesonet.agron.iastate.edu", CSP)             # the radar is drawn from our own data now
         self.assertIn("connect-src 'self';", CSP)
+
+
+class PermissionsPolicyTest(unittest.TestCase):
+    def test_geolocation_is_allowed_for_the_site_only(self):
+        """#78: the map's "my location" needs it; camera, microphone and payment stay off."""
+        from coconut_barometer.web.security import security_headers
+
+        policy = security_headers(True)["Permissions-Policy"]
+        self.assertIn("geolocation=(self)", policy)
+        for off in ("camera=()", "microphone=()", "payment=()"):
+            self.assertIn(off, policy)

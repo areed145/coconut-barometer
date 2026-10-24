@@ -86,14 +86,80 @@ class FrontendTest(unittest.TestCase):
 
     def test_weather_map_layers_share_a_timeline_and_report_its_errors(self):
         m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
-        self.assertIn('aria-label="Map layers"', m)                         # radar and storm tracks toggle apart
-        self.assertIn(">Storm tracks</button>", m)
-        self.assertIn(">Fronts</button>", m)                                # WPC's fronts and highs and lows (#69)
+        c = open(os.path.join(STATIC, "js", "wx_controls.js")).read()
+        self.assertIn('role="dialog" aria-label="Map layers"', c)           # radar and storm tracks toggle apart
+        self.assertIn('check("storms", "Storm tracks")', c)
+        self.assertIn('check("fronts", "Fronts")', c)                       # WPC's fronts and highs and lows (#69)
         self.assertIn('api("/api/wx/fronts")', m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
         self.assertIn('fetch("/api/wx/map/errors"', m)
         self.assertIn('window.addEventListener("unhandledrejection"', m)
+
+    def test_weather_map_controls_sit_on_the_map(self):
+        """#78: my location and full screen with the zoom buttons, a Layers panel or sheet, a timeline bar."""
+        m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
+        c = open(os.path.join(STATIC, "js", "wx_controls.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertNotIn("wxmapbar", m)                                     # no toolbar above the map
+        self.assertIn('<${LayersPanel} layers=${layers}', m)
+        self.assertIn('<${LoopBar} timeline=${timeline}', m)
+        self.assertIn('createPane("wxme").style.zIndex = 650', m)           # my location: over the radar and pins, under popups
+        # where I am: asked only on a tap, watched with less accuracy unless following, stopped while hidden
+        self.assertIn("navigator.geolocation.watchPosition(fix, fail,", c)
+        self.assertIn("{ enableHighAccuracy: follow, maximumAge: follow ? 5000 : 30000", c)
+        self.assertIn('m.on("dragstart", byHand).on("zoomstart", byHand)', c)   # by hand: following stops
+        self.assertIn("!m.getBounds().pad(-0.25).contains(at)", c)          # recentred only near the edge
+        self.assertIn('document.hidden && s.watch != null', c)
+        self.assertNotIn("api(", c)                                         # the position never goes to the server
+        # full screen: the browser's, else the page covered (iPhone), and the map told its new size
+        self.assertIn("w.requestFullscreen", c)
+        self.assertIn('else setFull("pseudo");', c)
+        self.assertIn("map.current?.invalidateSize()", c)
+        self.assertIn(".wxmap.pseudo { position: fixed; inset: 0;", css)
+        self.assertIn("html.wxfull header.top, html.wxfull .subtabs { display: none; }", css)
+        # layers: one button with what's on, its panel a bottom sheet on a phone, the choices remembered
+        self.assertIn("aria-expanded=${open}", c)
+        self.assertIn("localStorage.setItem(PREFS, JSON.stringify(layers))", c)
+        self.assertIn("useEffect(() => saveLayers(layers), [layers]);", m)
+        self.assertIn('slider("radarOpacity", "Radar opacity"', c)          # an opacity per raster layer
+        self.assertIn('slider("satOpacity", "Satellite opacity"', c)
+        self.assertIn(".wxlayers { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 50%;", css)
+        # the timeline: step, play, speed, Now, keyboard, and paused while hidden
+        self.assertIn('export const SPEEDS = [["½×", 1200], ["1×", 600], ["2×", 300]];', c)
+        self.assertIn("SPEEDS[speed][1]", m)
+        self.assertIn('e.key === "ArrowLeft" || e.key === "ArrowRight"', m)
+        self.assertIn("if (document.hidden) setPlaying(false);", m)
+        self.assertIn('class="wxgap"', c)                                  # the satellite's delay, shaded (#74)
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_layer_choices_survive_a_reload(self):
+        script = r"""
+          const store = new Map();
+          globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
+          const { loadLayers, saveLayers, DEFAULT_LAYERS, layersSummary } = await import("%s");
+          const first = loadLayers();
+          saveLayers({ ...first, radar: false, sat: "infrared", satOpacity: 0.5, basemap: "dark" });
+          const again = loadLayers();
+          store.set("cb-wxmap-layers", '{"radar": "yes", "bogus": 1}');      // a bad value: the default
+          const bad = loadLayers();
+          store.set("cb-wxmap-layers", "{not json");
+          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad,
+            broken: loadLayers().radar, summary: layersSummary(again) }));
+        """ % os.path.join(STATIC, "js", "wx_controls.js")
+        stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
+        with open(stub, "w") as f:      # wx_controls.js imports lib.js (Preact): enough of a DOM for it to load
+            f.write("globalThis.document = { documentElement: { getAttribute: () => null }, addEventListener() {} };"
+                    "globalThis.window = { addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) };"
+                    "globalThis.matchMedia = window.matchMedia; globalThis.location = { hash: '' };\n" + script)
+        r = subprocess.run([NODE, stub], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertTrue(out["first"])
+        self.assertEqual({k: out["again"][k] for k in ("radar", "sat", "satOpacity", "basemap", "storms")},
+                         {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True})
+        self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
+        self.assertEqual(out["summary"], "Storms · Lightning · Sat")
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_the_loop_is_the_hour_both_radar_and_satellite_cover(self):

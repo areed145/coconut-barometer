@@ -103,7 +103,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; "
 def security_headers(secure: bool) -> dict[str, str]:
     h = {"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
          "Referrer-Policy": "same-origin", "Cross-Origin-Opener-Policy": "same-origin",
-         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()"}
+         "Permissions-Policy": "camera=(), microphone=(), geolocation=(self), payment=()"}
     if secure:
         h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return h

@@ -25,13 +25,16 @@ export function leaflet() {
 export function baseMap({ L, cfg }, el, options = {}) {
   const map = L.map(el, { worldCopyJump: true, minZoom: 2, ...options });
   const key = cfg.carto_key ? `?key=${encodeURIComponent(cfg.carto_key)}` : "";
-  const url = () => `https://basemaps.cartocdn.com/rastertiles/${isDark() ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png${key}`;
+  let mode = "auto";                               // map.setBasemap("auto" | "light" | "dark"): auto follows the theme
+  const dark = () => (mode === "auto" ? isDark() : mode === "dark");
+  const url = () => `https://basemaps.cartocdn.com/rastertiles/${dark() ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png${key}`;
   const tiles = L.tileLayer(url(), {
     maxZoom: 20,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(map);
   map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
   const swap = () => tiles.setUrl(url());          // light or dark tiles, following the theme
+  map.setBasemap = (m) => { if (m !== mode) { mode = m; swap(); } return map; };
   window.addEventListener("cb:theme", swap);
   map.on("unload", () => window.removeEventListener("cb:theme", swap));
   return map;
