@@ -49,10 +49,45 @@ class StatusTest(unittest.TestCase):
 
     def test_visitors_get_the_public_services_without_errors(self):
         d = self.get()
-        self.assertEqual(set(self.rows(d)), {"weatherflow", "aprs", "imagery"})
+        self.assertEqual(set(self.rows(d)), {"weatherflow", "aprs", "imagery", "lightning", "fronts", "hazards"})
         self.assertTrue(all(r["detail"] is None and r["href"] is None for r in d["rows"]))
         self.login()
-        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "radar", "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "radar", "lightning", "fronts", "hazards",
+                                                      "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+
+    def test_the_weather_maps_feeds_each_have_a_dot(self):
+        """Lightning, fronts, and watches and warnings: read from what each last fetched (never fetched for the panel);
+        a failed check warns, data already old when checked warns and then turns red, nothing at all is red."""
+        from coconut_barometer.weather.fronts import fronts
+        from coconut_barometer.weather.glm import glm
+        from coconut_barometer.weather.hazards import hazards
+        import numpy as np
+
+        for f in (glm, fronts, hazards):                                 # the process's own feeds: put back after
+            for k in ("data", "checked_at", "error"):
+                self.addCleanup(setattr, f, k, getattr(f, k))
+                setattr(f, k, None)
+        self.login()                                                     # signed in: with the error text
+        now = time.time()
+        r = self.rows(self.get())
+        self.assertEqual([r[k]["level"] for k in ("lightning", "fronts", "hazards")], ["ok"] * 3)   # not asked for yet
+        self.assertIn("checked when the weather map shows it", r["lightning"]["state"])
+
+        glm.data = {"t": np.zeros(3, dtype=np.int64), "lat": np.zeros(3), "lon": np.zeros(3), "newest": int(now) - 60}
+        glm.checked_at = now
+        fronts.data, fronts.checked_at = {"valid": int(now) - 7 * 3600, "fronts": [{}, {}], "centers": []}, now
+        hazards.data, hazards.checked_at, hazards.error = None, now, "ConnectionError: down"
+        r = self.rows(self.get())
+        self.assertEqual((r["lightning"]["level"], r["fronts"]["level"], r["hazards"]["level"]), ("ok", "warn", "bad"))
+        self.assertIn("3 flashes held", r["lightning"]["state"])
+        self.assertIn("2 fronts", r["fronts"]["state"])
+        self.assertEqual(r["hazards"]["detail"], "ConnectionError: down")
+
+        glm.data["newest"], glm.error = int(now) - 40 * 60, "RuntimeError: THREDDS"
+        hazards.data, hazards.error = {"alerts": [{"minor": False}, {"minor": True}]}, None
+        r = self.rows(self.get())
+        self.assertEqual((r["lightning"]["level"], r["hazards"]["level"]), ("bad", "ok"))
+        self.assertIn("1 watch and warnings, 1 advisories", r["hazards"]["state"])
 
     def test_a_station_gone_quiet_turns_weatherflow_red(self):
         now = int(time.time())

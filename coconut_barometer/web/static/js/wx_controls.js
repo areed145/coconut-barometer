@@ -5,11 +5,13 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 
 // ---- remembered per device ------------------------------------------------------------------------------------
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
-export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, lightning: true,
-  temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
+export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, glm: true,
+  rings: true, temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
+    // The stations' strike rings were "lightning" until GOES lightning came (#94): their choice carries over.
+    if (saved.rings === undefined && typeof saved.lightning === "boolean") saved.rings = saved.lightning;
     return Object.fromEntries(Object.entries(DEFAULT_LAYERS).map(([k, v]) => [k, typeof saved[k] === typeof v ? saved[k] : v]));
   } catch { return { ...DEFAULT_LAYERS }; }
 }
@@ -201,7 +203,7 @@ const FOCUSABLE = "button, input, a[href]";
 
 // What's on, for the closed button.
 export const layersSummary = (l) => [l.radar && "Radar", l.storms && "Storms", l.hazards && "Warnings", l.fronts && "Fronts",
-  l.lightning && "Lightning", l.temp && "Temp", l.wind && "Wind", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
+  l.glm && "Lightning", l.rings && "Strikes", l.temp && "Temp", l.wind && "Wind", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
 
 export function LayersPanel({ layers, set, strikes, legend, notes }) {
   const [open, setOpen] = useState(false);
@@ -255,7 +257,8 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         ${check("hazards", "Watches & warnings")}
         ${check("hazardsMinor", "with advisories & marine", !layers.hazards, "wxlayer wxsub")}
         ${check("fronts", "Fronts")}
-        ${check("lightning", `Lightning${strikes ? ` (${strikes})` : ""}`)}
+        ${check("glm", "Lightning")}
+        ${check("rings", `Station strikes${strikes ? ` (${strikes})` : ""}`)}
         <h3>Surface</h3>
         <div class="wxrow">${check("temp", "Temperature")}${slider("tempOpacity", "Temperature opacity", !layers.temp)}</div>
         ${check("wind", "Surface wind")}

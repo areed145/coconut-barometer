@@ -156,8 +156,10 @@ class FrontendTest(unittest.TestCase):
           const again = loadLayers();
           store.set("cb-wxmap-layers", '{"radar": "yes", "bogus": 1}');      // a bad value: the default
           const bad = loadLayers();
+          store.set("cb-wxmap-layers", '{"lightning": false}');             // the rings' old name (#94)
+          const old = loadLayers();
           store.set("cb-wxmap-layers", "{not json");
-          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad,
+          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad, old,
             broken: loadLayers().radar, summary: layersSummary(again), first_hazards: first.hazards, first_minor: first.hazardsMinor }));
         """ % os.path.join(STATIC, "js", "wx_controls.js")
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
@@ -172,7 +174,8 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual({k: out["again"][k] for k in ("radar", "sat", "satOpacity", "basemap", "storms")},
                          {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True})
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
-        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Sat")
+        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Sat")
+        self.assertEqual((out["old"]["rings"], out["old"]["glm"], "lightning" in out["old"]), (False, True, False))
         self.assertEqual((out["first_hazards"], out["first_minor"]), (True, False))   # warnings on, advisories off
 
     @unittest.skipUnless(NODE, "needs Node")
@@ -259,6 +262,21 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["alone"][1] - out["alone"][0] <= hour and out["alone"][1], now)    # radar only: its last hour
         self.assertTrue(out["alone"][2] and out["satOnly"])
         self.assertEqual(out["filling"][0], now)                               # no radar in that hour yet: the radar's own
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_lightning_merges_only_whats_new(self):
+        """#94: each answer's minutes replace the ones held, and what's older than wanted is dropped."""
+        script = r"""
+          import { mergeMinutes, AGE_STOPS, TRAIL } from "%s";
+          const held = new Map([[60, [1, 2, 1]], [120, [1, 2, 1]], [180, [3, 4, 1]]]);
+          const merged = mergeMinutes(held, { minutes: [[180, [3, 4, 2]], [240, [5, 6, 1]], [0, [9, 9, 9]]] }, 120);
+          console.log(JSON.stringify({ merged: [...merged], none: [...mergeMinutes(held, null, 0)].length,
+            ends: [AGE_STOPS[0].at, AGE_STOPS.at(-1).at], TRAIL }));
+        """ % os.path.join(STATIC, "js", "lightning_layer.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual(out["merged"], [[120, [1, 2, 1]], [180, [3, 4, 2]], [240, [5, 6, 1]]])
+        self.assertEqual(out["none"], 3)
+        self.assertEqual(out["ends"], [0, out["TRAIL"]])                       # the colors span the trail shown
 
     def test_an_alert_opens_its_own_page(self):
         main = open(os.path.join(STATIC, "js", "main.js")).read()

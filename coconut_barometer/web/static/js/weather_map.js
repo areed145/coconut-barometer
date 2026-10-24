@@ -6,9 +6,10 @@
 // in, ~8 km for the US zoomed out (radar_layer.js draws them). Fronts and highs and lows are WPC's latest surface
 // analysis (fronts_layer.js), and watches and warnings the NWS's in effect now (hazards_layer.js, #87), whatever the
 // timeline shows, as are the temperature and surface wind (NOAA's RTMA analysis every 15 minutes, surface_layer.js,
-// #85, #86): each fetched while it's shown (useFeed). The map's own errors go to the server (#65), which
-// reports them like its own. A Tempest reports how far
-// away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
+// #85, #86): each fetched while it's shown (useFeed). Lightning is where GOES-East's lightning mapper saw it
+// (lightning_layer.js, #94): the 15 minutes up to the time the timeline shows, fetched each minute and only what's
+// new. The map's own errors go to the server (#65), which reports them like its own. The stations' own strikes are
+// rings: a Tempest reports how far away a strike was but not which way, so each is a ring at that distance.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 // The controls (wx_controls.js, #78) sit on the map: my location and full screen with the zoom buttons, the Layers
 // panel (a bottom sheet on a phone) and the timeline bar along the bottom; the layer choices are remembered.
@@ -18,6 +19,7 @@ import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./ra
 import { frontsCanvas } from "./fronts_layer.js";
 import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
 import { decodeGrid, temperatureCanvas, windCanvas, tempScale, windScale, TEMP_RANGE, WIND_RANGE } from "./surface_layer.js";
+import { lightningCanvas, lightningScale, mergeMinutes, TRAIL } from "./lightning_layer.js";
 import { loopWindow } from "./wx_loop.js";
 import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
 
@@ -47,6 +49,14 @@ const inside = (view, m, zooms = [FINE_ZOOM]) => {   // is the map still within 
   const b = m.getBounds();
   return b.getWest() >= view.bbox[0] && b.getSouth() >= view.bbox[1] && b.getEast() <= view.bbox[2] && b.getNorth() <= view.bbox[3];
 };
+// Lightning's box (it's never the whole disk GOES sees): the view padded by half, rounded out to 10° zoomed out and to
+// whole degrees from FINE_ZOOM in, so `inside` keeps it while the map moves within it.
+function glmViewFor(m) {
+  const zoom = m.getZoom(), tier = tierOf(zoom, [FINE_ZOOM]), step = tier ? 1 : 10, b = m.getBounds().pad(0.5);
+  const bbox = [Math.floor(b.getWest() / step) * step, Math.floor(b.getSouth() / step) * step, Math.ceil(b.getEast() / step) * step,
+    Math.ceil(b.getNorth() / step) * step].map((v, i) => Math.max(i % 2 ? -90 : -180, Math.min(i % 2 ? 90 : 180, v)));
+  return { key: `${tier}:${bbox.join(",")}`, zoom, tier, bbox };
+}
 const radarQuery = (view) => `zoom=${view.zoom}` + (view.bbox ? `&bbox=${view.bbox.join(",")}` : "");
 const unpack = (x) => ({ ...x, shapes: decode(x.shapes) });
 
@@ -102,7 +112,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const wrap = useRef(null), box = useRef(null), map = useRef(null);
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
-  const hazardsLayer = useRef(null), tempLayer = useRef(null), windLayer = useRef(null);
+  const hazardsLayer = useRef(null), tempLayer = useRef(null), windLayer = useRef(null), glmLayer = useRef(null);
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
@@ -110,10 +120,14 @@ export function WxMap({ show, unitsFor, compass }) {
   const [layers, setLayers] = useState(loadLayers);    // the Layers panel's choices, remembered on this device
   const set = (change) => setLayers((l) => ({ ...l, ...change }));
   useEffect(() => saveLayers(layers), [layers]);
-  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, lightning: showRings, radarOpacity: opacity } = layers;
+  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, radarOpacity: opacity } = layers;
   const { hazards: showHazards, hazardsMinor: showMinor, temp: showTemp, tempOpacity, wind: showWind } = layers;
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (viewFor)
   const [surfView, setSurfView] = useState(null);  // ... and the temperature and wind (viewFor SURFACE_ZOOMS)
+  const [glmView, setGlmView] = useState(null);    // ... and the lightning (glmViewFor)
+  // The lightning held for glmView: minute -> cells, from `from` on, and the last answer's state; bumped as it changes.
+  const glmHeld = useRef({ key: null, minutes: new Map(), from: Infinity, q: null, at: null, state: null, pending: false });
+  const [glmTick, setGlmTick] = useState(0);
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
   const kept = useRef(new Map());                  // the loop's frames loaded for the view: t -> unpacked frame
@@ -139,6 +153,7 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxwind").style.zIndex = 365;     // over the radar, under the fronts
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
+      map.current.createPane("wxlightning").style.zIndex = 375;  // over the fronts, under the storm cells and pins
       rings.current = lf.L.layerGroup().addTo(map.current);
       storms.current = lf.L.layerGroup().addTo(map.current);
       canvas.current = radarCanvas(lf.L, "wxradar", 'Radar: <a href="https://mrms.nssl.noaa.gov/">NOAA MRMS</a>').addTo(map.current);
@@ -147,6 +162,8 @@ export function WxMap({ show, unitsFor, compass }) {
       const rtmaLink = '<a href="https://www.nco.ncep.noaa.gov/pmb/products/rtma/">NOAA RTMA</a>';
       tempLayer.current = temperatureCanvas(lf.L, "wxtemp", `Temperature: ${rtmaLink}`);
       windLayer.current = windCanvas(lf.L, "wxwind", `Wind: ${rtmaLink}`);
+      glmLayer.current = lightningCanvas(lf.L, "wxlightning",
+        'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>');
       // A tap on watches or warnings: what they are there (the most important first), when the layer is on.
       map.current.on("click", (e) => {
         const m = map.current, layer = hazardsLayer.current;
@@ -159,6 +176,7 @@ export function WxMap({ show, unitsFor, compass }) {
       const moved = () => {
         setView((v) => (inside(v, map.current) ? v : viewFor(map.current)));
         setSurfView((v) => (inside(v, map.current, SURFACE_ZOOMS) ? v : viewFor(map.current, SURFACE_ZOOMS)));
+        setGlmView((v) => (inside(v, map.current) ? v : glmViewFor(map.current)));
       };
       map.current.on("moveend", moved);
       moved();
@@ -279,6 +297,42 @@ export function WxMap({ show, unitsFor, compass }) {
   if (live_?.colors?.length) lastColors.current = live_.colors;
   const colors = lastColors.current;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
+
+  // Lightning for the view, every minute while it's shown: from the TRAIL before the timeline's start (or now), then
+  // only the last two minutes on (their files may have come in since), all of it again while the server is still
+  // catching up (it fills the newest first). Another view starts over.
+  const glmFrom = Math.floor(((timeline.length ? timeline[0] : Date.now() / 1000) - TRAIL) / 600) * 600;
+  useEffect(() => {
+    if (!showGlm || !glmView) return;
+    let alive = true, soon = null;
+    const held = glmHeld.current;
+    if (held.key !== glmView.key) Object.assign(held, { key: glmView.key, minutes: new Map(), from: Infinity, state: null, pending: false });
+    const load = () => {
+      const key = glmView.key, newest = Math.max(0, ...held.minutes.keys());
+      const full = !held.minutes.size || glmFrom < held.from || held.pending;
+      const since = full ? glmFrom : Math.max(glmFrom, newest - 120);
+      api(`/api/wx/glm?zoom=${glmView.zoom}&bbox=${glmView.bbox.join(",")}&since=${since}`).then((x) => {
+        if (!alive || held.key !== key) return;
+        const oldest = Math.min(glmFrom, Date.now() / 1000 - TRAIL);
+        Object.assign(held, { minutes: mergeMinutes(held.minutes, x, oldest), from: full ? glmFrom : held.from, q: x.q,
+          at: Date.now() / 1000, state: x, pending: x.pending });
+        setGlmTick((n) => n + 1);
+        clearTimeout(soon);
+        if (x.pending) soon = setTimeout(load, PENDING_MS);
+      }).catch(() => {});
+    };
+    const stop = every(load, 60000);
+    return () => { alive = false; clearTimeout(soon); stop(); };
+  }, [showGlm, glmView?.key, glmFrom]);
+  // Its time: the timeline's while it's played or scrubbed, else now (as of the last answer).
+  const glmAt = (playing || idx != null) && t != null ? t : glmHeld.current.at;
+  useEffect(() => {
+    const m = map.current, layer = glmLayer.current, held = glmHeld.current;
+    if (!ready || !m || !layer) return;
+    if (!showGlm) { layer.remove(); return; }
+    if (!m.hasLayer(layer)) layer.addTo(m);
+    layer.set(held.minutes, held.q, glmAt);
+  }, [ready, showGlm, glmTick, glmAt]);
   useEffect(() => {
     for (const [k, layer] of tiles.current.sat) layer.setOpacity(shownSat && k === `${sat}:${shownSat.time}` ? layers.satOpacity : 0);
   });
@@ -429,7 +483,7 @@ export function WxMap({ show, unitsFor, compass }) {
     }
   }, [ready, info, live]);
 
-  // Lightning in the last hour: a ring per station and distance, fading with age.
+  // Station strikes in the last hour: a ring per station and distance, fading with age.
   useEffect(() => {
     const L = window.L, group = rings.current;
     if (!ready || !group || !info) return;
@@ -454,8 +508,9 @@ export function WxMap({ show, unitsFor, compass }) {
   const total = info ? info.stations.reduce((a, s) => a + (strikes[s.device_id] || []).reduce((b, c) => b + c[2], 0), 0) : 0;
   const frontsAt = showFronts && fronts?.valid && `fronts ${new Date(fronts.valid * 1000).getUTCHours().toString().padStart(2, "0")}Z`;
   const surfaceAt = (showTemp || showWind) && (tempGrid || windGrid)?.valid;
+  const glmState = showGlm ? glmHeld.current.state : null;
   const detail = [radarOn && vector?.t && `radar ${clock(vector.t)}`, shownSat && `satellite ${clock(shownSat.t)}`, frontsAt,
-    surfaceAt && `surface ${clock(surfaceAt)}`]
+    surfaceAt && `surface ${clock(surfaceAt)}`, glmState?.newest && `lightning ${clock(Math.min(glmAt ?? Infinity, glmState.newest + 20))}`]
     .filter(Boolean).join(" · ") || "no imagery";
   const gap = sat && loopWin.end ? Date.now() / 1000 - loopWin.end : 0;
   const shownUnits = live?.units || info?.units;
@@ -465,8 +520,13 @@ export function WxMap({ show, unitsFor, compass }) {
     ${showTemp && html`<p class="muted heatkey"><span>${ends("temp", TEMP_RANGE)[0]}</span>
       <i style=${`background: ${tempScale()}; opacity: ${tempOpacity}`}></i><span>${ends("temp", TEMP_RANGE)[1]}</span></p>`}
     ${showWind && html`<p class="muted heatkey"><span>wind: calm</span>
-      <i style=${`background: ${windScale()}`}></i><span>${ends("speed", WIND_RANGE)[1]}+</span></p>`}`;
-  const notes = html`${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
+      <i style=${`background: ${windScale()}`}></i><span>${ends("speed", WIND_RANGE)[1]}+</span></p>`}
+    ${showGlm && html`<p class="muted heatkey"><span>lightning: new</span>
+      <i style=${`background: ${lightningScale()}`}></i><span>${TRAIL / 60} min</span></p>`}`;
+  const notes = html`${showGlm ? (glmState?.error && !glmHeld.current.minutes.size ? " Lightning unavailable right now."
+      : glmState?.pending ? " Lightning is loading…"
+      : glmState ? ` Lightning: flashes GOES-East's lightning mapper saw in the ${TRAIL / 60} minutes up to the time shown, bigger where there were more; about a minute behind.` : "") : ""}
+    ${showRings ? " Station strikes: rings at the distance a station measured a strike in the last hour (it can't tell direction)." : ""}
     ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
     ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}
     ${radarOn && live_?.t && !times.length ? " The radar's past fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
