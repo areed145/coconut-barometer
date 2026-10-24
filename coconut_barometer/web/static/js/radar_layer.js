@@ -3,7 +3,9 @@
 // whole 1/q degrees, every point after the first the step from the one before. decode() turns that into flat
 // Float32Arrays already projected to Web Mercator (0–1 across the world), once per frame; the layer then draws
 // whichever frame it's given, culling to the view, so a loop step is one canvas redraw - nothing is rebuilt and no
-// Leaflet object is made per polygon.
+// Leaflet object is made per polygon. map_canvas.js keeps the canvas on screen while the map moves.
+
+import { mapCanvas } from "./map_canvas.js";
 
 // ---- colors (Settings → Display → Radar colors: dBZ → color stops), one place for the levels, the storm cells,
 // the legend and the alert page (#75) ---------------------------------------------------------------------------
@@ -66,21 +68,11 @@ export function decode(shapes) {
 export function radarCanvas(L, pane, attribution) {
   const Layer = L.Layer.extend({
     options: { pane, attribution },
-    onAdd(map) {
-      this._canvas = L.DomUtil.create("canvas", "wxradar-canvas", map.getPane(pane));
-      this._canvas.style.opacity = this._opacity ?? 1;
-      map.on("moveend resize", this._reset, this).on("zoomstart", this._hide, this);
-      this._reset();
-    },
-    onRemove(map) {
-      map.off("moveend resize", this._reset, this).off("zoomstart", this._hide, this);
-      L.DomUtil.remove(this._canvas);
-      this._canvas = null;
-    },
+    ...mapCanvas(L, "wxradar-canvas"),
     set(shapes, colorOf) {
       this._shapes = shapes;
       this._colorOf = colorOf;
-      if (this._canvas) this._draw();
+      this._draw();
       return this;
     },
     setOpacity(o) {
@@ -88,35 +80,20 @@ export function radarCanvas(L, pane, attribution) {
       if (this._canvas) this._canvas.style.opacity = o;
       return this;
     },
-    // Leaflet scales its own layers while zooming; this one just hides and is drawn again at the new zoom.
-    _hide() { this._canvas.style.visibility = "hidden"; },
-    _reset() {
-      const map = this._map, size = map.getSize(), ratio = window.devicePixelRatio || 1, c = this._canvas;
-      L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
-      c.width = Math.round(size.x * ratio);
-      c.height = Math.round(size.y * ratio);
-      c.style.width = `${size.x}px`;
-      c.style.height = `${size.y}px`;
-      c.style.visibility = "visible";
-      this._draw();
-    },
-    _draw() {
-      const c = this._canvas, ctx = c.getContext("2d"), map = this._map;
-      ctx.clearRect(0, 0, c.width, c.height);
+    _paint(ctx, corner, size, zoom) {
       if (!this._shapes) return;
-      const size = map.getSize(), world = 256 * 2 ** map.getZoom(), k = world * (c.width / size.x);
-      const corner = map.containerPointToLayerPoint([0, 0]).add(map.getPixelOrigin());   // the canvas's top left, in world pixels
+      const world = 256 * 2 ** zoom;
       const x0 = corner.x / world, y0 = corner.y / world, x1 = x0 + size.x / world, y1 = y0 + size.y / world;
       // Blurred about half a ~2 km pixel (1-8 screen pixels), so the levels blend into each other instead of stepping.
-      ctx.filter = `blur(${Math.min(8, Math.max(1, (0.01 / 360) * world)) * (c.width / size.x)}px)`;
+      ctx.filter = `blur(${Math.min(8, Math.max(1, (0.01 / 360) * world)) * this._ratio}px)`;
       for (const band of this._shapes.bands) {               // lowest first: each level drawn over the one below
         ctx.fillStyle = this._colorOf(band.dbz);
         ctx.beginPath();
         for (const p of band.polys) {
           if (p.box[2] < x0 || p.box[0] > x1 || p.box[3] < y0 || p.box[1] > y1) continue;
           for (const r of p.rings) {
-            ctx.moveTo((r[0] - x0) * k, (r[1] - y0) * k);
-            for (let i = 2; i < r.length; i += 2) ctx.lineTo((r[i] - x0) * k, (r[i + 1] - y0) * k);
+            ctx.moveTo((r[0] - x0) * world, (r[1] - y0) * world);
+            for (let i = 2; i < r.length; i += 2) ctx.lineTo((r[i] - x0) * world, (r[i + 1] - y0) * world);
             ctx.closePath();
           }
         }

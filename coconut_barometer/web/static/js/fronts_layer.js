@@ -4,7 +4,10 @@
 //   stationary  red and blue in turn, triangles one side and half circles the other
 //   occluded    purple, triangles and half circles in turn, same side
 //   trough      brown, dashed
-// The symbols go on the side the front is moving toward: the left, walking its points in order.
+// The symbols go on the side the front is moving toward: the left, walking its points in order. map_canvas.js keeps
+// the canvas on screen while the map moves.
+
+import { mapCanvas } from "./map_canvas.js";
 
 const COLORS = { cold: "#1f5fd6", warm: "#d63030", occluded: "#8a3fc0", trough: "#9a6a2f" };
 const STEP = 46, SIZE = 7, WIDTH = 2.5;   // px between symbols, their size, the line's width
@@ -108,41 +111,18 @@ export function paint(ctx, analysis, px, inView, halo) {
 export function frontsCanvas(L, pane, attribution, halo = "#fff") {
   const Layer = L.Layer.extend({
     options: { pane, attribution },
-    onAdd(map) {
-      this._canvas = L.DomUtil.create("canvas", "wxfronts-canvas", map.getPane(pane));
-      map.on("moveend resize", this._reset, this).on("zoomstart", this._hide, this);
-      this._reset();
-    },
-    onRemove(map) {
-      map.off("moveend resize", this._reset, this).off("zoomstart", this._hide, this);
-      L.DomUtil.remove(this._canvas);
-      this._canvas = null;
-    },
+    ...mapCanvas(L, "wxfronts-canvas"),
     set(analysis, haloColor) {
       this._data = analysis;
       if (haloColor) halo = haloColor;
-      if (this._canvas) this._draw();
+      this._draw();
       return this;
     },
-    _hide() { this._canvas.style.visibility = "hidden"; },
-    _reset() {
-      const map = this._map, size = map.getSize(), ratio = window.devicePixelRatio || 1, c = this._canvas;
-      L.DomUtil.setPosition(c, map.containerPointToLayerPoint([0, 0]));
-      c.width = Math.round(size.x * ratio);
-      c.height = Math.round(size.y * ratio);
-      c.style.width = `${size.x}px`;
-      c.style.height = `${size.y}px`;
-      c.style.visibility = "visible";
-      this._draw();
-    },
-    _draw() {
-      const c = this._canvas, ctx = c.getContext("2d"), map = this._map, ratio = c.width / map.getSize().x;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, c.width, c.height);
+    _paint(ctx, corner, size, zoom) {
       if (!this._data) return;
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const view = map.getBounds().pad(0.2);
-      const px = ([lat, lon]) => { const p = map.latLngToContainerPoint([lat, lon]); return [p.x, p.y]; };
+      const map = this._map;
+      const view = L.latLngBounds(map.unproject(corner, zoom), map.unproject(corner.add(size), zoom)).pad(0.2);
+      const px = ([lat, lon]) => { const p = map.project([lat, lon], zoom).subtract(corner); return [p.x, p.y]; };
       paint(ctx, this._data, px, ([lat, lon]) => view.contains([lat, lon]), halo);
     },
   });
