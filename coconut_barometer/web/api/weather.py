@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -260,6 +261,43 @@ def radar(bbox: str | None = Query(None, max_length=100), zoom: float | None = Q
     rest = {"t": frame and frame["t"], "colors": rt.cfg["theme"]["radar_colors"], "cells": _cells(snap["cells"], now, box),
             "cells_at": snap["cells_at"], "error": snap["error"], "units": _units(rt)}
     return _with_shapes(rest, view(frame, box, zoom) if frame else '{"level":null,"q":1,"bands":[]}')
+
+
+@router.get("/radar/snapshot.png")
+def radar_snapshot(request: Request, theme: Literal["dark", "light"] = "dark", scale: int = Query(1, ge=1, le=2),
+                   t: int | None = None, db=Depends(store), rt=Depends(runtime), _=Depends(session)):
+    """Home's Radar card (#77): the newest radar around the stations as a PNG (weather/snapshot.py), rendered once per
+    MRMS frame and theme. `t` (the frame's time) only makes each frame its own address, for the browser's cache.
+    No frame yet, or a stale one: the basemap saying "Radar unavailable", not an error."""
+    stations = rt.radar.stations(db)
+    tz = next((s["timezone"] for s in db.wx_stations() if s.get("timezone")), None)
+    etag, png = rt.snapshots.get(stations, theme, scale, rt.cfg["theme"]["radar_colors"], rt.cfg["map"]["carto_key"], tz)
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=120"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(png, media_type="image/png", headers=headers)
+
+
+@router.get("/radar/glance")
+def radar_glance(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
+    """Home's Radar card's lines: the frame's time, the nearest rain to the first station (how far, which way), and
+    how many storm cells are within Settings → Alerts → storm distance of any station."""
+    from ...weather.radar import _km, nearest, where_at
+    from ...weather.snapshot import STALE
+
+    stations, now = rt.radar.stations(db), time.time()
+    with rt.radar.lock:
+        field, cells = rt.radar.field, list(rt.radar.cells)
+    fresh = bool(field) and now - field["t"] <= STALE
+    near = None
+    if fresh and stations:
+        s = stations[0]
+        found = nearest(field, field["z"], s["lat"], s["lon"])
+        near = found and {"km": round(found[0], 1), "toward": round(found[1]), "station": s["name"]}
+    radius = rt.cfg["alerts"]["storm_km"] or 10
+    storms = sum(1 for c in cells if any(math.hypot(*_km(s["lat"], s["lon"], *where_at(c, now))) <= radius for s in stations))
+    return {"t": field and field["t"], "fresh": fresh, "nearest": near, "storms": storms, "storm_km": radius,
+            "stations": [s["name"] for s in stations], "units": _units(rt)}
 
 
 @router.get("/fronts")

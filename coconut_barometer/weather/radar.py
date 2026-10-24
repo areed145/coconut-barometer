@@ -212,14 +212,23 @@ def _area(ring: np.ndarray) -> float:
     return abs(float(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))) / 2
 
 
-def nearest_km(field: dict, z: np.ndarray, lat: float, lon: float, dbz: float = RAIN_DBZ) -> float | None:
-    """How far the nearest echo of at least `dbz` is from (lat, lon), in km; None if there's none in the box."""
+def nearest(field: dict, z: np.ndarray, lat: float, lon: float, dbz: float = RAIN_DBZ) -> tuple[float, float] | None:
+    """The nearest echo of at least `dbz` to (lat, lon): (km, the way to it in degrees from north); None if there's
+    none in the box."""
     rows, cols = np.nonzero(z >= dbz)
     if not rows.size:
         return None
     dy = (field["north"] - rows * field["dj"] - lat) * KM_PER_DEG
     dx = (field["west"] + cols * field["di"] - lon) * KM_PER_DEG * math.cos(math.radians(lat))
-    return float(np.sqrt(dx * dx + dy * dy).min())
+    d = dx * dx + dy * dy
+    i = int(np.argmin(d))
+    return float(math.sqrt(d[i])), math.degrees(math.atan2(dx[i], dy[i])) % 360
+
+
+def nearest_km(field: dict, z: np.ndarray, lat: float, lon: float, dbz: float = RAIN_DBZ) -> float | None:
+    """How far the nearest echo of at least `dbz` is from (lat, lon), in km; None if there's none in the box."""
+    found = nearest(field, z, lat, lon, dbz)
+    return found and found[0]
 
 
 # ---- storm cells -----------------------------------------------------------------------------------------------

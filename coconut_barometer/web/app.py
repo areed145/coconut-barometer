@@ -102,7 +102,10 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         for k, v in headers.items():
             response.headers.setdefault(k, v)
         if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
+            # Data isn't cached, except a picture that says how (Home's radar, once per frame: weather/snapshot.py).
+            if not (response.headers.get("content-type", "").startswith("image/") or response.status_code == 304) \
+                    or "cache-control" not in response.headers:
+                response.headers["Cache-Control"] = "no-store"
         elif request.url.path.startswith("/static/v/") and response.status_code in (200, 304):
             # A versioned address never changes what it serves (assets.py): keep it for good.
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"

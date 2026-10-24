@@ -186,6 +186,11 @@ class FrontendTest(unittest.TestCase):
             self.assertIn(f"href={href}", home)
         self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only
         self.assertNotRegex(home, r"\.(lat|lon)\b")                              # no station or beacon positions
+        # The Radar card (#77): after Weather, signed in only (its picture shows where the stations are), with alt text
+        self.assertIn('<${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />', home)
+        self.assertIn('href="#/weather/map" title="Radar"', home)
+        self.assertIn("/api/wx/radar/snapshot.png?theme=", home)
+        self.assertIn("alt=${alt}", home)
 
     def test_every_module_main_imports_is_preloaded(self):
         seen, todo = set(), [os.path.join("js", "main.js")]

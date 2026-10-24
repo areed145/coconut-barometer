@@ -23,7 +23,9 @@ from coconut_barometer.alerts import Alerts
 from coconut_barometer.config import from_dict
 from coconut_barometer.store import Store
 from coconut_barometer.weather import radar as R
+from coconut_barometer.weather import snapshot as SN
 from coconut_barometer.web.app import create_app
+from coconut_barometer.web.security import hash_password
 
 LAT, LON = 30.0, -95.5                       # the station: Houston-ish, in the middle of the test grid
 STATION = {"station_id": 7, "name": "Conroe", "latitude": LAT, "longitude": LON, "timezone": "America/Chicago",
@@ -380,3 +382,103 @@ class RadarErrorsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnapshotTest(unittest.TestCase):
+    """Home's Radar card (#77): a PNG of the newest radar around the stations (weather/snapshot.py)."""
+    STOPS = [{"dbz": 15, "color": "#8fd3ff"}, {"dbz": 25, "color": "#2fa84f"}, {"dbz": 35, "color": "#f2d22e"},
+             {"dbz": 45, "color": "#f28c28"}, {"dbz": 55, "color": "#d7301f"}, {"dbz": 65, "color": "#b03ab5"}]
+
+    def setUp(self):
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
+        store = Store(path)
+        store.set_password_hash("owner", hash_password("correct horse battery"))
+        store.wx_save_stations([STATION])
+        cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]}})
+        self.app = create_app(cfg, FakeFlickr(), scheduler=False)
+        self.rt = self.app.state.runtime
+        self.c = TestClient(self.app, base_url="https://testserver")
+
+    def field(self, z, t=None):
+        msg = R.decode(grib(z))
+        f = R.crop(msg, LAT - 1, LAT + 1, LON - 1, LON + 1)
+        return {**f, "t": t or int(time.time()), "z": R.clean(f.pop("dbz"))}
+
+    def test_colors_are_the_maps(self):
+        # radar_layer.js: a level in the color at its floor, blended between the stops (Math.round)
+        self.assertEqual(SN.level_color(self.STOPS, 40), (0xf2, 0xaf, 0x2b))      # halfway from #f2d22e to #f28c28
+        self.assertEqual(SN.level_color(self.STOPS, 44.9), SN.level_color(self.STOPS, 40))
+        self.assertEqual(SN.level_color(self.STOPS, 45), (0xf2, 0x8c, 0x28))      # on a stop: its own color
+        self.assertEqual(SN.level_color(self.STOPS, 3), (0x8f, 0xd3, 0xff))        # below the first: the first
+        self.assertEqual(SN.level_color(self.STOPS, 80), (0xb0, 0x3a, 0xb5))
+        self.assertIsNone(SN.level_color(self.STOPS, None))
+
+    def test_pixels_at_a_known_dbz(self):
+        field = self.field(blob(0, dbz=42, radius_px=30))                          # rain right over the station
+        box = SN.Box.around([(LAT, LON)])
+        rgba = SN.radar_rgba(field, box, self.STOPS)
+        x, y = (round(v) for v in box.px(LAT, LON))
+        self.assertEqual(tuple(rgba[y, x]), (*SN.level_color(self.STOPS, 40), round(0.85 * 255)))
+        self.assertEqual(rgba[5, 5, 3], 0)                                          # no echo: clear
+        png = Image.open(io.BytesIO(SN.render(box, "dark", self.STOPS, field, [], [], None)))
+        r, g, b = png.getpixel((x, y + 40))                                          # over the plain background, at 85%
+        want = [round(c * 0.85 + bg * 0.15) for c, bg in zip(SN.level_color(self.STOPS, 40), SN.THEMES["dark"]["bg"])]
+        for got, w in zip((r, g, b), want):
+            self.assertAlmostEqual(got, w, delta=2)
+
+    def test_endpoint_needs_a_login_and_renders_once_per_frame(self):
+        self.assertEqual(self.c.get("/api/wx/radar/snapshot.png").status_code, 401)
+        self.assertEqual(self.c.get("/api/wx/radar/glance").status_code, 401)
+        self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
+        self.rt.radar.field = self.field(blob(20, radius_px=12))
+        self.rt.radar.cells = [CellsTest.cell(None, valid=int(time.time()))]
+        r = self.c.get("/api/wx/radar/snapshot.png?theme=light")
+        self.assertEqual((r.status_code, r.headers["content-type"], r.headers["cache-control"]), (200, "image/png", "private, max-age=120"))
+        self.assertEqual(Image.open(io.BytesIO(r.content)).size, SN.SIZE)
+        self.assertEqual(Image.open(io.BytesIO(self.c.get("/api/wx/radar/snapshot.png?scale=2").content)).size, (1280, 720))
+        renders = self.rt.snapshots.renders
+        again = self.c.get("/api/wx/radar/snapshot.png?theme=light&t=123")
+        self.assertEqual((again.content, self.rt.snapshots.renders), (r.content, renders))   # the same frame: not drawn again
+        self.assertEqual(self.c.get("/api/wx/radar/snapshot.png?theme=light", headers={"If-None-Match": r.headers["etag"]}).status_code, 304)
+        self.assertEqual(self.c.get("/api/wx/radar/snapshot.png?theme=pink").status_code, 422)
+        g = self.c.get("/api/wx/radar/glance").json()
+        self.assertTrue(g["fresh"])
+        self.assertEqual((g["nearest"]["station"], g["nearest"]["toward"], g["stations"]), ("Conroe", 270, ["Conroe"]))
+        self.assertAlmostEqual(g["nearest"]["km"], 20 - 12 * 0.96, delta=3)
+        self.assertEqual(g["storms"], 0)                                             # 30 km off: beyond storm_km (10)
+        self.rt.radar.cells = [CellsTest.cell(None, 5, valid=int(time.time()))]
+        self.assertEqual(self.c.get("/api/wx/radar/glance").json()["storms"], 1)
+
+    def test_no_frame_or_a_stale_one_is_unavailable_not_an_error(self):
+        self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
+        r = self.c.get("/api/wx/radar/snapshot.png")
+        self.assertEqual((r.status_code, Image.open(io.BytesIO(r.content)).size), (200, SN.SIZE))
+        self.rt.radar.field = self.field(blob(20), t=int(time.time()) - SN.STALE - 60)
+        stale = self.c.get("/api/wx/radar/snapshot.png")
+        self.assertEqual((stale.status_code, stale.content), (200, r.content))          # the same "unavailable" picture
+        self.assertEqual((self.c.get("/api/wx/radar/glance").json()["fresh"], self.c.get("/api/wx/radar/glance").json()["nearest"]), (False, None))
+
+    def test_basemap_tiles_are_fetched_once_and_kept(self):
+        tile = io.BytesIO()
+        Image.new("RGB", (256, 256), (10, 200, 30)).save(tile, format="PNG")
+        calls = []
+
+        def get(url, params=None, timeout=None):
+            calls.append((url, params))
+            return mock.Mock(content=tile.getvalue(), raise_for_status=lambda: None)
+        folder = tempfile.mkdtemp()
+        maps = SN.Basemap(folder, get=get)
+        box = SN.Box.around([(LAT, LON)])
+        img = maps.draw(box, "dark", "KEY")
+        self.assertEqual((img.size, img.getpixel((10, 10))), (SN.SIZE, (10, 200, 30)))
+        self.assertTrue(calls and all("dark_all/8/" in u and p == {"key": "KEY"} for u, p in calls))
+        n = len(calls)
+        maps.draw(box, "dark", "KEY")
+        self.assertEqual(len(calls), n)                                              # from disk the second time
+        self.assertIsNone(maps.draw(box, "dark", None))                              # no key: a plain background
+
+        def down(url, params=None, timeout=None):
+            raise OSError("offline")
+        broken = SN.Basemap(tempfile.mkdtemp(), get=down)
+        self.assertIsNone(broken.draw(box, "light", "KEY"))
+        self.assertIn("offline", broken.error)

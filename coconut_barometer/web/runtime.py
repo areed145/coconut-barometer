@@ -17,6 +17,7 @@ from ..review import ReviewApp
 from ..schedule import due
 from ..weather.radar import RadarService
 from ..weather.service import WeatherService
+from ..weather.snapshot import Snapshots
 from ..aprs.service import AprsService
 from ..store import Store
 from .security import LoginThrottle
@@ -38,6 +39,7 @@ class Runtime:
         self.weather = self.review.weather = WeatherService(cfg, self.db_path)
         self.aprs = AprsService(cfg, self.db_path)
         self.radar = RadarService(cfg, self.db_path)
+        self.snapshots = Snapshots(self.radar, self.db_path)   # Home's Radar card (#77)
         self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)

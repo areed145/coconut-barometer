@@ -1,8 +1,8 @@
 // The home page (#/): a large link per public section, each with a glance at what's there now (the newest
-// photo, each station's weather, when each tracked callsign was last heard); signed in, the private pages
+// photo, each station's weather, when each tracked callsign was last heard; signed in, the radar too); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
-import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, today, dayLabel, photosLink, HealthPanel, StatusDot }
-  from "./lib.js";
+import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, isDark, today, dayLabel, photosLink, HealthPanel,
+  StatusDot } from "./lib.js";
 import { show, compass } from "./units.js";
 
 function useGlance(path, ms) {
@@ -55,9 +55,9 @@ const Rings = () => html`<svg class="homebg rings" viewBox="0 0 200 200" aria-hi
   ${[40, 80, 120, 160].map((r) => html`<circle key=${r} cx="200" cy="200" r=${r} />`)}<circle class="dot" cx="200" cy="200" r="10" />
 </svg>`;
 
-function Section({ href, title, line, image, bg, children }) {
+function Section({ href, title, line, image, srcset, alt = "", bg, children }) {
   return html`<a class=${"homecard" + (image ? " pic" : "")} href=${href}>
-    ${image && html`<img src=${image} alt="" decoding="async" />`}${bg}
+    ${image && html`<img src=${image} srcset=${srcset} alt=${alt} decoding="async" />`}${bg}
     <h2>${title}</h2>
     <div class="glance">${children}</div>
     <small>${line}</small></a>`;
@@ -82,6 +82,25 @@ function WeatherCard() {
       <b>${show(d.units, "temp", s.obs.temp, 0)}</b>
       <span>${s.obs.wind_avg > 0 ? `wind ${show(d.units, "speed", s.obs.wind_avg, 0)} ${compass(s.obs.wind_dir)}`.trim() : "calm"}</span>
       <span class="muted">${s.name} · ${ago(s.obs.ts)}</span></div>`)}<//>`;
+}
+
+// The newest radar around the stations, drawn on the server (weather/snapshot.py) in the page's light or dark; signed
+// in only, as the image is. Each frame has its own address (?t=), so the browser fetches each frame's picture once.
+const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+function RadarCard() {
+  useThemeTick();
+  const d = useGlance("/api/wx/radar/glance", 120000);
+  if (!d?.stations.length) return null;
+  const src = (scale) => `/api/wx/radar/snapshot.png?theme=${isDark() ? "dark" : "light"}&scale=${scale}&t=${d.t || 0}`;
+  const n = d.nearest, around = d.stations.join(", ");
+  return html`<${Section} href="#/weather/map" title="Radar" image=${src(1)} srcset=${`${src(1)} 1x, ${src(2)} 2x`}
+    alt=${d.fresh ? `Radar at ${clock(d.t)} around ${around}` : `Radar unavailable around ${around}`}
+    line="The latest radar and storm cells around the stations">
+    <div class="glance-row"><b>${d.fresh ? `radar ${clock(d.t)}` : "radar unavailable"}</b></div>
+    ${d.fresh && n && html`<div class="glance-row"><span>${n.km < 3 ? `raining at ${n.station}`
+      : `rain ${show(d.units, "dist", n.km, 0)} ${compass(n.toward)}`}</span></div>`}
+    <div class="glance-row"><span>${d.storms ? `${d.storms} storm${d.storms === 1 ? "" : "s"} within ${show(d.units, "dist", d.storm_km, 0)}`
+      : "no storms nearby"}</span></div><//>`;
 }
 
 function AprsCard() {
@@ -167,7 +186,7 @@ export function Home({ session, pending, queued, health }) {
       <p class="muted">Photos, live weather and APRS radio, in one place.</p>
     </header>
     <nav class="homecards" aria-label="Sections">
-      <${PhotosCard} /><${WeatherCard} /><${AprsCard} />
+      <${PhotosCard} /><${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />
     </nav>
     <${HealthPanel} health=${health} fix=${session} />
     <${Highlights} />
