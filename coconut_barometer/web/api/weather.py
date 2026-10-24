@@ -141,6 +141,27 @@ def radar(rt=Depends(runtime)):
             "cells": cells, "cells_at": snap["cells_at"], "error": snap["error"], "units": _units(rt)}
 
 
+@router.get("/radar/frames")
+def radar_frames(rt=Depends(runtime)):
+    """Times of the radar frames (MRMS shapes with the storm tracks then) kept for the Map tab's loop."""
+    return {"frames": [{"t": t} for t in rt.radar.history()]}
+
+
+@router.get("/radar/frame")
+def radar_frame(t: int, rt=Depends(runtime)):
+    """One kept loop frame, shaped like /radar: its bands, and the storm cells as they were then, with
+    where each was heading from there."""
+    from ...weather.radar import where_at
+
+    frame = rt.radar.stored(t)
+    if not frame:
+        raise HTTPException(404, "no such frame")
+    cells = [{**{k: c[k] for k in ("id", "lat", "lon", "toward", "kmh", "dbz", "posh", "tvs", "valid")},
+              "path": [where_at(c, t + m * 60) for m in (0, 30, 60)]} for c in frame["cells"]]
+    return {"t": frame["t"], "box": frame["box"], "bands": {"type": "FeatureCollection", "features": frame["bands"]},
+            "cells": cells}
+
+
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
          part: str | None = Query(None, pattern="^(night|morning|afternoon|evening)$"), db=Depends(store)):

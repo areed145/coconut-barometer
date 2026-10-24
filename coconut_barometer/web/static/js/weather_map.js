@@ -1,7 +1,7 @@
 // The Weather → Map tab: radar and GOES-East satellite over the stations, with the stations' current readings
 // and their recent lightning. Radar is either the smooth one (NOAA MRMS over the US as shapes per dBZ band,
 // in Settings → Display → Radar colors, with the storm cells the NWS radars track and where they're heading), or
-// the US-wide NEXRAD tiles looped over the last hour. A Tempest reports how far
+// the same shapes and storm tracks looped over the last hour (kept on the server), together with the satellite. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
@@ -27,7 +27,6 @@ const radarScale = (stops) => {
   return `linear-gradient(90deg, ${s.map((x) => `${x.color} ${Math.round(((x.dbz - lo) / (hi - lo || 1)) * 100)}%`).join(", ")})`;
 };
 // The NWS reflectivity colors, light rain (5 dBZ) to hail (70+).
-const DBZ = "linear-gradient(90deg, #04e9e7, #019ff4, #0300f4, #02fd02, #01c501, #008e00, #fdf802, #e5bc00, #fd9500, #fd0000, #bc0000, #f800fd, #9854c6)";
 
 // The newest frame at or before `t` (or the oldest, when all are later).
 const frameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t + 150 ? f : best), frames[0]);
@@ -48,7 +47,8 @@ export function WxMap({ show, unitsFor, compass }) {
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
   const [strikes, setStrikes] = useState({});      // device -> /api/wx/lightning cells for the last hour
   const [radar, setRadar] = useState("smooth");
-  const [vector, setVector] = useState(null);      // /api/wx/radar: the smooth radar's shapes and the storm cells
+  const [live_, setLiveFrame] = useState(null);     // /api/wx/radar: the newest shapes and the storm cells
+  const [loop, setLoop] = useState({ times: [], data: {} });   // /api/wx/radar/frames: the kept frames, and those loaded
   const [sat, setSat] = useState("");
   const [showRings, setShowRings] = useState(true);
   const [opacity, setOpacity] = useState(0.7);
@@ -74,9 +74,10 @@ export function WxMap({ show, unitsFor, compass }) {
     let alive = true;
     const frames = () => api("/api/wx/map").then((x) => alive && setInfo(x)).catch((e) => alive && toast(e.message));
     const readings = () => api("/api/wx/live").then((x) => alive && setLive(x)).catch(() => {});
-    const smooth = () => api("/api/wx/radar").then((x) => alive && setVector(x)).catch(() => {});
-    const stopFrames = every(frames, 300000), stopReadings = every(readings, 30000), stopSmooth = every(smooth, 120000);
-    return () => { alive = false; stopFrames(); stopReadings(); stopSmooth(); };
+    const smooth = () => api("/api/wx/radar").then((x) => alive && setLiveFrame(x)).catch(() => {});
+    const kept = () => api("/api/wx/radar/frames").then((x) => alive && setLoop((l) => ({ ...l, times: x.frames.map((f) => f.t) }))).catch(() => {});
+    const stopFrames = every(frames, 300000), stopReadings = every(readings, 30000), stopSmooth = every(smooth, 120000), stopKept = every(kept, 120000);
+    return () => { alive = false; stopFrames(); stopReadings(); stopSmooth(); stopKept(); };
   }, []);
   useEffect(() => {
     if (!info) return;
@@ -97,7 +98,7 @@ export function WxMap({ show, unitsFor, compass }) {
   }, [ready, info]);
 
   // One tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
-  const radarFrames = info?.radar.frames || [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
+  const radarFrames = radar === "loop" ? loop.times.map((t) => ({ t })) : [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
   useEffect(() => {
     const m = map.current, L = window.L;
     if (!ready || !m || !info) return;
@@ -105,24 +106,48 @@ export function WxMap({ show, unitsFor, compass }) {
       for (const [k, layer] of store) if (!want.has(k)) { layer.remove(); store.delete(k); }
       for (const k of want.keys()) if (!store.has(k)) store.set(k, make(want.get(k)).setOpacity(0).addTo(m));
     };
-    sync(tiles.current.radar, new Map(radar === "loop" ? radarFrames.map((f) => [f.layer, f]) : []), (f) =>
-      L.tileLayer(info.radar.url.replace("{layer}", f.layer), { pane: "wxradar", maxZoom: 20,
-        attribution: 'Radar: <a href="https://mesonet.agron.iastate.edu/">IEM</a> · NWS NEXRAD' }));
     sync(tiles.current.sat, satInfo?.url ? new Map(satFrames.map((f) => [`${sat}:${f.time}`, f])) : new Map(), (f) =>
       L.tileLayer(satInfo.url.replace("{time}", f.time), { pane: "wxsat", maxZoom: 20, maxNativeZoom: satInfo.max_zoom,
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
   }, [ready, info, radar, sat]);
 
   // The loop runs over the radar's 5-minute frames, or the satellite's 10-minute ones when radar is off.
-  const timeline = radar === "loop" && radarFrames.length ? radarFrames : satFrames;
+  const timeline = radarFrames.length ? radarFrames : satFrames;
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
   const t = at >= 0 ? timeline[at].t : null;
-  const shownRadar = radar === "loop" && radarFrames.length && t != null ? frameAt(radarFrames, t) : null;
+  const shownRadar = radarFrames.length && at >= 0 ? radarFrames[at] : null;
+  const vector = radar === "loop" ? (shownRadar && loop.data[shownRadar.t]) || null : live_;
+  const colors = live_?.colors;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
   useEffect(() => {
-    for (const [k, layer] of tiles.current.radar) layer.setOpacity(shownRadar && k === shownRadar.layer ? opacity : 0);
     for (const [k, layer] of tiles.current.sat) layer.setOpacity(shownSat && k === `${sat}:${shownSat.time}` ? Math.min(1, opacity + 0.2) : 0);
   });
+
+  // The loop's frames are fetched once each (the server keeps them for the last hour); older ones are dropped.
+  const asked = useRef(new Map());
+  useEffect(() => {
+    if (radar !== "loop") return;
+    let alive = true;
+    const requests = new Map();
+    for (const t of loop.times) if (!loop.data[t] && !asked.current.has(t)) {
+      const request = {};
+      requests.set(t, request);
+      asked.current.set(t, request);
+      api(`/api/wx/radar/frame?t=${t}`).then((x) => {
+        if (alive && asked.current.get(t) === request) setLoop((l) => ({ ...l, data: { ...l.data, [t]: x } }));
+      }).catch(() => {
+        if (asked.current.get(t) === request) asked.current.delete(t);
+      });
+    }
+    setLoop((l) => {
+      const keep = Object.keys(l.data).filter((k) => l.times.includes(+k));
+      return keep.length === Object.keys(l.data).length ? l : { ...l, data: Object.fromEntries(keep.map((k) => [k, l.data[k]])) };
+    });
+    return () => {
+      alive = false;
+      for (const [t, request] of requests) if (!loop.data[t] && asked.current.get(t) === request) asked.current.delete(t);
+    };
+  }, [radar, loop.times]);
 
   useEffect(() => {
     if (!playing || !timeline.length) return;
@@ -143,21 +168,21 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!ready || !m) return;
     shapes.current?.remove();
     shapes.current = null;
-    if (radar !== "smooth" || !vector?.bands.features.length) return;
+    if (!radar || !colors || !vector?.bands.features.length) return;
     shapes.current = L.geoJSON(vector.bands, { pane: "wxradar", interactive: false, renderer: L.canvas({ pane: "wxradar" }),
-      style: (f) => ({ stroke: false, fill: true, fillColor: radarColor(vector.colors, f.properties.dbz + 2.5), fillOpacity: opacity }),
+      style: (f) => ({ stroke: false, fill: true, fillColor: radarColor(colors, f.properties.dbz + 2.5), fillOpacity: opacity }),
       attribution: 'Radar: <a href="https://mrms.nssl.noaa.gov/">NOAA MRMS</a>' }).addTo(m);
-  }, [ready, vector, radar, opacity]);
+  }, [ready, vector, colors, radar, opacity]);
 
   // Storm cells: a dot colored by strength, and a dashed line to where it'll be in 30 and 60 minutes.
   useEffect(() => {
     const L = window.L, group = storms.current;
     if (!ready || !group) return;
     group.clearLayers();
-    if (!radar || !vector) return;
-    const unit = vector.units;
+    if (!radar || !vector || !colors) return;
+    const unit = live_.units;
     for (const c of vector.cells) {
-      const color = radarColor(vector.colors, c.dbz || 0);
+      const color = radarColor(colors, c.dbz || 0);
       const moving = c.kmh ? `moving ${COMPASS[Math.round(c.toward / 45) % 8]} at ${show(unit, "speed", c.kmh / 3.6, 0)}` : "barely moving";
       const tip = [`${c.dbz} dBZ storm, ${moving}`, c.posh >= 30 && `hail likely (${c.posh}% severe)`, c.tvs && "tornado vortex signature",
         c.kmh && "dashes: 30 and 60 minutes on its present course", c.valid && `scanned ${clock(c.valid)}`].filter(Boolean).join(" · ");
@@ -166,7 +191,7 @@ export function WxMap({ show, unitsFor, compass }) {
       L.circleMarker(c.path[0], { radius: c.tvs || c.posh >= 30 ? 8 : 6, color: css("--fg"), weight: c.tvs ? 3 : 1, fillColor: color, fillOpacity: 0.95 })
         .bindTooltip(tip, { sticky: true }).addTo(group);
     }
-  }, [ready, vector, radar, live]);
+  }, [ready, vector, colors, radar, live]);
 
   // Station pins: the temperature, an arrow the way the wind blows, and a popup of the main readings.
   useEffect(() => {
@@ -233,17 +258,16 @@ export function WxMap({ show, unitsFor, compass }) {
         <button disabled=${timeline.length < 2} onClick=${() => setPlaying(!playing)} aria-label=${playing ? "Pause" : "Play"}>${playing ? "❚❚" : "▶"}</button>
         <input type="range" aria-label="Frame" min="0" max=${Math.max(0, timeline.length - 1)} value=${Math.max(0, at)} disabled=${timeline.length < 2}
           onInput=${(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} />
-        <span class="muted">${[radar === "smooth" && vector?.t && `radar ${clock(vector.t)}`, shownRadar && `radar ${clock(shownRadar.t)}`,
+        <span class="muted">${[radar === "smooth" && live_?.t && `radar ${clock(live_.t)}`, shownRadar && `radar ${clock(shownRadar.t)}`,
           shownSat && `satellite ${clock(shownSat.t)}`].filter(Boolean).join(" · ") || "no imagery"}</span>
       </span>
       <label class="muted wxopacity">Opacity <input type="range" min="0.2" max="1" step="0.05" value=${opacity} onInput=${(e) => setOpacity(Number(e.target.value))} /></label>
     </div>
     <div class="mapwrap" ref=${box}></div>
-    <p class="muted heatkey">${radar === "loop" && html`<span>radar: light</span><i style=${`background: ${DBZ}`}></i><span>heavy / hail</span>`}
-      ${radar === "smooth" && vector && html`<span>radar: light</span><i style=${`background: ${radarScale(vector.colors)}`}></i><span>heavy / hail</span>`}
+    <p class="muted heatkey">${radar && colors && html`<span>radar: light</span><i style=${`background: ${radarScale(colors)}`}></i><span>heavy / hail</span>`}
       <span>${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
-        ${radar === "smooth" && vector && !vector.t ? " The smooth radar starts within a few minutes of the server starting." : ""}
-        ${radar === "smooth" && vector?.t ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking nationwide." : ""}
-        ${radar === "loop" && info?.radar.error ? " Radar unavailable right now." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
+        ${radar === "smooth" && live_ && !live_.t ? " The smooth radar starts within a few minutes of the server starting." : ""}
+        ${radar && (vector?.t || live_?.t) ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking nationwide." : ""}
+        ${radar === "loop" && !loop.times.length ? " The radar loop fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
         ${sat ? " Satellite images run about 30–60 minutes behind." : ""}</span></p>`;
 }

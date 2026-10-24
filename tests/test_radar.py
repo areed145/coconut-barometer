@@ -239,6 +239,21 @@ class RadarApiTest(unittest.TestCase):
         self.assertEqual(len(d["cells"][0]["path"]), 3)
         self.assertGreater(d["cells"][0]["path"][2][1], d["cells"][0]["path"][0][1])   # heading east
 
+    def test_the_loop_keeps_frames_with_their_storm_cells_and_deletes_old_ones(self):
+        path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
+        cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]}})
+        app = create_app(cfg, FakeFlickr(), scheduler=False)
+        svc = app.state.runtime.radar
+        svc.cells = [CellsTest.cell(None)]
+        for t in (T - 4000, T - 120, T):
+            svc._save({"t": t, "box": (27, 33, -98.5, -92.5), "bands": []})
+        self.assertEqual(svc.history(), [T - 120, T])                       # older than LOOP_WINDOW: deleted
+        c = TestClient(app, base_url="https://testserver")
+        self.assertEqual(c.get("/api/wx/radar/frames").json(), {"frames": [{"t": T - 120}, {"t": T}]})
+        d = c.get(f"/api/wx/radar/frame?t={T}").json()
+        self.assertEqual((d["t"], len(d["cells"]), len(d["cells"][0]["path"])), (T, 1, 3))
+        self.assertEqual(c.get("/api/wx/radar/frame?t=1").status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

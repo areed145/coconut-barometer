@@ -14,14 +14,19 @@ rain and storm alerts need (alerts.py).
   cell's position, motion, max dBZ, hail probability and rotation flags, every 5 minutes. `drct` is the
   direction a cell moves *from* (checked against successive scans), so it heads `drct` + 180.
 
-Everything is held in memory: the latest frame, the latest cells, and each station's distance to the nearest
+The radar loop: each frame's shapes and the storm cells then are written to a folder beside the database, and
+frames older than LOOP_WINDOW are deleted, so the loop plays the same MRMS vectors and storm tracks as the live view.
+
+Otherwise everything is held in memory: the latest frame, the latest cells, and each station's distance to the nearest
 rain over the last half hour (how fast it shrinks is the rain alert's ETA). One per app (Runtime.radar)."""
 from __future__ import annotations
 
 import calendar
 import gzip
 import io
+import json
 import math
+import os
 import struct
 import threading
 import time
@@ -49,6 +54,7 @@ BAND_STEP, BAND_TOP = 5, 75
 RAIN_DBZ, HERE_KM = 20, 3.0          # rain, and close enough to be raining at the station already
 RAIN_HISTORY, RAIN_WINDOW = 20, 20 * 60
 KM_PER_DEG = 111.2
+LOOP_WINDOW = 65 * 60    # the radar loop's frames (and the storm cells with each) are kept on disk this long, then deleted
 
 
 # ---- MRMS ----------------------------------------------------------------------------------------------------
@@ -245,6 +251,7 @@ class RadarService:
         self._modified: str | None = None
         self._next = {"frame": 0.0, "cells": 0.0}
         self._thread: threading.Thread | None = None
+        self.dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), "radar_frames") if db_path else None
 
     def stations(self, store) -> list[dict]:
         rows = store.db.execute(
@@ -290,7 +297,52 @@ class RadarService:
                 self.rain.setdefault(s["device_id"], deque(maxlen=RAIN_HISTORY)).append(
                     (field["t"], nearest_km(field, z, s["lat"], s["lon"])))
         self._modified = r.headers.get("Last-Modified")
+        self._save(frame)
         return True
+
+    # ---- the loop's frames on disk ----------------------------------------------------------------------------
+    def _path(self, t: int) -> str:
+        return os.path.join(self.dir, f"{int(t)}.json.gz")
+
+    def _times(self) -> list[int]:
+        try:
+            names = os.listdir(self.dir) if self.dir else []
+        except OSError:
+            return []
+        return sorted(int(n[:-8]) for n in names if n.endswith(".json.gz") and n[:-8].isdigit())
+
+    def _save(self, frame: dict) -> None:
+        """Keep this frame, with the storm cells as they are now, for the loop; delete what's too old."""
+        if not self.dir:
+            return
+        try:
+            os.makedirs(self.dir, exist_ok=True)
+            with self.lock:
+                cells = list(self.cells)
+            tmp = self._path(frame["t"]) + ".tmp"
+            with gzip.open(tmp, "wt", encoding="utf-8") as f:
+                json.dump({**frame, "cells": cells}, f)
+            os.replace(tmp, self._path(frame["t"]))
+            newest = max(self._times() or [frame["t"]])
+            for t in self._times():
+                if newest - t > LOOP_WINDOW:
+                    os.remove(self._path(t))
+        except OSError as e:
+            caught(e, "radar frame storage")
+
+    def history(self) -> list[int]:
+        """Times of the frames kept for the loop, oldest first."""
+        return self._times()
+
+    def stored(self, t: int) -> dict | None:
+        """A kept frame: {t, box, bands, cells}, or None."""
+        if not self.dir or t not in self._times():
+            return None
+        try:
+            with gzip.open(self._path(t), "rt", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
 
     def refresh_cells(self, _stations: list[dict]) -> None:
         with activity.log.call("radar", "storm cells (IEM)") as a:
