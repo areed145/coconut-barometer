@@ -262,6 +262,14 @@ def radar(bbox: str | None = Query(None, max_length=100), zoom: float | None = Q
     return _with_shapes(rest, view(frame, box, zoom) if frame else '{"level":null,"q":1,"bands":[]}')
 
 
+@router.get("/fronts")
+def surface_fronts():
+    """The Map tab's fronts and highs and lows: WPC's latest surface analysis (weather/fronts.py), every 3 hours."""
+    from ...weather.fronts import fronts
+
+    return fronts.latest()
+
+
 @router.get("/radar/frames")
 def radar_frames(rt=Depends(runtime)):
     """Times of the radar frames (MRMS shapes with the storm tracks then) kept for the Map tab's loop."""

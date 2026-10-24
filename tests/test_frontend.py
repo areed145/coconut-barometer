@@ -87,6 +87,8 @@ class FrontendTest(unittest.TestCase):
         m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
         self.assertIn('aria-label="Map layers"', m)                         # radar and storm tracks toggle apart
         self.assertIn(">Storm tracks</button>", m)
+        self.assertIn(">Fronts</button>", m)                                # WPC's fronts and highs and lows (#69)
+        self.assertIn('api("/api/wx/fronts")', m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("new Set([...radarTimes, ...satFrames.map((f) => f.t)])", m)
         self.assertIn('fetch("/api/wx/map/errors"', m)

@@ -3,13 +3,15 @@
 // storm tracks (the cells the NWS radars track, and where they're heading) are layers of their own. Radar, storm
 // tracks and satellite share one timeline over the last hour or so, opening on now; the radar's past frames load
 // only once it's played or scrubbed. The shapes come for the view: ~2 km detail and only what's in sight when zoomed
-// in, ~8 km for the US zoomed out (radar_layer.js draws them). The map's own errors go to the server (#65), which
+// in, ~8 km for the US zoomed out (radar_layer.js draws them). Fronts and highs and lows are WPC's latest surface
+// analysis (fronts_layer.js), whatever the timeline shows. The map's own errors go to the server (#65), which
 // reports them like its own. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas } from "./radar_layer.js";
+import { frontsCanvas } from "./fronts_layer.js";
 
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -82,13 +84,15 @@ function el(tag, cls, text) {
 export function WxMap({ show, unitsFor, compass }) {
   const box = useRef(null), map = useRef(null);
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
-  const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null);
+  const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
   const [strikes, setStrikes] = useState({});      // device -> /api/wx/lightning cells for the last hour
   const [showRadar, setShowRadar] = useState(true);
   const [showStorms, setShowStorms] = useState(true);
+  const [showFronts, setShowFronts] = useState(false);
+  const [fronts, setFronts] = useState(null);      // /api/wx/fronts: WPC's latest surface analysis
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (radarView)
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
@@ -112,9 +116,11 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current = baseMap(lf, box.current, { minZoom: 3 }).setView([39, -96], 4);
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
       map.current.createPane("wxradar").style.zIndex = 360;
+      map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
       rings.current = lf.L.layerGroup().addTo(map.current);
       storms.current = lf.L.layerGroup().addTo(map.current);
       canvas.current = radarCanvas(lf.L, "wxradar", 'Radar: <a href="https://mrms.nssl.noaa.gov/">NOAA MRMS</a>').addTo(map.current);
+      frontsLayer.current = frontsCanvas(lf.L, "wxfronts", 'Fronts: <a href="https://www.wpc.ncep.noaa.gov/html/sfctxt.html">NOAA WPC</a>');
       const moved = () => setView((v) => (inside(v, map.current) ? v : radarView(map.current)));
       map.current.on("moveend", moved);
       moved();
@@ -146,6 +152,20 @@ export function WxMap({ show, unitsFor, compass }) {
     const stop = every(smooth, 120000);
     return () => { alive = false; stop(); };
   }, [view?.key]);
+  // Fronts while they're shown: the analysis is every 3 hours, so a look every 15 minutes is plenty.
+  useEffect(() => {
+    if (!showFronts) return;
+    let alive = true;
+    const stop = every(() => api("/api/wx/fronts").then((x) => alive && setFronts(x)).catch(() => {}), 15 * 60000);
+    return () => { alive = false; stop(); };
+  }, [showFronts]);
+  useEffect(() => {
+    const m = map.current, layer = frontsLayer.current;
+    if (!ready || !m || !layer) return;
+    if (!showFronts) { layer.remove(); return; }
+    if (!m.hasLayer(layer)) layer.addTo(m);
+    layer.set(fronts, css("--bg") || "#fff");
+  }, [ready, showFronts, fronts]);
   useEffect(() => {
     if (!info) return;
     let alive = true;
@@ -335,6 +355,7 @@ export function WxMap({ show, unitsFor, compass }) {
       <span class="seg" aria-label="Map layers">
         <button class=${showRadar ? "primary" : ""} aria-pressed=${showRadar} onClick=${() => setShowRadar(!showRadar)}>Radar</button>
         <button class=${showStorms ? "primary" : ""} aria-pressed=${showStorms} onClick=${() => setShowStorms(!showStorms)}>Storm tracks</button>
+        <button class=${showFronts ? "primary" : ""} aria-pressed=${showFronts} onClick=${() => setShowFronts(!showFronts)}>Fronts</button>
       </span>
       <span class="seg" aria-label="Satellite">${SATS.map(([k, l]) => html`<button key=${k} class=${k === sat ? "primary" : ""} aria-pressed=${k === sat}
         onClick=${() => { setSat(k); setIdx(null); }}>${l}</button>`)}</span>
@@ -344,6 +365,7 @@ export function WxMap({ show, unitsFor, compass }) {
         <input type="range" aria-label="Frame" min="0" max=${Math.max(0, timeline.length - 1)} value=${Math.max(0, at)} disabled=${timeline.length < 2}
           onInput=${(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} />
         <span class="muted">${[radarOn && vector?.t && `radar ${clock(vector.t)}`, shownSat && `satellite ${clock(shownSat.t)}`,
+          showFronts && fronts?.valid && `fronts ${new Date(fronts.valid * 1000).getUTCHours().toString().padStart(2, "0")}Z`,
           buffered != null && buffered < radarTimes.length && `loading ${buffered}/${radarTimes.length}`]
           .filter(Boolean).join(" · ") || "no imagery"}</span>
       </span>
@@ -355,5 +377,7 @@ export function WxMap({ show, unitsFor, compass }) {
         ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
         ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}
         ${radarOn && live_?.t && !times.length ? " The radar's past fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
-        ${sat ? " Satellite images run about 30–60 minutes behind." : ""}</span></p>`;
+        ${sat ? " Satellite images run about 30–60 minutes behind." : ""}
+        ${showFronts ? (fronts?.valid ? ` Fronts, highs and lows: WPC's surface analysis at ${clock(fronts.valid)} (every 3 hours), whatever time the radar shows.`
+          : fronts?.error ? " Fronts unavailable right now." : "") : ""}</span></p>`;
 }
