@@ -74,6 +74,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
   const kept = useRef(new Map());                  // the loop's frames loaded for the view: t -> unpacked frame
+  const gone = useRef(new Set());                  // listed frames the server can't give (404): left out of the loop
   const [, setLoaded] = useState(0);               // bumped as they arrive
   const [sat, setSat] = useState("");
   const [showRings, setShowRings] = useState(true);
@@ -135,7 +136,7 @@ export function WxMap({ show, unitsFor, compass }) {
   }, [ready, info]);
 
   // One satellite tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
-  const radarFrames = radar === "loop" ? times.map((t) => ({ t })) : [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
+  const radarFrames = radar === "loop" ? times.filter((t) => !gone.current.has(t)).map((t) => ({ t })) : [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
   useEffect(() => {
     const m = map.current, L = window.L;
     if (!ready || !m || !info) return;
@@ -169,7 +170,8 @@ export function WxMap({ show, unitsFor, compass }) {
     const have = kept.current;
     if (have.view !== view.key) { have.clear(); have.view = view.key; have.loading = new Set(); setLoaded((n) => n + 1); }
     for (const t of have.keys()) if (!times.includes(t)) have.delete(t);
-    const todo = [...times].reverse().filter((t) => !have.has(t) && !have.loading.has(t));
+    for (const t of gone.current) if (!times.includes(t)) gone.current.delete(t);
+    const todo = [...times].reverse().filter((t) => !have.has(t) && !have.loading.has(t) && !gone.current.has(t));
     const next = () => {
       const t = todo.shift();
       if (t == null || !alive) return;
@@ -177,7 +179,7 @@ export function WxMap({ show, unitsFor, compass }) {
       loading.add(t);
       api(`/api/wx/radar/frame?t=${t}&${radarQuery(view)}`)       // kept even if the list moved on meanwhile
         .then((x) => { if (have.view === view.key) { have.set(t, unpack(x)); setLoaded((n) => n + 1); } })
-        .catch(() => {})
+        .catch((e) => { if (e.status === 404) { gone.current.add(t); setLoaded((n) => n + 1); } })   // else tried again later
         .finally(() => { loading.delete(t); next(); });
     };
     for (let i = 0; i < LOADING; i++) next();
