@@ -1,4 +1,4 @@
-"""Radar near the stations (weather/radar.py): an MRMS frame decoded, cropped, cleaned and traced into shapes; storm
+"""Radar (weather/radar.py): an MRMS frame decoded, cropped, cleaned and traced into shapes; storm
 cells read, merged and carried along their course; and the storm and rain alerts built on them."""
 import calendar
 import gzip
@@ -110,6 +110,16 @@ class CellsTest(unittest.TestCase):
                                                            "max_dbz": 55, "valid": "2026-10-24T00:20:39Z"},
                                             "geometry": {"type": "Point", "coordinates": [LON, LAT]}}]})
         self.assertEqual((cells[0]["toward"], round(cells[0]["kmh"], 1), cells[0]["valid"]), (90, 37.0, T))
+
+    def test_refresh_keeps_storm_cells_beyond_station_range(self):
+        geojson = {"features": [{"properties": {"nexrad": "OKX", "storm_id": "A1", "valid": "2026-10-24T00:20:39Z"},
+                                 "geometry": {"type": "Point", "coordinates": [-74.0, 40.7]}}]}
+        response = mock.Mock(json=lambda: geojson, raise_for_status=lambda: None)
+        svc = R.RadarService({}, "", get=lambda *args, **kwargs: response, clock=lambda: T)
+
+        svc.refresh_cells([{"lat": LAT, "lon": LON}])
+
+        self.assertEqual([c["id"] for c in svc.snapshot()["cells"]], ["OKX-A1"])
 
     def test_arrival_along_its_course(self):
         self.assertAlmostEqual(R.arrival(self.cell(), LAT, LON, T, 10, 3600), 20 * 60, delta=5)   # 20 km at 60 km/h

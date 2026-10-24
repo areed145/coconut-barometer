@@ -1,4 +1,4 @@
-"""Radar (#54): smooth reflectivity shapes for the Weather map, the storm cells near the stations, and what the
+"""Radar (#54): smooth reflectivity shapes for the Weather map, nationwide storm cells, and what the
 rain and storm alerts need (alerts.py).
 
 - Reflectivity: NOAA MRMS's merged, quality-controlled composite (non-weather echoes already removed, every
@@ -38,7 +38,6 @@ MRMS_URL = "https://mrms.ncep.noaa.gov/2D/MergedReflectivityQCComposite/MRMS_Mer
 CELLS_URL = "https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py"
 FRAME_EVERY, CELLS_EVERY, TICK = 120, 300, 20     # seconds
 MARGIN = 3.0             # degrees around the stations (~330 km): the rain alert's reach
-CELLS_KM = 400           # storm cells this close to a station are kept
 MIN_DBZ = 15             # weaker is left out (drizzle, and what's left of clutter)
 SPECK_PX = 6             # connected echo smaller than this many ~1 km² pixels is dropped
 SMOOTH = 1.5             # Gaussian sigma, in pixels, for the shapes (the alerts use the unsmoothed field) ...
@@ -238,7 +237,7 @@ class RadarService:
         self.lock = threading.Lock()
         self.frame: dict | None = None          # {t, box, bands}
         self.field: dict | None = None          # the cleaned box (for the alerts)
-        self.cells: list[dict] = []             # near the stations
+        self.cells: list[dict] = []             # nationwide storm cells
         self.cells_at: float | None = None
         self.rain: dict[int, deque] = {}        # device -> (frame time, km to the nearest rain, or None)
         self.error: str | None = None
@@ -282,16 +281,15 @@ class RadarService:
         self._modified = r.headers.get("Last-Modified")
         return True
 
-    def refresh_cells(self, stations: list[dict]) -> None:
+    def refresh_cells(self, _stations: list[dict]) -> None:
         with activity.log.call("radar", "storm cells (IEM)") as a:
             r = self._get(CELLS_URL, timeout=60)
             r.raise_for_status()
             cells = cells_from(r.json())
-            near = merge([c for c in cells if any(math.hypot(*_km(s["lat"], s["lon"], c["lat"], c["lon"])) <= CELLS_KM
-                                                  for s in stations)], self._clock())
-            a["detail"] = f"{len(near)} of {len(cells)} cells near the stations"
+            merged = merge(cells, self._clock())
+            a["detail"] = f"{len(merged)} of {len(cells)} cells nationwide"
         with self.lock:
-            self.cells, self.cells_at = near, self._clock()
+            self.cells, self.cells_at = merged, self._clock()
 
     def tick(self, store) -> None:
         """Whatever's due. Errors are kept for the Status page; the next tick tries again."""

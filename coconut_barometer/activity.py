@@ -8,7 +8,7 @@ can't push the Flickr calls out.
 
 Sources: flickr (API), cdn (photo downloads for the vision model), vision, weatherflow (REST),
 wx-stream (WeatherFlow WebSocket), aprs (APRS-IS), imagery (radar / satellite frame lists), radar (MRMS frames
-and storm cells near the stations), geocode (the reviewer's
+and nationwide storm cells), geocode (the reviewer's
 place search, OpenStreetMap's Nominatim), jobs (the worker)."""
 from __future__ import annotations
 

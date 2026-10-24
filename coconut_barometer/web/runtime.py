@@ -102,7 +102,7 @@ class Runtime:
         # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
-        self.radar.start(self._stop, self.store)     # MRMS and storm cells near the stations (weather/radar.py)
+        self.radar.start(self._stop, self.store)     # MRMS and nationwide storm cells (weather/radar.py)
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
 
     def _alerts_loop(self) -> None:
