@@ -26,7 +26,6 @@ const radarScale = (stops) => {
   const s = [...stops].sort((a, b) => a.dbz - b.dbz), lo = s[0].dbz, hi = s[s.length - 1].dbz;
   return `linear-gradient(90deg, ${s.map((x) => `${x.color} ${Math.round(((x.dbz - lo) / (hi - lo || 1)) * 100)}%`).join(", ")})`;
 };
-// The NWS reflectivity colors, light rain (5 dBZ) to hail (70+).
 
 // The newest frame at or before `t` (or the oldest, when all are later).
 const frameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t + 150 ? f : best), frames[0]);
@@ -40,7 +39,7 @@ function el(tag, cls, text) {
 
 export function WxMap({ show, unitsFor, compass }) {
   const box = useRef(null), map = useRef(null);
-  const tiles = useRef({ radar: new Map(), sat: new Map() });     // frame key -> Leaflet tile layer
+  const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), shapes = useRef(null), storms = useRef(null);
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
@@ -97,7 +96,7 @@ export function WxMap({ show, unitsFor, compass }) {
     if (pts.length === 1) m.setView(pts[0], 7); else m.fitBounds(pts, { padding: [80, 80], maxZoom: 8 });
   }, [ready, info]);
 
-  // One tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
+  // One satellite tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
   const radarFrames = radar === "loop" ? loop.times.map((t) => ({ t })) : [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
   useEffect(() => {
     const m = map.current, L = window.L;
@@ -111,7 +110,8 @@ export function WxMap({ show, unitsFor, compass }) {
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
   }, [ready, info, radar, sat]);
 
-  // The loop runs over the radar's 5-minute frames, or the satellite's 10-minute ones when radar is off.
+  // The loop runs over the radar's kept frames (one per new MRMS frame, ~2 minutes apart), or the satellite's
+  // 10-minute ones when the radar isn't looping.
   const timeline = radarFrames.length ? radarFrames : satFrames;
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
   const t = at >= 0 ? timeline[at].t : null;

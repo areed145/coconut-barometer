@@ -370,7 +370,7 @@ class WeatherApiTest(unittest.TestCase):
         self.login()
         m = self.c.get("/api/wx/map").json()
         self.assertEqual(m["stations"], [{"device_id": 11, "name": "Backyard", "lat": 30.27, "lon": -97.74}])
-        self.assertEqual(len(m["radar"]["frames"]), 12)
+        self.assertNotIn("radar", m)                 # the radar is /api/wx/radar's (weather/radar.py)
         self.assertTrue(m["satellite"]["geocolor"]["frames"])
 
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):

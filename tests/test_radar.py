@@ -255,5 +255,27 @@ class RadarApiTest(unittest.TestCase):
         self.assertEqual(c.get("/api/wx/radar/frame?t=1").status_code, 404)
 
 
+
+class RadarErrorsTest(unittest.TestCase):
+    def test_a_truncated_frame_is_reported_until_a_good_round(self):
+        tmp = tempfile.mkdtemp()
+        store = Store(os.path.join(tmp, "db.duckdb"))
+        store.wx_save_stations([STATION])
+        good, now = [False], [T]
+        whole = gzip.compress(grib(blob(20)))
+        cut = whole[:len(whole) // 2]
+
+        def get(url, headers=None, timeout=None):
+            if "nexrad_attr" in url:
+                return mock.Mock(status_code=200, raise_for_status=lambda: None, json=lambda: {"features": []})
+            body = gzip.compress(grib(blob(20))) if good[0] else cut
+            return mock.Mock(status_code=200, content=body, raise_for_status=lambda: None, headers={})
+        svc = R.RadarService({}, "", get=get, clock=lambda: now[0])
+        svc.tick(store)                                                 # frame truncated twice; cells fine
+        self.assertIn("truncated", svc.snapshot()["error"])
+        good[0], now[0] = True, T + R.FRAME_EVERY
+        svc.tick(store)
+        self.assertIsNone(svc.snapshot()["error"])
+
 if __name__ == "__main__":
     unittest.main()

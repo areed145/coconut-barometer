@@ -246,7 +246,7 @@ class RadarService:
         self.cells: list[dict] = []             # nationwide storm cells
         self.cells_at: float | None = None
         self.rain: dict[int, deque] = {}        # device -> (frame time, km to the nearest rain, or None)
-        self.error: str | None = None
+        self.errors = {"frame": None, "cells": None}     # the last round's problem with each, for the Status page
         self.checked_at: float | None = None
         self._modified: str | None = None
         self._next = {"frame": 0.0, "cells": 0.0}
@@ -279,7 +279,7 @@ class RadarService:
                     truncated += " (truncated download)"
                     a["detail"] = f"{len(r.content) / 1e6:.1f} MB" + truncated
         if data is None:
-            self.error = "MRMS frame download was truncated; will retry"
+            self.errors["frame"] = "MRMS frame download was truncated twice; trying again next round"
             return False
         msg = decode(data)
         raw = grid(msg)
@@ -365,12 +365,16 @@ class RadarService:
             if now < self._next[kind]:
                 continue
             self._next[kind] = now + every
+            self.errors[kind] = None
             try:
-                fetch(stations)
-                self.error = None
+                fetch(stations)                     # may leave its own error (a truncated frame) without raising
             except Exception as e:
                 caught(e, f"radar {kind}")
-                self.error = f"{type(e).__name__}: {e}"[:200]
+                self.errors[kind] = f"{type(e).__name__}: {e}"[:200]
+
+    @property
+    def error(self) -> str | None:
+        return "; ".join(e for e in self.errors.values() if e) or None
 
     def start(self, stop: threading.Event, store_for) -> None:
         if self._thread:

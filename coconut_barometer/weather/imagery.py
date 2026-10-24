@@ -1,10 +1,7 @@
-"""Radar and satellite frames for the Weather map: which ones exist right now, so the browser can
-loop them. The tiles themselves come straight from the providers (the page's CSP allows their hosts).
-
-- Radar: NOAA NEXRAD base reflectivity, a US composite every 5 minutes, from the Iowa Environmental
-  Mesonet's tile cache. It keeps the last hour as separate layers (…-m05m … -m55m).
-- Satellite: GOES-East from NASA GIBS, every 10 minutes: GeoColor (true color by day) and clean
-  infrared (cloud tops, day and night). GIBS publishes ~30-60 minutes behind real time.
+"""Satellite frames for the Weather map: which ones exist right now, so the browser can loop them. The tiles
+themselves come straight from NASA GIBS (the page's CSP allows its host): GOES-East every 10 minutes, GeoColor
+(true color by day) and clean infrared (cloud tops, day and night). GIBS publishes ~30-60 minutes behind real time.
+The radar is weather/radar.py's.
 """
 from __future__ import annotations
 
@@ -19,9 +16,7 @@ import requests
 from .. import activity
 from ..errors import caught
 
-IEM = "https://mesonet.agron.iastate.edu"
 GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
-RADAR_STEP, RADAR_FRAMES = 300, 12                  # the last hour
 SATELLITE = {                                       # name -> (GIBS layer, tile matrix set, native max zoom)
     "geocolor": ("GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level7", 7),
     "infrared": ("GOES-East_ABI_Band13_Clean_Infrared", "GoogleMapsCompatible_Level6", 6),
@@ -89,29 +84,15 @@ class Imagery:
                     return self._cached[1]
             now = self._clock()
             try:
-                with ThreadPoolExecutor(max_workers=1 + len(SATELLITE)) as pool:
-                    radar = pool.submit(self._radar)
+                with ThreadPoolExecutor(max_workers=len(SATELLITE)) as pool:
                     sats = {k: pool.submit(self._satellite, k, now) for k in SATELLITE}
-                    out = {"radar": radar.result(), "satellite": {k: f.result() for k, f in sats.items()}}
+                    out = {"satellite": {k: f.result() for k, f in sats.items()}}
                 with self._lock:
                     self._cached = (now, out)
                 return out
             finally:
                 with self._lock:
                     self._refreshing = False
-
-    def _radar(self) -> dict:
-        try:
-            with activity.log.call("imagery", "radar frames", "IEM NEXRAD composite") as a:
-                meta = self._get(f"{IEM}/data/gis/images/4326/USCOMP/n0q_0.json", timeout=10).json()["meta"]
-                valid = _epoch(meta["valid"])
-                a["detail"] = f"IEM NEXRAD composite · newest {meta['valid']}"
-        except Exception as e:  # noqa: BLE001 - any failure just means no radar this time
-            caught(e, "radar")
-            return {"frames": [], "error": str(e)[:200]}
-        frames = [{"t": valid - k * RADAR_STEP, "layer": "nexrad-n0q-900913" + (f"-m{k * 5:02d}m" if k else "")}
-                  for k in range(RADAR_FRAMES - 1, -1, -1)]
-        return {"frames": frames, "url": f"{IEM}/cache/tile.py/1.0.0/{{layer}}/{{z}}/{{x}}/{{y}}.png", "error": None}
 
     def _satellite(self, name: str, now: float) -> dict:
         layer, tms, zoom = SATELLITE[name]

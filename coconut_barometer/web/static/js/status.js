@@ -8,7 +8,7 @@ import { html, useState, useEffect, useRef, num, api, every, HealthPanel } from 
 const SOURCES = {
   flickr: ["Flickr API", "--chart-1"], cdn: ["Photo downloads", "--chart-3"], vision: ["Vision model", "--chart-2"],
   weatherflow: ["WeatherFlow REST", "--accent"], "wx-stream": ["WeatherFlow stream", "--warn"], aprs: ["APRS-IS", "--ok"],
-  imagery: ["Radar & satellite", "--muted"], radar: ["Radar (MRMS, storm cells)", "--chart-2"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
+  imagery: ["Satellite", "--muted"], radar: ["Radar (MRMS, storm cells)", "--chart-2"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
 };
 const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
                wx: "WeatherFlow sync", replan: "Re-plan review" };
@@ -170,7 +170,7 @@ export function StatusPage({ health }) {
         <span class="svcmeta">${sv.weatherflow.calls_per_second}/s · a day of history per call</span><//>`}
       ${a.streams["wx-stream"] && html`<${StreamCard} ...${card("wx-stream")} title="WeatherFlow stream" st=${a.streams["wx-stream"]} extra="wind readings" />`}
       ${a.streams.aprs.callsigns.length > 0 && html`<${StreamCard} ...${card("aprs")} title="APRS-IS" st=${a.streams.aprs} extra="keepalives" />`}
-      ${has("imagery") && html`<${ServiceCard} ...${card("imagery")} title="Radar & satellite">
+      ${has("imagery") && html`<${ServiceCard} ...${card("imagery")} title="Satellite">
         <span class="svcmeta">Frame lists for the weather map, at most every 4 minutes</span><//>`}
       ${has("radar") && html`<${ServiceCard} ...${card("radar")} title="Radar & nationwide storm cells">
         <span class="svcmeta">NOAA MRMS reflectivity when there's a new frame (checked every 2 min), storm cells every 5 min</span><//>`}

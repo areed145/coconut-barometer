@@ -5,7 +5,7 @@
     ok    working    warn  working, but something's behind or failed once    bad  not working
     off   not set up (left out of `overall`)
 
-Visitors get the public services only (WeatherFlow, APRS-IS, radar and satellite), without error text; signed
+Visitors get the public services only (WeatherFlow, APRS-IS, satellite and radar), without error text; signed
 in, every row, with the error and where it's fixed. Each row is read from what the app already tracks (the
 streams' state, the activity log, the sync and backup records); nothing here calls out, except Flickr's
 sign-in check, made at most every FLICKR_CHECK seconds. Cached for CACHE_SECONDS.
@@ -118,14 +118,12 @@ def _vision(rt, now) -> dict:
 def _imagery(now) -> dict:
     cached = wx_api._imagery._cached                    # read what's there: never fetches for the panel
     if not cached:
-        return row("imagery", "Radar & satellite", "ok", "checked when the weather map is opened")
+        return row("imagery", "Satellite", "ok", "checked when the weather map is opened")
     at, frames = cached
-    down = [name for name, f in [("radar", frames["radar"]), *((f"satellite {k}", v) for k, v in frames["satellite"].items())]
-            if f.get("error")]
-    return row("imagery", "Radar & satellite", "warn" if down else "ok",
+    down = {k: v["error"] for k, v in frames["satellite"].items() if v.get("error")}
+    return row("imagery", "Satellite", "warn" if down else "ok",
                f"{', '.join(down)} unavailable" if down else f"all frames available · checked {_ago(now, at)}",
-               "; ".join(f"{n}: {frames['radar']['error'] if n == 'radar' else frames['satellite'][n.split()[1]]['error']}" for n in down) or None,
-               "#/weather/map", int(at))
+               "; ".join(f"{k}: {e}" for k, e in down.items()) or None, "#/weather/map", int(at))
 
 
 def _radar(rt, now) -> dict:
