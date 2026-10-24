@@ -198,7 +198,7 @@ class FrontendTest(unittest.TestCase):
     def test_photos_and_aprs_maps_have_location_and_full_screen(self):
         """#80: the Weather map's ⌖ and ⛶ on the Photos and APRS maps too, from the same hook."""
         js = lambda name: open(os.path.join(STATIC, "js", name)).read()
-        for name in ("map.js", "aprs.js", "weather_map.js"):
+        for name in ("map.js", "aprs.js", "weather_map.js", "igate.js"):
             self.assertIn("useMapTools(map, ready, wrap)", js(name))
             self.assertIn("class=${mapboxClass(fullscreen", js(name))
         photos = js("map.js")                                               # the lightbox opens inside what goes full screen

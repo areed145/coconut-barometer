@@ -6,6 +6,7 @@ import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { grid } from "./aprs.js";
+import { useMapTools, mapboxClass } from "./wx_controls.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const WINDOWS = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365], ["All", 24 * 3650]];
@@ -32,8 +33,9 @@ function cellName(lat, lon, cell, cells) {
 }
 
 function IgateMap({ d, cell }) {
-  const box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef("");
+  const wrap = useRef(null), box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef("");
   const [ready, setReady] = useState(false);
+  const { fullscreen } = useMapTools(map, ready, wrap);       // ⌖ and ⛶, as on the other maps (#82)
   const theme = useThemeTick();
   useEffect(() => {
     let alive = true;
@@ -92,7 +94,7 @@ function IgateMap({ d, cell }) {
     }
   }, [ready, d, cell, theme]);
   const top = d.cells.rows.reduce((m, r) => Math.max(m, r[2]), 0);
-  return html`<div class="igatemapbox">
+  return html`<div ref=${wrap} class=${mapboxClass(fullscreen, "igatemapbox")}>
     <div class="mapwrap igatemap" ref=${box}></div>
     ${top > 0 && html`<div class="igatescale" aria-label="Packets per cell">
       <span>1</span><i style=${`background: linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map((t) => shade(t)).join(", ")})`}></i>

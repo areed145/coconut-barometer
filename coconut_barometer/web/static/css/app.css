@@ -804,6 +804,9 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .igatemap { height: min(60dvh, 560px); }
 .igatescale { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); font-size: var(--text-xs); color: var(--muted); }
 .igatescale i { flex: 0 1 160px; height: 8px; border-radius: 4px; }
+/* full screen: the scale sits on the map's bottom left, or it would be below the screen */
+.igatemapbox.full .igatescale { position: absolute; left: var(--s2); bottom: calc(var(--s3) + var(--safe-b)); z-index: 1000; margin: 0;
+  padding: 2px var(--s2); background: var(--surface); border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
 /* APRS cards: everything that can be long is either cut with an ellipsis or allowed to break, never pushed wider */
 .aprscols { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); align-items: start; }
 .aprscard { display: flex; flex-direction: column; gap: var(--s3); }
