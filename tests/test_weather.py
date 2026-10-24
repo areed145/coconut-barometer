@@ -373,6 +373,25 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(len(m["radar"]["frames"]), 12)
         self.assertTrue(m["satellite"]["geocolor"]["frames"])
 
+    def test_map_client_errors_are_logged_and_reported(self):
+        from coconut_barometer.web.api import weather as wx_api
+
+        seen = []
+        original = wx_api.caught
+        wx_api.caught = lambda error, where: seen.append((error, where))
+        self.addCleanup(setattr, wx_api, "caught", original)
+        response = self.c.post("/api/wx/map/errors", json={
+            "source": "unhandledrejection", "message": "map render failed", "stack": "at draw (map.js:1)",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"reported": True})
+        self.assertEqual(seen[0][1], "weather map unhandledrejection")
+        self.assertIn("map render failed", str(seen[0][0]))
+        self.assertIn("map.js:1", str(seen[0][0]))
+        self.assertEqual(self.c.post("/api/wx/map/errors", json={
+            "source": "error", "message": "x" * 501,
+        }).status_code, 422)
+
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
         csrf = {"X-CSRF-Token": self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).json()["csrf"]}

@@ -83,6 +83,16 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("else c.zoomToBounds({ padding: [30, 30] });", m)      # else straight to where it splits
         self.assertNotIn("m.getZoom() + 1", m)
 
+    def test_weather_map_layers_share_a_timeline_and_report_client_errors(self):
+        m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
+        self.assertIn("showRadar || showStorms ? loop.times : []", m)
+        self.assertIn("...satFrames.map((f) => f.t)", m)
+        self.assertIn('aria-label="Map layers"', m)
+        self.assertIn(">Storm tracks</button>", m)
+        self.assertNotIn("Radar loop", m)
+        self.assertIn('fetch("/api/wx/map/errors"', m)
+        self.assertIn('window.addEventListener("unhandledrejection"', m)
+
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)

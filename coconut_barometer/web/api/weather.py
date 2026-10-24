@@ -3,13 +3,22 @@ Public (read-only); starting a sync needs a login."""
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
+from ...errors import caught
 from ...weather.imagery import Imagery
 from ..deps import runtime, session, store
 
 router = APIRouter(prefix="/api/wx", tags=["weather"])
+
+
+class MapError(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+    stack: str = Field("", max_length=6000)
+    source: Literal["error", "unhandledrejection"]
 
 
 def _units(rt) -> str:
@@ -123,6 +132,14 @@ def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(ima
     return {"units": _units(rt), "now": int(time.time()),
             "stations": [{k: s[k] for k in ("device_id", "name", "lat", "lon")} for s in db.wx_stations() if s["lat"] is not None],
             **im.frames()}
+
+
+@router.post("/map/errors")
+def map_error(body: MapError):
+    """Log a browser-side Weather map error and send it to the configured GitHub reporter."""
+    error = RuntimeError(f"{body.message}\n{body.stack}".rstrip())
+    caught(error, f"weather map {body.source}")
+    return {"reported": True}
 
 
 @router.get("/radar")
