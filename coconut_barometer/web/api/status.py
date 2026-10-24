@@ -151,6 +151,24 @@ def _backups(rt, db, now) -> dict:
     return row("backups", "Backups", "bad" if overdue else "ok", f"last backup {_ago(now, last)}", None, "#/settings/backup", last)
 
 
+def _visitors(rt, now) -> dict:
+    v = rt.visitors.status()
+    href = "#/settings/visitors"
+    if not v["enabled"]:
+        return row("visitors", "Visitors", "off", "not counted", href=href)
+    if v["error"]:
+        return row("visitors", "Visitors", "bad", "can't write page views", v["error"], href, v["flushed_at"])
+    age = v["geoip_age"]
+    if age is None:
+        state = "downloading the city database" if v["geoip_updating"] else "no city database yet"
+        return row("visitors", "Visitors", "warn", state, v["geoip_error"], href, v["flushed_at"])
+    days = int(age // 86400)
+    stale = days > 45
+    return row("visitors", "Visitors", "warn" if stale else "ok",
+               f"{v['written']:,} page views written since the app started · city database {days} days old",
+               v["geoip_error"] if stale else None, href, v["flushed_at"])
+
+
 def _error_reports(now) -> dict:
     r = reporter.status()
     if not r["enabled"]:
@@ -170,7 +188,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
         return hit[1]
     rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now)]
     if me is not None:
-        rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _error_reports(now)]
+        rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _visitors(rt, now), _error_reports(now)]
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]

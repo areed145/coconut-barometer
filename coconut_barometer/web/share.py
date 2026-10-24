@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .assets import versioned
+from .api.visitors import count_preview
 from .deps import runtime, store
 
 STATIC = Path(__file__).parent / "static"
@@ -80,6 +81,7 @@ def photo(photo_id: str, request: Request, rt=Depends(runtime), db=Depends(store
     p = db.photo_detail(photo_id, public_only=True) if photo_id.isdigit() else None
     if not p:
         return page(request, rt)
+    count_preview(request, rt, f"/p/{photo_id}")
     # Flickr has a size only if the original is at least that big (unknown size: assume it is).
     longest = max(p["width"] or 0, p["height"] or 0) or 10_000
     image = next((p["sizes"][k] for k, px in PREVIEW if k in p["sizes"] and px <= longest), "")
@@ -93,6 +95,7 @@ def album(album_id: str, request: Request, rt=Depends(runtime), db=Depends(store
     a = db.album(album_id, public_only=True) if album_id.isdigit() else None
     if not a:
         return page(request, rt)
+    count_preview(request, rt, f"/a/{album_id}")
     count = f"{a['count']:,} photo{'' if a['count'] == 1 else 's'}"
     return page(request, rt, title=text(a["title"], 100), description=text(a["description"]) or count,
                 image=a["cover_url"] or "", path=f"/a/{album_id}")

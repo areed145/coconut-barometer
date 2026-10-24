@@ -99,6 +99,11 @@ DEFAULTS: dict[str, Any] = {
         "keep": 7,                    # newest kept; older deleted
         "dir": None,                  # default: backups/ next to the database
     },
+    "visitors": {
+        "enabled": True,              # count this site's visitors (Photos → Analytics → Visitors)
+        "keep_days": 90,              # raw page views kept; older days keep only their totals
+        "honor_gpc": True,            # leave out browsers sending Global Privacy Control or Do Not Track
+    },
     "web": {
         "host": "127.0.0.1",          # behind a reverse proxy (Caddy) on a server; never 0.0.0.0 bare
         "port": 8000,
@@ -148,7 +153,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
-          ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365),
+          ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365), ("visitors", "keep_days"): (7, 3650),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),

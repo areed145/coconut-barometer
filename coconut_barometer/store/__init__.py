@@ -13,6 +13,7 @@ One connection, methods grouped by area:
   settings.py    admin-page settings, encrypted API keys, the change history
   weather.py     WeatherFlow stations and observations
   aprs.py        APRS positions heard for the tracked callsigns, and the packets the igate gated
+  visitors.py    the site's own visitors: page views, link previews, and each day's totals once pruned
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -42,6 +43,8 @@ Tables
   wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
   aprs_positions   each position packet heard from a tracked callsign
   aprs_igate       each packet APRS-IS credits the igate with gating: who, where (if it said), heard direct or not
+  site_hits        each page view of this site (no IPs: a visitor is a hash salted per day), for visitors.keep_days
+  site_days        each day's visitors and page views, once its site_hits are pruned
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations
@@ -58,13 +61,14 @@ from .library import LibraryStore
 from .queue import QueueStore
 from .settings import SettingsStore
 from .stats import StatsStore
+from .visitors import VisitorsStore
 from .weather import WeatherStore
 
 __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore, AlertsStore,
-            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, AprsStore):
+            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, AprsStore, VisitorsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

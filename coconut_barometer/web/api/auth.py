@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import client_ip, runtime, session, store
 from ..security import COOKIE, new_token, token_hash, verify_password
+from .visitors import mark_owner
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -42,11 +43,13 @@ def start_session(rt, db, request: Request, response: Response, username: str) -
                       request.headers.get("user-agent", ""))
     response.set_cookie(COOKIE, token, max_age=days * 86400, httponly=True, samesite="strict",
                         secure=rt.cfg["web"]["secure_cookies"], path="/")
+    mark_owner(response, rt)
     return {"username": username, "csrf": csrf}
 
 
 @router.get("/session")
-def current(sess=Depends(session)):
+def current(response: Response, sess=Depends(session), rt=Depends(runtime)):
+    mark_owner(response, rt)            # also devices signed in before visitors were counted
     return {"username": sess["username"], "csrf": sess["csrf"], "expires_at": sess["expires_at"]}
 
 

@@ -108,6 +108,7 @@ label.check { display: inline-flex; gap: var(--s1); align-items: center; font-si
 /* cards in grids and stacked lists are spaced by the container's gap instead */
 :is(.cols, .cols3, .setup-choices, .panel, .settings, .kpis) > .card { margin-bottom: 0; }
 .card h2, .settings h3.group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: 0 0 var(--s3); }
+.card h3 { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin: var(--s4) 0 var(--s3); }
 h1.title { font-size: var(--text-xl); margin: var(--s1) 0 var(--s2); letter-spacing: -.01em; }
 h1.title .share { font-size: var(--text-sm); font-weight: normal; vertical-align: middle; }
 h2.section { font-size: var(--text-base); margin: var(--s5) 0 var(--s3); }

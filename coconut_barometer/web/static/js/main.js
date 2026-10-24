@@ -200,6 +200,27 @@ const shared = location.pathname.match(/^\/([pa])\/(\d+)\/?$/);
 if (shared) history.replaceState(null, "", "/" + (shared[1] === "p" ? `#/photos/photo/${shared[2]}` : photosLink({ album: shared[2] })));
 render(html`<${App} />`, document.getElementById("app"));
 
+// Counting visitors (#83): each page shown, once; filters and other ?params on the same page aren't another view
+// (an album's photos are). The referrer and utm_ tags go with the first. The server leaves out the owner (by
+// cookie) and bots, and keeps no IP or cookie of a visitor's: visitors.py.
+const firstView = { r: document.referrer, u: Object.fromEntries(["source", "medium", "campaign"]
+  .map((k) => [k, new URLSearchParams(location.search).get("utm_" + k)]).filter(([, v]) => v)) };
+let lastView = null;
+function countView() {
+  const [path, qs] = (location.hash || "#/").split("?");
+  const album = new URLSearchParams(qs || "").get("album");
+  const p = album ? `${path}?album=${album}` : path;
+  if (p === lastView) return;
+  const body = JSON.stringify({ p, w: innerWidth, ...(lastView === null ? firstView : {}) });
+  lastView = p;
+  try {
+    if (!navigator.sendBeacon?.("/api/seen", new Blob([body], { type: "text/plain" })))
+      fetch("/api/seen", { method: "POST", body, keepalive: true, credentials: "same-origin" }).catch(() => {});
+  } catch { /* never in the way of the page */ }
+}
+countView();
+window.addEventListener("hashchange", countView);
+
 // The service worker (sw.js): the app kept for offline use, alerts as notifications, and installing (Add to Home Screen).
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
