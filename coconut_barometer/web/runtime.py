@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 
+from .. import local
 from ..alerts import CHECK_EVERY, Alerts
 from ..errors import caught
 from ..review import ReviewApp
@@ -100,8 +101,12 @@ class Runtime:
     def start_scheduler(self, first_delay: float = 30) -> None:
         if self._scheduler:
             return
-        self._scheduler = threading.Thread(target=self._schedule_loop, args=(first_delay,), name="scheduler",
-                                           daemon=True)
+        if local.on():                              # #92: no Flickr sync, no backups; a stand-in thread so it's once
+            local.held("syncing with Flickr or making backups")
+            self._scheduler = threading.Thread(target=lambda: None, name="scheduler (local mode)", daemon=True)
+        else:
+            self._scheduler = threading.Thread(target=self._schedule_loop, args=(first_delay,), name="scheduler",
+                                               daemon=True)
         self._scheduler.start()
         # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)

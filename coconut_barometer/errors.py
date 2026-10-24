@@ -29,6 +29,8 @@ from pathlib import Path
 
 import requests
 
+from . import local
+
 API = "https://api.github.com"
 LABEL = "auto-report"
 COMMENT_EVERY = 3600        # seconds between comments on one issue
@@ -126,7 +128,7 @@ class Reporter:
     def report(self, exc: BaseException, where: str) -> None:
         """Queue exc for GitHub, unless reporting is off or it's expected(). Never raises."""
         try:
-            if not self.enabled() or expected(exc):
+            if not self.enabled() or expected(exc) or local.on():     # local mode (#92): logged only
                 return
             fp = fingerprint(exc)
             with self.lock:

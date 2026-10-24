@@ -44,6 +44,8 @@ coconut-barometer user add <name>     # the login (or create it on the setup pag
 coconut-barometer serve               # http://127.0.0.1:8000
 ```
 
+**Local mode.** On your own machine (listening on 127.0.0.1, not on Render), `serve` sends nothing as the station: no APRS-IS login and no CWOP reports, no push notifications, no GitHub error reports, no Flickr sync or review changes applied, and no backups. Each is logged instead, shows as "off (local mode)" on the Status page, and a **local** badge sits by the logo. Everything that's only read still runs (WeatherFlow, radar, satellite, the Weather map's layers), so you can look at the site against a copy of the live database without the copy and the live server both reporting. `--local` or `--production` (or `COCONUT_LOCAL=1`/`0`) overrides the choice. **A server you run yourself on 127.0.0.1 behind a proxy (Caddy) needs `--production`.** Render and anything listening on another address are live already.
+
 Open it and sign in. The frontend is plain JavaScript modules (Preact + htm and uPlot, stored in `coconut_barometer/web/static/vendor`), so there's no build step:
 
 Photos, Weather and APRS are public: visitors see public photos only, and the rest (Analytics, Review, Status, Settings) needs the login.

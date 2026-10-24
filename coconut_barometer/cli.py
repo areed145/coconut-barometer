@@ -260,10 +260,18 @@ def cmd_serve(cfg, store, args):
             sys.exit("Refusing: web.secure_cookies is off, so the session cookie would travel unencrypted.")
     vcfg = cfg["vision"]
     provider = lambda: _provider(cfg)   # made on first use, from the settings at the time
-    client = _new_client(cfg)
-    if client is None:
-        logger.warning("No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
-    app = create_app(cfg, client, provider_factory=provider, cfg_path=args.config, client_factory=_new_client)
+    from . import local
+
+    local.set_on(local.decide(host, args.local))
+    if local.on():                      # #92: nothing sent as the station; no Flickr client, so nothing synced or applied
+        logger.warning("Local mode: not sending anything (%s). On a server, pass --production (or COCONUT_LOCAL=0).",
+                       local.HELD_BACK)
+        client, new_client = None, lambda cfg: None
+    else:
+        client, new_client = _new_client(cfg), _new_client
+        if client is None:
+            logger.warning("No Flickr API key/secret yet: set them in Settings (syncing waits until then).")
+    app = create_app(cfg, client, provider_factory=provider, cfg_path=args.config, client_factory=new_client)
     logger.info("Serving on http://%s:%s  (sync every %s min; Ctrl-C stops)", host, port, web["sync_every_minutes"])
     uvicorn.run(app, host=host, port=port, proxy_headers=True, server_header=False,
                 forwarded_allow_ips=",".join(web["trusted_proxies"]), log_level="info", log_config=None)
@@ -521,6 +529,12 @@ def main(argv=None):
     p = sub.add_parser("serve", help="run the web app (API, frontend, review worker, sync scheduler)")
     p.add_argument("--host")
     p.add_argument("--port", type=int)
+    m = p.add_mutually_exclusive_group()
+    m.add_argument("--local", dest="local", action="store_const", const=True,
+                   help="send nothing: no APRS-IS/CWOP, push, GitHub reports, Flickr or backups (the default on 127.0.0.1 "
+                        "off Render)")
+    m.add_argument("--production", dest="local", action="store_const", const=False,
+                   help="everything on, as the live server (the default elsewhere)")
     p = sub.add_parser("plan", help="preview what would be proposed (read-only; queues nothing)")
     p.add_argument("--list", action="store_true", help="list every change, not just the totals")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")

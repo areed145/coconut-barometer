@@ -234,7 +234,8 @@ class Alerts:
                     result = push.send(store, x["title"], x["body"], x["url"], tag=x["key"], only=device["id"])
                     status = ("sent" if result["sent"] else "failed" if result["failed"]
                               else "removed" if result["removed"] else "not_sent")
-                    detail = "; ".join(result["failed"]) or ("subscription expired" if result["removed"] else "")
+                    detail = "; ".join(result["failed"]) or ("subscription expired" if result["removed"] else "") \
+                        or ("local mode" if result.get("local") else "")
                 except Exception as e:
                     status, detail = "failed", f"{type(e).__name__}: {e}"
                 store.alert_log_add(now, x, device, status, detail)

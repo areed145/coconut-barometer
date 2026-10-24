@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 
+from .. import local
 from ..store import Store
 from .cwop import CwopReporter, configured
 from .stream import AprsStream, Hub, callsigns, igate
@@ -29,6 +30,9 @@ class AprsService:
         return s
 
     def start_stream(self, stop: threading.Event) -> None:
+        if local.on():                         # #92: neither logs in as the station's callsigns, nor reports as it
+            local.held("connecting to APRS-IS (tracking) or sending CWOP reports")
+            return
         if not self._stream:
             self._stream = AprsStream(self, stop)
             self._stream.start()

@@ -17,6 +17,8 @@ import time
 
 from cryptography.hazmat.primitives import serialization
 
+from . import local
+
 logger = logging.getLogger(__name__)
 KEY_META, SUBS_META = "push_vapid", "push_subscriptions"
 TTL = 4 * 3600          # a phone that's off for longer than this doesn't get a stale alert when it's back
@@ -88,7 +90,11 @@ def unsubscribe(store, id_: str) -> bool:
 
 
 def send(store, title: str, body: str, url: str = "/", tag: str = "", only: str | None = None) -> dict:
-    """To every device (or just `only`, an id). Returns {"sent": n, "failed": [errors], "removed": n}."""
+    """To every device (or just `only`, an id). Returns {"sent": n, "failed": [errors], "removed": n}; in local
+    mode (local.py) nothing is sent, and it says so ("local": True)."""
+    if local.on():
+        local.held(f"sending a push notification: {title}")
+        return {"sent": 0, "failed": [], "removed": 0, "local": True}
     from pywebpush import WebPushException, webpush
 
     subs = [s for s in devices(store) if only is None or s["id"] == only]

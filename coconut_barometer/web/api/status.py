@@ -19,7 +19,7 @@ import time
 
 from fastapi import APIRouter, Depends, Query
 
-from ... import activity
+from ... import activity, local
 from ...errors import reporter
 from ..deps import runtime, session, store, viewer
 from . import weather as wx_api
@@ -61,6 +61,8 @@ def _weatherflow(rt, db, now) -> dict:
 
 
 def _aprs(rt, now) -> dict:
+    if local.on():
+        return row("aprs", "APRS-IS", "off", local.STATE)
     if not rt.aprs.callsigns() and not rt.aprs.igate():
         return row("aprs", "APRS-IS", "off", "nothing to follow", href="#/settings/aprs")
     s = rt.aprs.hub.snapshot()                         # the stream's state itself (WeatherFlow's nests it)
@@ -73,6 +75,8 @@ def _aprs(rt, now) -> dict:
 
 
 def _cwop(rt, now) -> dict:
+    if local.on():
+        return row("cwop", "CWOP reports", "off", local.STATE)
     c = rt.aprs.cwop_status()
     if not c["reporting"]:
         return row("cwop", "CWOP reports", "off", "no station reports", href="#/settings/aprs")
@@ -87,6 +91,8 @@ def _cwop(rt, now) -> dict:
 
 
 def _flickr(rt, db, now) -> dict:
+    if local.on():
+        return row("flickr", "Flickr", "off", local.STATE)
     if now - _flickr_check["at"] > FLICKR_CHECK or _flickr_check["status"] is None:
         _flickr_check.update(at=now, status=rt.flickr_status())    # a Flickr call: at most every FLICKR_CHECK
     f = _flickr_check["status"]
@@ -140,6 +146,8 @@ def _radar(rt, now) -> dict:
 
 def _backups(rt, db, now) -> dict:
     every = rt.cfg["backup"]["every_hours"]
+    if local.on():
+        return row("backups", "Backups", "off", local.STATE)
     if every <= 0:
         return row("backups", "Backups", "off", "turned off", href="#/settings/backup")
     last = int(db.get_meta("last_backup") or 0) or None
@@ -171,6 +179,8 @@ def _visitors(rt, now) -> dict:
 
 def _error_reports(now) -> dict:
     r = reporter.status()
+    if local.on():
+        return row("errors", "Error reports", "off", local.STATE)
     if not r["enabled"]:
         return row("errors", "Error reports", "off", "no GitHub token", href="#/settings/connections")
     if r["error"]:
@@ -192,7 +202,8 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]
-    out = {"overall": max(counted, key=LEVELS.index) if counted else "off", "checked_at": int(now), "rows": rows}
+    out = {"overall": max(counted, key=LEVELS.index) if counted else "off", "checked_at": int(now), "rows": rows,
+           "local": local.on()}
     _cache[(rt.db_path, me is None)] = (now, out)
     return out
 

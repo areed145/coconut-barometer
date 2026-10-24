@@ -166,6 +166,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
       <a class="brand" href="#/" aria-label="Coconut Barometer: Home">
         <img class="logo" src="/static/img/logo-96.png" width="46" height="45" alt="" />
         <span class="brand-name">Coconut Barometer</span>
+        ${health?.local && html`<span class="localmode" title="Local mode: nothing is sent as the station (APRS-IS, CWOP, push, GitHub, Flickr, backups)">local</span>`}
         ${!session && health && (health.overall === "warn" || health.overall === "bad") && html`<i class=${"health-dot " + health.overall}
           title=${health.rows.filter((r) => r.level === health.overall).map((r) => `${r.name}: ${r.state}`).join("\n")}
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
