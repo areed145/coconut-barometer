@@ -12,19 +12,15 @@ bulletin has five, whole degrees (2 + 3). A line that doesn't start with a keywo
 Walking a front's points in order, the side it's moving toward (where its triangles and half circles go) is on the
 left: checked against fronts around their lows, and WPC's own example.
 
-Fetched when the map asks and what's kept is older than TTL, only if it changed (If-Modified-Since); while WPC
-can't be reached, the last analysis is kept (with the error). One per process (`fronts`)."""
+A Feed (feed.py): fetched when the map asks and what's kept is older than TTL, only if it changed; while WPC can't
+be reached, the last analysis is kept (with the error). One per process (`fronts`)."""
 from __future__ import annotations
 
 import calendar
 import re
-import threading
 import time
 
-import requests
-
-from .. import activity
-from ..errors import caught
+from .feed import Feed
 
 URL = "https://www.wpc.ncep.noaa.gov/discussions/codsus_hr"
 TTL = 15 * 60
@@ -81,39 +77,24 @@ def parse(text: str, now: float | None = None) -> dict:
     return {"valid": valid, "fronts": [f for f in fronts if len(f["points"]) >= 2], "centers": centers}
 
 
-class Fronts:
-    def __init__(self, get=requests.get, clock=time.time, ttl: int = TTL):
-        self._get, self._clock, self._ttl = get, clock, ttl
-        self._lock = threading.Lock()
-        self._modified: str | None = None
-        self.analysis: dict | None = None
-        self.checked_at: float | None = None
-        self.error: str | None = None
+class Fronts(Feed):
+    source, what, via, ttl = "imagery", "surface fronts", "WPC coded surface bulletin", TTL
 
     def latest(self) -> dict:
         """The newest analysis (fetched if what's kept is older than TTL), with when it was checked and any error."""
-        with self._lock:
-            if self.checked_at is None or self._clock() - self.checked_at >= self._ttl:
-                self._refresh()
-            return {**(self.analysis or {"valid": None, "fronts": [], "centers": []}),
-                    "checked_at": self.checked_at, "error": self.error}
+        s = self.current()
+        return {**(s["data"] or {"valid": None, "fronts": [], "centers": []}), "checked_at": s["checked_at"], "error": s["error"]}
 
-    def _refresh(self) -> None:
-        self.checked_at = self._clock()
-        try:
-            with activity.log.call("imagery", "surface fronts", "WPC coded surface bulletin") as a:
-                r = self._get(URL, headers={"If-Modified-Since": self._modified} if self._modified else {}, timeout=20)
-                if r.status_code == 304:
-                    a["status"], a["detail"] = "304", "no new analysis"
-                    self.error = None
-                    return
-                r.raise_for_status()
-                analysis = parse(r.text, self.checked_at)
-                a["detail"] = f"{len(analysis['fronts'])} fronts, {len(analysis['centers'])} highs and lows"
-            self.analysis, self._modified, self.error = analysis, r.headers.get("Last-Modified"), None
-        except Exception as e:  # noqa: BLE001 - WPC being down keeps the last analysis
-            caught(e, "fronts")
-            self.error = f"{type(e).__name__}: {e}"[:200]
+    def load(self, a: dict) -> dict | None:
+        r = self._get(URL, headers=self.conditional(), timeout=20)
+        if r.status_code == 304:
+            a["detail"] = "no new analysis"
+            return None
+        r.raise_for_status()
+        analysis = parse(r.text, self._clock())
+        a["detail"] = f"{len(analysis['fronts'])} fronts, {len(analysis['centers'])} highs and lows"
+        self.remember(r)
+        return analysis
 
 
 fronts = Fronts()

@@ -3,7 +3,7 @@ rain and storm alerts need (alerts.py).
 
 - Reflectivity: NOAA MRMS's merged, quality-controlled composite (non-weather echoes already removed, every
   radar merged), every 2 minutes on a 0.01° (~1 km) grid over the US. The `latest` file is fetched only when it
-  has changed (If-Modified-Since). Its GRIB2 data is a PNG, so Pillow decodes it, once, and it's used twice:
+  has changed (If-Modified-Since). Its GRIB2 data (grib.py) is a PNG, so Pillow decodes it, once, and it's used twice:
     the map    the whole US, each US_BLOCK×US_BLOCK block kept at its strongest (~2 km, so a core isn't averaged
                away), cleaned of specks, and traced (contourpy) at two LEVELS of detail into a shape per BAND_STEP
                dBZ level and up (encode()). A request gets the fine level for the part of the US in view when zoomed
@@ -22,13 +22,11 @@ Otherwise everything is held in memory: the latest frame, the latest cells, and 
 rain over the last half hour (how fast it shrinks is the rain alert's ETA). One per app (Runtime.radar)."""
 from __future__ import annotations
 
-import calendar
 import gzip
 import io
 import json
 import math
 import os
-import struct
 import threading
 import time
 from collections import deque
@@ -39,6 +37,7 @@ import requests
 
 from .. import activity
 from ..errors import caught
+from . import grib
 
 MRMS_URL = "https://mrms.ncep.noaa.gov/2D/MergedReflectivityQCComposite/MRMS_MergedReflectivityQCComposite.latest.grib2.gz"
 CELLS_URL = "https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py"
@@ -71,35 +70,16 @@ LOOP_WINDOW = 135 * 60   # the radar loop's frames (and the storm cells with eac
 
 
 # ---- MRMS ----------------------------------------------------------------------------------------------------
-def decode(grib: bytes) -> dict:
+def decode(data: bytes) -> dict:
     """One GRIB2 message (MRMS: a lat/lon grid, PNG-packed) -> {t, la1, lo1, di, dj, ni, nj, scale, png}."""
-    if grib[:4] != b"GRIB" or grib[7] != 2:
-        raise ValueError("not a GRIB2 file")
-    out, i = {}, 16
-    while grib[i:i + 4] != b"7777":
-        n, sec = struct.unpack(">I", grib[i:i + 4])[0], grib[i + 4]
-        s = grib[i:i + n]
-        if sec == 1:
-            y, mo, d, h, mi, se = struct.unpack(">H5B", s[12:19])
-            out["t"] = calendar.timegm((y, mo, d, h, mi, se, 0, 0, 0))
-        elif sec == 3:
-            if struct.unpack(">H", s[12:14])[0] != 0:
-                raise ValueError("not a lat/lon grid")
-            ni, nj = struct.unpack(">II", s[30:38])
-            la1, lo1 = struct.unpack(">iI", s[46:54])
-            di, dj = struct.unpack(">II", s[63:71])
-            out.update(ni=ni, nj=nj, la1=la1 / 1e6, lo1=(lo1 / 1e6 + 180) % 360 - 180, di=di / 1e6, dj=dj / 1e6)
-        elif sec == 5:
-            if struct.unpack(">H", s[9:11])[0] != 41:
-                raise ValueError("not PNG-packed")
-            ref = struct.unpack(">f", s[11:15])[0]
-            e, d = (int.from_bytes(s[k:k + 2], "big") for k in (15, 17))
-            e, d = (-(x & 0x7FFF) if x & 0x8000 else x for x in (e, d))
-            out["scale"] = (ref, 2.0 ** e, 10.0 ** d)
-        elif sec == 7:
-            out["png"] = s[5:]
-        i += n
-    return out
+    msg = grib.message(data)
+    g, p = msg["grid"], msg["pack"]
+    if g["template"] != 0:
+        raise ValueError("not a lat/lon grid")
+    if p["template"] != 41:
+        raise ValueError("not PNG-packed")
+    return {"t": msg["t"], **{k: g[k] for k in ("ni", "nj", "la1", "lo1", "di", "dj")},
+            "scale": (p["ref"], p["e"], p["d"]), "png": msg["data"]}
 
 
 def grid(msg: dict) -> np.ndarray:
