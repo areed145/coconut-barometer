@@ -257,20 +257,21 @@ class RadarService:
     def refresh_frame(self, stations: list[dict]) -> bool:
         """The newest MRMS frame, if it changed. Returns whether there was a new one."""
         headers = {"If-Modified-Since": self._modified} if self._modified else {}
-        data = None
+        data, truncated = None, ""
         with activity.log.call("radar", "MRMS reflectivity") as a:
             for attempt in range(2):
                 r = self._get(MRMS_URL, headers=headers, timeout=60)
                 if r.status_code == 304:
-                    a["status"], a["detail"] = "304", "no new frame"
+                    a["status"], a["detail"] = "304", "no new frame" + truncated
                     return False
                 r.raise_for_status()
-                a["detail"] = f"{len(r.content) / 1e6:.1f} MB"
+                a["detail"] = f"{len(r.content) / 1e6:.1f} MB" + truncated
                 try:
                     data = gzip.decompress(r.content)
                     break
                 except (EOFError, OSError):
-                    a["detail"] += " (truncated download)"
+                    truncated += " (truncated download)"
+                    a["detail"] = f"{len(r.content) / 1e6:.1f} MB" + truncated
         if data is None:
             self.error = "MRMS frame download was truncated; will retry"
             return False
