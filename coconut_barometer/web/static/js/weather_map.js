@@ -297,7 +297,7 @@ export function WxMap({ show, unitsFor, compass }) {
     canvas.current.set(shapes, (dbz) => levelColor(colors, dbz)).setOpacity(opacity);
   }, [ready, vector, colors, showRadar, opacity]);
 
-  // Storm cells: a dot colored by strength, and a dashed line to where it'll be in 30 and 60 minutes.
+  // Storm cells: a dot colored by strength, and a dashed line with arrows to where it'll be in 30 and 60 minutes.
   useEffect(() => {
     const L = window.L, group = storms.current;
     if (!ready || !group) return;
@@ -311,8 +311,16 @@ export function WxMap({ show, unitsFor, compass }) {
         c.kmh && "dashes: 30 and 60 minutes on its present course", c.valid && `scanned ${clock(c.valid)}`].filter(Boolean).join(" · ");
       // Faded as the radar is, so a storm and the level under it look the same color (#75).
       if (c.kmh) L.polyline(c.path, { color, weight: 2, dashArray: "4 6", opacity, interactive: false }).addTo(group);
-      for (const p of c.kmh ? c.path.slice(1) : []) L.circleMarker(p, { radius: 2, color, weight: 1, opacity, fillOpacity: opacity, interactive: false }).addTo(group);
-      L.circleMarker(c.path[0], { radius: c.tvs || c.posh >= 30 ? 8 : 6, color: css("--fg"), weight: c.tvs ? 3 : 1, fillColor: color, fillOpacity: opacity })
+      // The 30 and 60 minute spots: small arrows pointing the way it's heading, under the station pins.
+      for (const p of c.kmh ? c.path.slice(1) : []) {
+        const head = el("i", "wxstorm-arrow");
+        head.style.borderBottomColor = color;
+        head.style.transform = `rotate(${c.toward}deg)`;
+        L.marker(p, { icon: L.divIcon({ html: head, className: "wxstorm-wrap", iconSize: [8, 8], iconAnchor: [4, 4] }),
+          pane: "overlayPane", opacity, interactive: false, keyboard: false }).addTo(group);
+      }
+      // Where it is now: a small borderless dot, bigger when it's hailing and bigger still when it's rotating.
+      L.circleMarker(c.path[0], { radius: c.tvs ? 6 : c.posh >= 30 ? 5 : 3, stroke: false, fillColor: color, fillOpacity: opacity })
         .bindTooltip(tip, { sticky: true }).addTo(group);
     }
   }, [ready, vector, colors, showStorms, live, opacity]);
