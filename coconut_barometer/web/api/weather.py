@@ -319,6 +319,24 @@ def watches_warnings(bbox: str | None = Query(None, max_length=100), zoom: float
     return _with_shapes(rest, shapes)
 
 
+@router.get("/temperature")
+def surface_temperature(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's temperature: the newest RTMA analysis of the air 2 m up (°C, weather/rtma.py) on a lat/lon grid,
+    the whole US zoomed out, finer and only `bbox` zoomed in."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("t",), _bbox(bbox), zoom), "units": _units(rt)}
+
+
+@router.get("/wind")
+def surface_wind(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's surface wind: the newest RTMA analysis's wind 10 m up (eastward u and northward v, m/s: the way
+    it blows to), as /temperature's grid."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("u", "v"), _bbox(bbox), zoom), "units": _units(rt)}
+
+
 @router.get("/hazards/alert")
 def hazard_alert(id: str = Query(..., min_length=1, max_length=200)):
     """An alert's headline, area and instruction for its popup, from the NWS API: only for an alert on the map."""
