@@ -2,7 +2,6 @@
 messages, finished jobs; and that the clients and streams write to it."""
 import os
 import tempfile
-import threading
 import time
 import unittest
 
@@ -69,23 +68,27 @@ class FakeApi:
 
 class InstrumentedTest(unittest.TestCase):
     def test_flickr_calls_record_the_wait_for_the_shared_limit(self):
-        limiter = SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 4)    # 0.25 s apart
+        waiting = []
+
+        class WaitingLimiter:
+            def wait(self, on_slot=None):
+                slot = time.time() + 0.2
+                if on_slot:
+                    on_slot(slot)
+                waiting.extend(p["state"] for p in activity.log.snapshot()["pending"]
+                               if p["what"] == "flickr.photos.getInfo")
+                time.sleep(max(0, slot - time.time()))
+
+        limiter = WaitingLimiter()
         client = FlickrClient("k", "s", limiter=limiter)
         client.api = FakeApi()
         seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
-        seen = []
-        watch = threading.Thread(target=lambda: [seen.extend(p["state"] for p in activity.log.snapshot()["pending"]) or time.sleep(0.02)
-                                                 for _ in range(30)])
-        watch.start()
         for pid in ("1", "2", "3"):
             client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
-        ahead = limiter.next_free() - time.time()     # read now: the next slot is only 0.25 s off, and join() takes longer
-        watch.join()
         got = [e for e in activity.log.since(seq) if e["source"] == "flickr"]
         self.assertEqual([e["detail"] for e in got], ["photo_id=1", "photo_id=2", "photo_id=3"])
         self.assertGreater(got[-1]["waited"], 0.1)
-        self.assertIn("waiting", seen)
-        self.assertGreater(ahead, 0)
+        self.assertEqual(waiting, ["waiting"] * 3)
 
     def test_expected_answers_are_not_logged_as_errors(self):
         client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
