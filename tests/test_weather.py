@@ -373,6 +373,37 @@ class WeatherApiTest(unittest.TestCase):
         self.assertNotIn("radar", m)                 # the radar is /api/wx/radar's (weather/radar.py)
         self.assertTrue(m["satellite"]["geocolor"]["frames"])
 
+    def test_map_errors_are_logged_and_reported_only_from_a_signed_in_browser(self):
+        from coconut_barometer.errors import fingerprint
+        from coconut_barometer.web.api import weather as wx_api
+
+        self.addCleanup(setattr, wx_api, "_map_error_throttle", wx_api._map_error_throttle)
+        wx_api._map_error_throttle = wx_api.MapErrorThrottle(per_client=3, global_limit=10)
+        seen = []
+        self.addCleanup(setattr, wx_api, "caught", wx_api.caught)
+        wx_api.caught = lambda error, where: seen.append((error, where))
+        stack = "TypeError: draw failed\n    at draw (https://testserver/static/v/{v}/js/radar_layer.js:{line}:2)"
+        report = lambda v="abc123", line=12, **kw: self.c.post("/api/wx/map/errors", json={
+            "source": "unhandledrejection", "name": "TypeError", "message": "draw failed", "stack": stack.format(v=v, line=line), **kw})
+        with self.assertLogs("coconut_barometer.web.api.weather", "WARNING"):
+            self.assertEqual(report().json(), {"reported": False})                # a visitor's: logged, not reported
+        self.assertEqual(seen, [])
+        self.login()
+        self.assertEqual(report().json(), {"reported": True})
+        self.assertEqual(seen[0][1], "weather map unhandledrejection")
+        self.assertIn("draw failed", str(seen[0][0]))
+        report(v="def456", line=40)                                            # the same bug after a deploy
+        self.assertEqual(fingerprint(seen[0][0]), fingerprint(seen[1][0]))
+        self.assertEqual(report().status_code, 429)                             # 3 a minute from one address
+        self.assertEqual(self.c.post("/api/wx/map/errors", json={"source": "error", "message": "x" * 501}).status_code, 422)
+
+    def test_map_error_throttle_has_a_global_cap(self):
+        from coconut_barometer.web.api.weather import MapErrorThrottle
+
+        throttle = MapErrorThrottle(per_client=5, global_limit=1)
+        self.assertTrue(throttle.allow("client-one"))
+        self.assertFalse(throttle.allow("client-two"))
+
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
         csrf = {"X-CSRF-Token": self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).json()["csrf"]}

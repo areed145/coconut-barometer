@@ -2,15 +2,92 @@
 Public (read-only); starting a sync needs a login."""
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import re
+import threading
 import time
+from collections import deque
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field
 
+from ...errors import caught
 from ...weather.imagery import Imagery
-from ..deps import runtime, session, store
+from ..deps import client_ip, runtime, session, store, viewer
 
 router = APIRouter(prefix="/api/wx", tags=["weather"])
+logger = logging.getLogger(__name__)
+
+
+# ---- the Map tab's own errors (#65) ---------------------------------------------------------------------------
+class MapError(BaseModel):
+    message: str = Field(min_length=1, max_length=500)
+    stack: str = Field("", max_length=6000)
+    source: Literal["error", "unhandledrejection"]
+    name: str = Field("Error", min_length=1, max_length=100)
+
+
+class MapErrorThrottle:
+    """At most `per_client` reports a minute from one address and `global_limit` from all of them, remembering at
+    most `max_clients` addresses: the endpoint takes reports from visitors too."""
+
+    def __init__(self, per_client: int = 5, global_limit: int = 60, window: int = 60, max_clients: int = 4096):
+        self.per_client, self.global_limit, self.window, self.max_clients = per_client, global_limit, window, max_clients
+        self.lock = threading.Lock()
+        self.clients: dict[str, deque[float]] = {}
+        self.requests: deque[float] = deque()
+
+    def allow(self, client: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self.window
+        with self.lock:
+            while self.requests and self.requests[0] <= cutoff:
+                self.requests.popleft()
+            for ip in [ip for ip, hits in self.clients.items() if not hits or hits[-1] <= cutoff]:
+                del self.clients[ip]
+            hits = self.clients.get(client)
+            if hits is not None:
+                while hits and hits[0] <= cutoff:
+                    hits.popleft()
+            if len(self.requests) >= self.global_limit or (hits is None and len(self.clients) >= self.max_clients):
+                return False
+            hits = self.clients.setdefault(client, deque())
+            if len(hits) >= self.per_client:
+                return False
+            hits.append(now)
+            self.requests.append(now)
+            return True
+
+
+_map_error_throttle = MapErrorThrottle()
+# The same place in the code whatever the site's address or the deploy: no host, no /static/v/<build>/, no query,
+# no line and column.
+_FRAME_NOISE = [(re.compile(r"^[a-z][a-z0-9+.-]*://[^/]+"), ""), (re.compile(r"/static/v/[0-9a-f]+/"), "/static/"),
+                (re.compile(r"[?#].*$"), ""), (re.compile(r":\d+(?::\d+)?$"), "")]
+
+
+def _map_error_fingerprint(body: MapError) -> str:
+    """The error's name and message and its innermost frame (Chrome's `at f (url:l:c)` or Firefox/Safari's
+    `f@url:l:c`), so one bug is one issue across deploys."""
+    callsite = "?"
+    for line in body.stack.splitlines():
+        frame = line.strip()
+        if frame.startswith("at "):
+            frame = frame[3:]
+            function, _, place = frame.rpartition(" (") if frame.endswith(")") else ("", "", frame)
+            place = place.rstrip(")")
+        elif "@" in frame:
+            function, _, place = frame.rpartition("@")
+        else:
+            continue
+        for pattern, to in _FRAME_NOISE:
+            place = pattern.sub(to, place)
+        callsite = f"{function}@{place}"
+        break
+    return hashlib.sha1(f"{body.name}\n{body.message}\n{callsite}".encode()).hexdigest()[:12]
 
 
 def _units(rt) -> str:
@@ -153,6 +230,22 @@ def _cells(cells: list[dict], at: float, bbox: tuple | None) -> list[dict]:
 def _with_shapes(rest: dict, shapes: str) -> Response:
     """`rest` as JSON with the shapes (radar.view()'s ready-made text) spliced in, not decoded and encoded again."""
     return Response(json.dumps(rest, separators=(",", ":"))[:-1] + ',"shapes":' + shapes + "}", media_type="application/json")
+
+
+@router.post("/map/errors")
+def map_error(body: MapError, request: Request, me=Depends(viewer)):
+    """A Weather map error in the browser: logged, and (from a signed-in browser) reported to GitHub like the
+    server's own (errors.py). A visitor's is only logged: anyone can send one, and GitHub issues aren't theirs to open."""
+    if not _map_error_throttle.allow(client_ip(request)):
+        raise HTTPException(429, "too many browser errors; try again later")
+    where = f"weather map {body.source}"
+    if me is None:
+        logger.warning("%s (a visitor's browser): %s: %s\n%s", where, body.name, body.message, body.stack[:2000])
+        return {"reported": False}
+    error = RuntimeError(f"{body.name}: {body.message}\n{body.stack}".rstrip())
+    error._coconut_fingerprint = _map_error_fingerprint(body)
+    caught(error, where)
+    return {"reported": True}
 
 
 @router.get("/radar")

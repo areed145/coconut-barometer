@@ -1,9 +1,10 @@
 // The Weather → Map tab: radar and GOES-East satellite over the stations, with the stations' current readings
-// and their recent lightning. Radar is either the smooth one (NOAA MRMS as shapes per dBZ level, in Settings →
-// Display → Radar colors, with the storm cells the NWS radars track and where they're heading), or the same
-// shapes and storm tracks looped over the last hour (kept on the server), together with the satellite. The shapes
-// come for the view: ~2 km detail and only what's in sight when zoomed in, ~8 km for the US zoomed out
-// (radar_layer.js draws them). A Tempest reports how far
+// and their recent lightning. Radar (NOAA MRMS as shapes per dBZ level, in Settings → Display → Radar colors) and
+// storm tracks (the cells the NWS radars track, and where they're heading) are layers of their own. Radar, storm
+// tracks and satellite share one timeline over the last hour or so, opening on now; the radar's past frames load
+// only once it's played or scrubbed. The shapes come for the view: ~2 km detail and only what's in sight when zoomed
+// in, ~8 km for the US zoomed out (radar_layer.js draws them). The map's own errors go to the server (#65), which
+// reports them like its own. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
@@ -13,7 +14,6 @@ import { decode, radarCanvas } from "./radar_layer.js";
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const SATS = [["", "No satellite"], ["geocolor", "Satellite: color"], ["infrared", "Satellite: infrared"]];
-const RADARS = [["smooth", "Radar"], ["loop", "Radar loop"], ["", "No radar"]];
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 // The color at `dbz`, blended between the nearest stops of Settings → Display → Radar colors.
@@ -51,6 +51,24 @@ const inside = (view, m) => {                    // is the map still within what
 const radarQuery = (view) => `zoom=${view.zoom}` + (view.bbox ? `&bbox=${view.bbox.join(",")}` : "");
 const unpack = (x) => ({ ...x, shapes: decode(x.shapes) });
 
+// The newest time in `times` (ascending) at or before `t`, or null.
+const latestBy = (times, t) => { let best = null; for (const x of times) if (x <= t) best = x; else break; return best; };
+
+// An error in the map's own code (not an extension's, nor a failed API call), sent to the server once per message. The server logs it, and reports it to GitHub when it comes from a signed-in browser.
+const reported = new Set();
+function reportError(source, error) {
+  try {
+    const e = error instanceof Error ? error : new Error(String(error ?? "unknown error"));
+    const stack = String(e.stack || "");
+    // An ApiError (it has a status) is the server's to report, or the network being down: not the map's.
+    if (!stack.includes(location.origin + "/static/") || e.status !== undefined || reported.has(e.message)) return;
+    reported.add(e.message);
+    fetch("/api/wx/map/errors", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, name: String(e.name || "Error").slice(0, 100), message: String(e.message || "error").slice(0, 500),
+        stack: stack.slice(0, 6000) }) }).catch(() => {});
+  } catch { /* reporting must never be the next error */ }
+}
+
 // The newest frame at or before `t` (or the oldest, when all are later).
 const frameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t + 150 ? f : best), frames[0]);
 
@@ -69,7 +87,8 @@ export function WxMap({ show, unitsFor, compass }) {
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
   const [strikes, setStrikes] = useState({});      // device -> /api/wx/lightning cells for the last hour
-  const [radar, setRadar] = useState("smooth");
+  const [showRadar, setShowRadar] = useState(true);
+  const [showStorms, setShowStorms] = useState(true);
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (radarView)
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
@@ -84,6 +103,10 @@ export function WxMap({ show, unitsFor, compass }) {
 
   useEffect(() => {
     let alive = true;
+    const onError = (e) => reportError("error", e.error || e.message);
+    const onRejection = (e) => reportError("unhandledrejection", e.reason);
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
     leaflet().then((lf) => {
       if (!alive || !box.current) return;
       map.current = baseMap(lf, box.current, { minZoom: 3 }).setView([39, -96], 4);
@@ -96,8 +119,14 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current.on("moveend", moved);
       moved();
       setReady(true);
-    }).catch(() => toast("Couldn't load the map."));
-    return () => { alive = false; map.current?.remove(); map.current = null; };
+    }).catch((e) => { if (alive) { toast("Couldn't load the map."); reportError("error", e); } });
+    return () => {
+      alive = false;
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+      map.current?.remove();
+      map.current = null;
+    };
   }, []);
 
   // Frames every 5 minutes and readings every 30 seconds, while the tab is visible.
@@ -136,7 +165,9 @@ export function WxMap({ show, unitsFor, compass }) {
   }, [ready, info]);
 
   // One satellite tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
-  const radarFrames = radar === "loop" ? times.filter((t) => !gone.current.has(t)).map((t) => ({ t })) : [], satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
+  const radarOn = showRadar || showStorms;
+  const radarTimes = radarOn ? times.filter((t) => !gone.current.has(t)) : [];
+  const satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
   useEffect(() => {
     const m = map.current, L = window.L;
     if (!ready || !m || !info) return;
@@ -147,15 +178,19 @@ export function WxMap({ show, unitsFor, compass }) {
     sync(tiles.current.sat, satInfo?.url ? new Map(satFrames.map((f) => [`${sat}:${f.time}`, f])) : new Map(), (f) =>
       L.tileLayer(satInfo.url.replace("{time}", f.time), { pane: "wxsat", maxZoom: 20, maxNativeZoom: satInfo.max_zoom,
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
-  }, [ready, info, radar, sat]);
+  }, [ready, info, sat]);
 
-  // The loop runs over the radar's kept frames (one per new MRMS frame, ~2 minutes apart), or the satellite's
-  // 10-minute ones when the radar isn't looping.
-  const timeline = radarFrames.length ? radarFrames : satFrames;
+  // One timeline for every layer shown: the radar's kept frames (~2 minutes apart) and the satellite's (10 minutes),
+  // each layer showing its newest frame at or before the time picked. idx null is now: the radar's newest frame is
+  // the one already here (live_), so the past is only fetched once the loop is played or scrubbed.
+  const timeline = [...new Set([...radarTimes, ...satFrames.map((f) => f.t)])].sort((a, b) => a - b);
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
-  const t = at >= 0 ? timeline[at].t : null;
-  const shownRadar = radarFrames.length && at >= 0 ? radarFrames[at] : null;
-  const vector = radar === "loop" ? (shownRadar && kept.current.get(shownRadar.t)) || null : live_;
+  const t = at >= 0 ? timeline[at] : null;
+  const past = radarOn && (playing || idx != null);
+  const radarAt = (when) => (when == null ? null : latestBy(radarTimes, when));
+  const frameOf = (rt) => (rt == null ? null : kept.current.get(rt) || (live_?.t === rt ? live_ : null));
+  const shownRadar = past ? radarAt(t) : null;
+  const vector = !radarOn ? null : past ? frameOf(shownRadar) : live_;
   const colors = live_?.colors;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
   useEffect(() => {
@@ -165,7 +200,7 @@ export function WxMap({ show, unitsFor, compass }) {
   // The loop's frames for the view, newest first, LOADING at a time, each decoded once. Another view starts over;
   // frames gone from the server's list are dropped.
   useEffect(() => {
-    if (radar !== "loop" || !view) return;
+    if (!past || !view) return;
     let alive = true;
     const have = kept.current;
     if (have.view !== view.key) { have.clear(); have.view = view.key; have.loading = new Set(); setLoaded((n) => n + 1); }
@@ -184,19 +219,20 @@ export function WxMap({ show, unitsFor, compass }) {
     };
     for (let i = 0; i < LOADING; i++) next();
     return () => { alive = false; };
-  }, [radar, view?.key, times]);
+  }, [past, view?.key, times]);
 
   // Whether frame k of the loop can be shown yet: its radar frame loaded, its satellite tiles in.
   const readyAt = useRef(() => true);
   readyAt.current = (k) => {
-    const f = timeline[k];
-    if (!f) return false;
-    if (radarFrames.length && !kept.current.has(f.t)) return false;
-    const s = satFrames.length ? frameAt(satFrames, f.t) : null;
+    const when = timeline[k];
+    if (when == null) return false;
+    const rt = radarAt(when);
+    if (rt != null && !frameOf(rt)) return false;
+    const s = satFrames.length ? frameAt(satFrames, when) : null;
     const layer = s && tiles.current.sat.get(`${sat}:${s.time}`);
     return !layer?.isLoading?.();
   };
-  const buffered = radarFrames.length ? radarFrames.filter((f) => kept.current.has(f.t)).length : null;
+  const buffered = past ? radarTimes.filter((rt) => frameOf(rt)).length : null;
 
   useEffect(() => {
     if (!playing || !timeline.length) return;
@@ -212,21 +248,21 @@ export function WxMap({ show, unitsFor, compass }) {
       return readyAt.current(next) ? next : cur;   // wait for a frame still loading rather than show it empty
     }), 600);
     return () => clearInterval(tick);
-  }, [playing, timeline.length]);
+  }, [playing, timeline.length, timeline[0]]);
 
   // The smooth radar: the shown frame's shapes, each level colored at its middle (radar_layer.js draws them).
   useEffect(() => {
     if (!ready || !canvas.current) return;
-    const shapes = radar && colors ? vector?.shapes : null;
+    const shapes = showRadar && colors ? vector?.shapes : null;
     canvas.current.set(shapes, (dbz) => radarColor(colors, dbz + 2.5)).setOpacity(opacity);
-  }, [ready, vector, colors, radar, opacity]);
+  }, [ready, vector, colors, showRadar, opacity]);
 
   // Storm cells: a dot colored by strength, and a dashed line to where it'll be in 30 and 60 minutes.
   useEffect(() => {
     const L = window.L, group = storms.current;
     if (!ready || !group) return;
     group.clearLayers();
-    if (!radar || !vector || !colors) return;
+    if (!showStorms || !vector || !colors) return;
     const unit = live_.units;
     for (const c of vector.cells) {
       const color = radarColor(colors, c.dbz || 0);
@@ -238,7 +274,7 @@ export function WxMap({ show, unitsFor, compass }) {
       L.circleMarker(c.path[0], { radius: c.tvs || c.posh >= 30 ? 8 : 6, color: css("--fg"), weight: c.tvs ? 3 : 1, fillColor: color, fillOpacity: 0.95 })
         .bindTooltip(tip, { sticky: true }).addTo(group);
     }
-  }, [ready, vector, colors, radar, live]);
+  }, [ready, vector, colors, showStorms, live]);
 
   // Station pins: the temperature, an arrow the way the wind blows, and a popup of the main readings.
   useEffect(() => {
@@ -296,26 +332,28 @@ export function WxMap({ show, unitsFor, compass }) {
   const total = info ? info.stations.reduce((a, s) => a + (strikes[s.device_id] || []).reduce((b, c) => b + c[2], 0), 0) : 0;
   return html`
     <div class="toolbar wxmapbar">
-      <span class="seg" aria-label="Radar">${RADARS.map(([k, l]) => html`<button key=${k} class=${k === radar ? "primary" : ""}
-        onClick=${() => { setRadar(k); setIdx(null); }}>${l}</button>`)}</span>
-      <span class="seg" aria-label="Satellite">${SATS.map(([k, l]) => html`<button key=${k} class=${k === sat ? "primary" : ""}
+      <span class="seg" aria-label="Map layers">
+        <button class=${showRadar ? "primary" : ""} aria-pressed=${showRadar} onClick=${() => setShowRadar(!showRadar)}>Radar</button>
+        <button class=${showStorms ? "primary" : ""} aria-pressed=${showStorms} onClick=${() => setShowStorms(!showStorms)}>Storm tracks</button>
+      </span>
+      <span class="seg" aria-label="Satellite">${SATS.map(([k, l]) => html`<button key=${k} class=${k === sat ? "primary" : ""} aria-pressed=${k === sat}
         onClick=${() => { setSat(k); setIdx(null); }}>${l}</button>`)}</span>
-      <button class=${showRings ? "primary" : ""} onClick=${() => setShowRings(!showRings)}>Lightning${total ? ` · ${total}` : ""}</button>
+      <button class=${showRings ? "primary" : ""} aria-pressed=${showRings} onClick=${() => setShowRings(!showRings)}>Lightning${total ? ` · ${total}` : ""}</button>
       <span class="wxloop">
         <button disabled=${timeline.length < 2} onClick=${() => setPlaying(!playing)} aria-label=${playing ? "Pause" : "Play"}>${playing ? "❚❚" : "▶"}</button>
         <input type="range" aria-label="Frame" min="0" max=${Math.max(0, timeline.length - 1)} value=${Math.max(0, at)} disabled=${timeline.length < 2}
           onInput=${(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} />
-        <span class="muted">${[radar === "smooth" && live_?.t && `radar ${clock(live_.t)}`, shownRadar && `radar ${clock(shownRadar.t)}`,
-          shownSat && `satellite ${clock(shownSat.t)}`, buffered != null && buffered < radarFrames.length && `loading ${buffered}/${radarFrames.length}`]
+        <span class="muted">${[radarOn && vector?.t && `radar ${clock(vector.t)}`, shownSat && `satellite ${clock(shownSat.t)}`,
+          buffered != null && buffered < radarTimes.length && `loading ${buffered}/${radarTimes.length}`]
           .filter(Boolean).join(" · ") || "no imagery"}</span>
       </span>
       <label class="muted wxopacity">Opacity <input type="range" min="0.2" max="1" step="0.05" value=${opacity} onInput=${(e) => setOpacity(Number(e.target.value))} /></label>
     </div>
     <div class="mapwrap" ref=${box}></div>
-    <p class="muted heatkey">${radar && colors && html`<span>radar: light</span><i style=${`background: ${radarScale(colors)}`}></i><span>heavy / hail</span>`}
+    <p class="muted heatkey">${showRadar && colors && html`<span>radar: light</span><i style=${`background: ${radarScale(colors)}`}></i><span>heavy / hail</span>`}
       <span>${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
-        ${radar === "smooth" && live_ && !live_.t ? " The smooth radar starts within a few minutes of the server starting." : ""}
-        ${radar && (vector?.t || live_?.t) ? " Radar: NOAA MRMS, cleaned. Dots: storms the NWS radars are tracking nationwide." : ""}
-        ${radar === "loop" && !times.length ? " The radar loop fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
+        ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
+        ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}
+        ${radarOn && live_?.t && !times.length ? " The radar's past fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
         ${sat ? " Satellite images run about 30–60 minutes behind." : ""}</span></p>`;
 }

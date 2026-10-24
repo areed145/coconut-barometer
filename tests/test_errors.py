@@ -131,6 +131,13 @@ class ReporterTest(unittest.TestCase):
         self.assertEqual(self.gh.issues, {})
 
 
+class FingerprintTest(unittest.TestCase):
+    def test_an_exception_may_carry_its_own(self):
+        first, second = RuntimeError("map render failed"), RuntimeError("map render failed")
+        first._coconut_fingerprint, second._coconut_fingerprint = "browser-error-one", "browser-error-two"
+        self.assertEqual((errors.fingerprint(first), errors.fingerprint(second)), ("browser-error-one", "browser-error-two"))
+
+
 class CaughtTest(unittest.TestCase):
     def setUp(self):
         self.reported = []
