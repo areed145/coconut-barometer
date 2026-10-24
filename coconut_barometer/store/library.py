@@ -33,10 +33,13 @@ class LibraryStore(Database):
             self._write_photos(photos)
 
     def delete_photos(self, photo_ids: Iterable[str]) -> None:
+        """Gone from Flickr: out of the library, and out of everything still waiting on them (review, jobs asked
+        for, group pools). Their history stays: what was applied (the Applied list shows the id) and decided."""
         ids = [(i,) for i in photo_ids]
         with self.db:
-            self.db.executemany("DELETE FROM photos WHERE id=?", ids)
-            self.db.executemany("DELETE FROM memberships WHERE photo_id=?", ids)
+            for table, column in (("photos", "id"), ("memberships", "photo_id"), ("queue", "photo_id"),
+                                  ("requested_jobs", "photo_id"), ("group_photos", "photo_id")):
+                self.db.executemany(f"DELETE FROM {table} WHERE {column}=?", ids)
 
     def photo_ids(self) -> set[str]:
         return {r[0] for r in self.db.execute("SELECT id FROM photos")}

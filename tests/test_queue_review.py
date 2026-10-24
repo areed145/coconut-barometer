@@ -159,6 +159,35 @@ class QueueReviewTest(unittest.TestCase):
         self.fl.fail_next.clear()
         self.assertEqual(self.decide("2", [{"approve": True} for _ in left])["status"], "applied")
 
+    def test_a_photo_deleted_on_flickr_leaves_review_with_it(self):
+        """#76: it was counted in review but never listed, so it couldn't be cleared."""
+        before = sum(self.store.queue_counts().values())
+        self.store.job_requested("process", "1")
+        self.store.delete_photos(["1"])                                  # what a full read of the library does
+        self.assertIsNone(self.store.queue_item("1"))
+        self.assertEqual(sum(self.store.queue_counts().values()), before - 1)
+        self.assertNotIn(("process", "1"), self.store.jobs_requested())
+
+    def test_a_review_row_without_its_photo_is_not_counted_and_is_cleared(self):
+        self.store.db.execute("DELETE FROM photos WHERE id='2'")          # deleted before delete_photos took the row
+        self.assertIsNotNone(self.store.queue_item("2"))
+        self.assertNotIn("2", self.store.queue_ids(["pending"]))
+        self.assertEqual(sum(self.store.queue_counts().values()), len(self.store.queue_ids(["new", "pending", "applying"])))
+        with self.assertLogs("coconut_barometer.review.app", "WARNING"):
+            ReviewApp(self.store, self.fl, background=False)             # on startup: cleared
+        self.assertIsNone(self.store.queue_item("2"))
+
+    def test_applying_a_photo_deleted_on_flickr_takes_it_out_of_review(self):
+        self.fl.photos = [p for p in self.fl.photos if p["id"] != "2"]   # deleted there; the library hasn't seen it yet
+        self.fl.fail_next["flickr.photosets.addPhoto"] = 99
+        self.assertEqual(self.app.decide("2", [{"approve": True} for _ in self.store.queue_item("2")["changes"]]),
+                         {"status": "applying"})
+        self.app.wait()
+        self.assertIsNone(self.store.queue_item("2"))
+        self.assertIsNone(self.store.photo("2"))
+        self.assertEqual((self.app.recent[-1]["status"], self.app.recent[-1]["error"]),
+                         ("gone", "deleted on Flickr: out of review and the library"))
+
     def test_process_unprocessed_video_from_viewer(self):
         video = photo("6", 35.0, 135.7, title="Ramen in Kyoto")
         video["media"] = "video"

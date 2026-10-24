@@ -143,7 +143,9 @@ class FakeFlickr:
             per, pg = int(p["per_page"]), int(p["page"])
             return {"photo": {"person": people[(pg - 1) * per: pg * per], "page": pg, "pages": 2}}
         if method == "flickr.photos.getInfo":
-            ph = next(x for x in self.photos if x["id"] == p["photo_id"])
+            ph = next((x for x in self.photos if x["id"] == p["photo_id"]), None)
+            if ph is None:
+                raise FlickrCallError(method, 1, "Photo not found")             # as Flickr says it
             info = {"id": ph["id"], "server": ph["server"], "secret": ph["secret"], "media": ph["media"],
                     "title": {"_content": ph["title"]}, "description": ph["description"],
                     "tags": {"tag": [{"_content": t} for t in ph["tags"].split()]},

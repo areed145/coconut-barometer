@@ -118,7 +118,19 @@ class QueueStore(Database):
                             (status, int(time.time()), json.dumps(result), photo_id))
 
     def queue_counts(self) -> dict[str, int]:
-        return {r[0]: r[1] for r in self.db.execute("SELECT status, COUNT(*) FROM queue GROUP BY status")}
+        """Photos in review by status: those in the library only, as queue_ids lists them."""
+        return {r[0]: r[1] for r in self.db.execute(
+            "SELECT q.status, COUNT(*) FROM queue q JOIN photos p ON p.id = q.photo_id GROUP BY q.status")}
+
+    def queue_prune(self) -> int:
+        """Review rows, and jobs asked for, whose photo is no longer in the library (deleted on Flickr before
+        delete_photos took them with it). Returns how many review rows went."""
+        gone = "NOT EXISTS (SELECT 1 FROM photos p WHERE p.id = {}.photo_id)"
+        with self.db:
+            n = self.db.execute(f"SELECT COUNT(*) FROM queue q WHERE {gone.format('q')}").fetchone()[0]
+            self.db.execute(f"DELETE FROM queue q WHERE {gone.format('q')}")
+            self.db.execute(f"DELETE FROM requested_jobs j WHERE j.photo_id <> '' AND {gone.format('j')}")
+        return n
 
     def record_applied(self, photo_id: str, changes: list[dict]) -> None:
         """An apply, for undoing it: per change written, what it replaced (see review.app._undo_entry)."""

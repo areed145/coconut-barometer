@@ -5,6 +5,7 @@ web/static/js/review*.js for the page."""
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import re
 import threading
@@ -16,6 +17,7 @@ from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..errors import caught
+from ..flickr_client import FlickrCallError
 from ..planner import photo_page
 from ..util import norm_tag
 
@@ -26,6 +28,8 @@ STATUSES = ("new", "pending", "applying")
 
 JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "undo": "undo an apply", "sync": "Flickr sync",
              "wx": "WeatherFlow sync", "replan": "re-plan review"}
+logger = logging.getLogger(__name__)
+PHOTO_NOT_FOUND = 1      # flickr.photos.getInfo's "Photo not found" (other methods number their errors their own way)
 PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan"
 OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan"}
 
@@ -99,6 +103,9 @@ class ReviewApp:
         self.running: dict | None = None                # the job the worker is on: {kind, photo_id, started}
         self.vision_usage = {"photos": 0, "input_tokens": 0, "output_tokens": 0}   # since start
         self.licenses = self._licenses()
+        pruned = store.queue_prune()     # photos deleted on Flickr before their review row went with them (#76)
+        if pruned:
+            logger.warning("removed %d photo(s) from review that are no longer in the library", pruned)
         if background:
             for pid in reversed(store.queue_ids(["applying"])):   # oldest first
                 self.jobs.put(("apply", pid))
@@ -245,6 +252,16 @@ class ReviewApp:
             self.store.record(photo_id, "set_location", "", "rejected")
         self.store.queue_remove(photo_id)
         return {"status": "ignored"}
+
+    def _gone_on_flickr(self, photo_id: str) -> bool:
+        """Whether Flickr says the photo no longer exists. Asked only when an apply failed: one call."""
+        try:
+            self.client.call("flickr.photos.getInfo", photo_id=photo_id)
+        except FlickrCallError as e:
+            return e.code == PHOTO_NOT_FOUND
+        except Exception:     # noqa: BLE001 - can't tell (the network): it stays in review with its error
+            return False
+        return False
 
     def applied(self, limit: int = 50) -> list[dict]:
         """The latest applies, newest first, for the Applied list: what each wrote, and whether it can be undone."""
@@ -678,6 +695,9 @@ class ReviewApp:
             else:
                 store.queue_remove(photo_id)
             return {"status": "applied", "stats": stats}
+        if self._gone_on_flickr(photo_id):         # deleted there since the last full read of the library
+            store.delete_photos([photo_id])
+            return {"status": "gone", "error": "deleted on Flickr: out of review and the library"}
         stats["failed"] = len(todo)
         at = {id(c): i for i, c in enumerate(changes)}
         left = [proposals[at[id(c)]] for c in todo]

@@ -50,7 +50,8 @@ class SchemaTest(unittest.TestCase):
         store.set_meta("schema_version", 9)
         store.close()
         store = Store(self.path)
-        self.assertEqual(store.queue_counts(), {"pending": 3, "new": 1, "applying": 1})
+        rows = dict(store.db.execute("SELECT status, COUNT(*) FROM queue GROUP BY status").fetchall())   # (no photos here)
+        self.assertEqual(rows, {"pending": 3, "new": 1, "applying": 1})
         self.assertIsNone(store.queue_item("1"))
         self.assertEqual(store.queue_item("3")["status"], "pending")      # "nothing to change": still to decide
 
