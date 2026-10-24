@@ -192,6 +192,11 @@ META = {
                            group="Radar"),
     "alerts.rain_minutes": _m("alerts", "Rain due within (minutes)", "Rain on radar closing in on a station and due "
                               "within this long. 0 turns rain alerts off.", group="Radar"),
+    "alerts.storm_max_kmh": _m("alerts", "Fastest believable storm (km/h)", "Storm cells and rain reported moving "
+                               "faster than this are taken for tracking errors and never projected toward a station. "
+                               "120 km/h is about 75 mph.", group="Radar"),
+    "alerts.radar_per_hour": _m("alerts", "Radar alerts per hour (per station)", "Storm and rain alerts together, "
+                                "at most this many an hour for each station.", group="Radar"),
     "alerts.cooldown_minutes": _m("alerts", "Repeat at most every (minutes)", "Per alert and station (or callsign), so "
                                   "one storm isn't fifty notifications.", group="All alerts"),
     "theme.color_low": _m("display", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),

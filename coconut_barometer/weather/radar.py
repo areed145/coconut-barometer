@@ -53,6 +53,13 @@ US_BLOCK, US_SPECK = 2, 2   # the map's whole-US field: ~2 km pixels (each 2×2 
 LEVELS = {"fine": (1.0, 1, 1000), "coarse": (2.0, 4, 100)}
 FINE_ZOOM = 6            # the map's zoom from which the fine level is sent (a pixel is ~2 km there)
 SAME_CELL_KM = 8         # cells this close are one storm seen by more than one radar
+# A storm's track across refreshes (#71): a cell this close to where an earlier one should be by now continues it
+# (matched by place, not id: the id changes when another radar reports it). Its motion is "steady" while each scan's
+# heading and speed agree with the last one's and with how far it actually went: within HEADING_DEG, and SPEED_DIFF
+# of the faster (at least SPEED_FLOOR km/h: a centroid wanders a few km between scans). Below SLOW_KMH, heading
+# means little, so any is consistent.
+SAME_TRACK_KM, HEADING_DEG, SPEED_DIFF, SPEED_FLOOR, SLOW_KMH = 15, 45, 0.5, 25, 20
+STEADY_SCANS = 2         # scans in a row a storm's motion must hold before it can alert (#71)
 BAND_STEP, BAND_TOP = 5, 75
 RAIN_DBZ, HERE_KM = 20, 3.0          # rain, and close enough to be raining at the station already
 RAIN_HISTORY, RAIN_WINDOW = 20, 20 * 60
@@ -246,6 +253,46 @@ def merge(cells: list[dict], now: float) -> list[dict]:
     return [{k: v for k, v in c.items() if k != "_at"} for c in out]
 
 
+def _turn(a: float, b: float) -> float:
+    return abs((a - b + 180) % 360 - 180)
+
+
+def consistent(toward_a, kmh_a, toward_b, kmh_b) -> bool:
+    """Two motions that could be the same storm's: see SAME_TRACK_KM above."""
+    if max(kmh_a or 0, kmh_b or 0) < SLOW_KMH:
+        return True
+    if toward_a is None or toward_b is None or kmh_a is None or kmh_b is None:
+        return False
+    return (_turn(toward_a, toward_b) <= HEADING_DEG
+            and abs(kmh_a - kmh_b) <= max(SPEED_FLOOR, SPEED_DIFF * max(kmh_a, kmh_b)))
+
+
+def track(cells: list[dict], previous: list[dict], now: float) -> list[dict]:
+    """Each cell (in place), matched to the storm it continues from `previous` (the last refresh's): `track` (that
+    storm's first id), `steady` (scans in a row its motion held up, this one included: 1 for a new storm or one
+    that jumped), `obs_kmh`/`obs_toward` (how it actually moved since). A refresh with no new scan of it keeps those."""
+    for c in cells:
+        cv = c["valid"] or now
+        best, near = None, SAME_TRACK_KM
+        for p in previous:
+            d = min(math.hypot(*_km(c["lat"], c["lon"], *where_at(p, cv))), math.hypot(*_km(c["lat"], c["lon"], p["lat"], p["lon"])))
+            if d <= near:
+                best, near = p, d
+        if best is None:
+            c.update(track=c["id"], steady=1, obs_kmh=None, obs_toward=None)
+            continue
+        c["track"] = best.get("track", best["id"])
+        hours = (cv - (best["valid"] or cv)) / 3600
+        if hours <= 0:                                        # the same scan again
+            c.update(steady=best.get("steady", 1), obs_kmh=best.get("obs_kmh"), obs_toward=best.get("obs_toward"))
+            continue
+        east, north = _km(best["lat"], best["lon"], c["lat"], c["lon"])
+        obs_kmh, obs_toward = math.hypot(east, north) / hours, math.degrees(math.atan2(east, north)) % 360
+        held = consistent(c["toward"], c["kmh"], best["toward"], best["kmh"]) and consistent(c["toward"], c["kmh"], obs_toward, obs_kmh)
+        c.update(obs_kmh=obs_kmh, obs_toward=obs_toward, steady=best.get("steady", 1) + 1 if held else 1)
+    return cells
+
+
 def _km(lat0: float, lon0: float, lat: float, lon: float) -> tuple[float, float]:
     """(east, north) km from (lat0, lon0): flat, which is close enough within a few hundred km."""
     return (lon - lon0) * KM_PER_DEG * math.cos(math.radians(lat0)), (lat - lat0) * KM_PER_DEG
@@ -403,10 +450,13 @@ class RadarService:
             r = self._get(CELLS_URL, timeout=60)
             r.raise_for_status()
             cells = cells_from(r.json())
-            merged = merge(cells, self._clock())
+            now = self._clock()
+            with self.lock:
+                previous = self.cells
+            merged = track(merge(cells, now), previous, now)
             a["detail"] = f"{len(merged)} of {len(cells)} cells nationwide"
         with self.lock:
-            self.cells, self.cells_at = merged, self._clock()
+            self.cells, self.cells_at = merged, now
 
     def tick(self, store) -> None:
         """Whatever's due. Errors are kept for the Status page; the next tick tries again."""
@@ -444,15 +494,21 @@ class RadarService:
     # ---- reading ----------------------------------------------------------------------------------------------
     def closing(self, device_id: int, now: float | None = None) -> dict | None:
         """The nearest rain to a station and how fast it's coming: {km, kmh} (kmh > 0: closing in), from the
-        frames of the last RAIN_WINDOW; None without at least three frames with rain in them."""
+        frames of the last RAIN_WINDOW; None without at least three frames with rain in them. With how well a steady
+        approach fits (r2) and the fastest step closer between two frames (step_kmh): a new echo forming nearer
+        is a jump, not an approach (#71)."""
         now = now or self._clock()
         with self.lock:
             pts = [(t, d) for t, d in self.rain.get(device_id, ()) if d is not None and now - t <= RAIN_WINDOW]
         if len(pts) < 3 or pts[-1][0] - pts[0][0] < 300:
             return None
         ts, ds = np.array([p[0] for p in pts], dtype=float), np.array([p[1] for p in pts])
-        slope = np.polyfit(ts - ts[0], ds, 1)[0]                       # km per second
-        return {"km": float(ds[-1]), "kmh": float(-slope * 3600), "t": int(ts[-1])}
+        slope, cut = np.polyfit(ts - ts[0], ds, 1)                     # km per second
+        fit = slope * (ts - ts[0]) + cut
+        spread = float(((ds - ds.mean()) ** 2).sum())
+        r2 = 1 - float(((ds - fit) ** 2).sum()) / spread if spread else 1.0
+        step = max(0.0, float(np.max(-np.diff(ds) / np.diff(ts))) * 3600)   # km/h, the fastest closing between frames
+        return {"km": float(ds[-1]), "kmh": float(-slope * 3600), "t": int(ts[-1]), "r2": r2, "step_kmh": step}
 
     def snapshot(self) -> dict:
         with self.lock:

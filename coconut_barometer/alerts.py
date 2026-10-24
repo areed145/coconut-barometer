@@ -17,6 +17,7 @@ alerts.cooldown_minutes; when each was last sent is kept in the meta table, so a
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -26,6 +27,8 @@ from .weather import radar as rd
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
 SENT_META = "alerts_sent"
+STORMS_META, RADAR_META, NOTED_META = "alerts_storms", "alerts_radar", "alerts_noted"
+RAIN_FIT = 0.7           # how well the rain's distance must fit a steady approach (R²) to alert
 
 
 def _history_url(device: int, chart: str, at: int) -> str:
@@ -120,47 +123,105 @@ class Alerts:
         return out
 
     def _radar(self, store, now: int, units: str) -> list[dict]:
+        """Storm and rain alerts for each station, with the guards against tracking errors (#71). A candidate a
+        guard stops is still returned, with `why`, so run_once can note it in the alert log."""
         a, out = self.cfg["alerts"], []
-        cells = self.radar.snapshot()["cells"]
+        cells, fastest = self.radar.snapshot()["cells"], a["storm_max_kmh"]
+        reach = a["storm_km"] + a["storm_minutes"] / 60 * fastest      # farther than this, nothing believable arrives
         for s in self.radar.stations(store):
             name, dev = s["name"], s["device_id"]
             if a["storm_km"]:
-                due = [(eta, c) for c in cells if (c["dbz"] or 0) >= a["storm_dbz"]
-                       for eta in [rd.arrival(c, s["lat"], s["lon"], now, a["storm_km"], a["storm_minutes"] * 60)] if eta is not None]
+                due = []
+                for c in cells:
+                    if (c["dbz"] or 0) < a["storm_dbz"]:
+                        continue
+                    eta = rd.arrival(c, s["lat"], s["lon"], now, a["storm_km"], a["storm_minutes"] * 60)
+                    if eta is None:
+                        continue
+                    lat, lon = rd.where_at(c, now)
+                    east, north = rd._km(s["lat"], s["lon"], lat, lon)
+                    km = math.hypot(east, north)
+                    why = (f"moving {c['kmh']:.0f} km/h, faster than {fastest} km/h: a tracking error" if c["kmh"] > fastest and eta > 0
+                           else f"{km:.0f} km away, beyond {reach:.0f} km" if km > reach
+                           else "seen on one scan only, or its motion jumped" if c.get("steady", 1) < rd.STEADY_SCANS and eta > 0
+                           else None)
+                    due.append((why is not None, eta, c, km, math.degrees(math.atan2(east, north)) % 360, why))
                 if due:
-                    eta, c = min(due, key=lambda x: x[0])
+                    _, eta, c, km, bearing, why = min(due, key=lambda x: (x[0], x[1]))   # the soonest believable one
                     extra = [f"hail likely ({c['posh']}% severe)" if c["posh"] >= 30 else "",
                              "a tornado vortex signature" if c["tvs"] else ""]
                     moving = f"moving {COMPASS[round(c['toward'] / 45) % 8]} at {_speed(c['kmh'] / 3.6, units)}" if c["kmh"] else "barely moving"
-                    out.append({"key": f"storm:{dev}", "url": "/#/weather/map",
+                    where = f"{_dist(km, units)} {COMPASS[round(bearing / 45) % 8]}" if km >= 1 else "overhead"
+                    out.append({"key": f"storm:{dev}:{c.get('track', c['id'])}", "kind": "storm", "station": dev, "why": why,
+                                "url": "/#/weather/map",
                                 "title": f"Storm over {name}" if eta == 0 else f"Storm {_minutes(eta)} from {name}",
-                                "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {moving}", *extra])) + ".",
-                                "evidence": {"device_id": dev, "cell_id": c.get("id"), "dbz": c["dbz"],
+                                "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {where}, {moving}", *extra])) + ".",
+                                "evidence": {"device_id": dev, "cell_id": c.get("id"), "track": c.get("track"), "dbz": c["dbz"],
                                              "hail_probability": c["posh"], "tornado_vortex_signature": c["tvs"],
-                                             "latitude": c["lat"], "longitude": c["lon"], "speed_kmh": c["kmh"],
-                                             "direction_degrees": c["toward"], "radar_observed_at": c["valid"],
-                                             "eta_seconds": eta}})
+                                             "latitude": c["lat"], "longitude": c["lon"], "distance_km": round(km, 1),
+                                             "speed_kmh": c["kmh"], "direction_degrees": c["toward"],
+                                             "observed_kmh": c.get("obs_kmh"), "observed_direction": c.get("obs_toward"),
+                                             "steady_scans": c.get("steady"), "radar_observed_at": c["valid"], "eta_seconds": eta}})
             if a["rain_minutes"]:
                 r = self.radar.closing(dev, now)
                 if r and r["km"] > rd.HERE_KM and r["kmh"] >= 5 and now - r["t"] < 15 * 60:
                     eta = (r["km"] - rd.HERE_KM) / r["kmh"] * 3600
                     if eta <= a["rain_minutes"] * 60:
-                        out.append({"key": f"rain:{dev}", "url": "/#/weather/map", "title": f"Rain {_minutes(eta)} from {name}",
+                        why = (f"a new echo nearer (a step of {r['step_kmh']:.0f} km/h), not an approach" if r["step_kmh"] > fastest
+                               else f"closing at {r['kmh']:.0f} km/h, faster than {fastest} km/h" if r["kmh"] > fastest
+                               else f"not a steady approach (fit {r['r2']:.2f})" if r["r2"] < RAIN_FIT
+                               else None)
+                        out.append({"key": f"rain:{dev}", "kind": "rain", "station": dev, "why": why, "url": "/#/weather/map",
+                                    "title": f"Rain {_minutes(eta)} from {name}",
                                     "body": f"{_dist(r['km'], units)} away, closing at {_speed(r['kmh'] / 3.6, units)}.",
-                                    "evidence": {"device_id": dev, "distance_km": r["km"], "speed_kmh": r["kmh"],
-                                                 "radar_observed_at": r["t"], "eta_seconds": eta}})
+                                    "evidence": {"device_id": dev, "distance_km": r["km"], "speed_kmh": r["kmh"], "fit": round(r["r2"], 3),
+                                                 "fastest_step_kmh": round(r["step_kmh"], 1), "radar_observed_at": r["t"], "eta_seconds": eta}})
         return out
+
+    def _escalates(self, x: dict, last: dict, now: int) -> bool:
+        """A storm alert within the cool-down of the last one for its station: only if this is worse news."""
+        e, then = x["evidence"], last
+        left = max(0, (then.get("eta") or 0) - (now - then["t"]))      # what the last alert's ETA has come down to
+        return (e["dbz"] >= (then.get("dbz") or 0) + 5 or (e["hail_probability"] >= 30 > (then.get("posh") or 0))
+                or (e["tornado_vortex_signature"] and not then.get("tvs"))
+                or (e.get("track") == then.get("track") and left > 0 and e["eta_seconds"] < left / 2))
 
     def run_once(self, store, now: float | None = None) -> list[dict]:
         """Check, and send what's due past its cool-down. Returns what was sent. Nothing is checked (or sent)
-        while no device is turned on."""
+        while no device is turned on. Radar alerts also go through the guards (#71): a storm within the cool-down
+        of its station's last one only if it's worse news, at most alerts.radar_per_hour a station; each one held
+        back is noted in the alert log (once per reason per cool-down)."""
         if not push.devices(store):
             self.since = None
             return []
         now = int(now or time.time())
+        a = self.cfg["alerts"]
+        cooldown = a["cooldown_minutes"] * 60
         sent = json.loads(store.get_meta(SENT_META) or "{}")
-        cooldown = self.cfg["alerts"]["cooldown_minutes"] * 60
-        due = [x for x in self.check(store, now) if now - sent.get(x["key"], 0) >= cooldown]
+        storms = json.loads(store.get_meta(STORMS_META) or "{}")      # station -> its last storm alert
+        radar_sent = json.loads(store.get_meta(RADAR_META) or "{}")   # station -> when its radar alerts went
+        noted = json.loads(store.get_meta(NOTED_META) or "{}")        # "key|why" -> when it was noted
+        due = []
+        for x in self.check(store, now):
+            why, dev = x.get("why"), str(x.get("station", ""))
+            if not why and x.get("kind") == "storm":
+                last = storms.get(dev)
+                if last and now - last["t"] < cooldown and not self._escalates(x, last, now):
+                    why = "not worse than this station's storm alert in the cool-down"
+            elif not why and now - sent.get(x["key"], 0) < cooldown:
+                if x.get("kind") != "rain":
+                    continue                                          # a plain cool-down: nothing to note
+                why = "cool-down"
+            if not why and x.get("kind"):
+                recent = [t for t in radar_sent.get(dev, []) if now - t < 3600]
+                if len(recent) >= a["radar_per_hour"]:
+                    why = f"{len(recent)} radar alerts for this station in the last hour already"
+            if why:
+                if x.get("kind") and now - noted.get(f"{x['key']}|{why}", 0) >= cooldown:
+                    noted[f"{x['key']}|{why}"] = now
+                    store.alert_log_add(now, x, {"id": "", "label": "(held back)", "username": ""}, "suppressed", why)
+                continue
+            due.append(x)
         for x in due:
             for device in push.devices(store):
                 try:
@@ -172,6 +233,16 @@ class Alerts:
                     status, detail = "failed", f"{type(e).__name__}: {e}"
                 store.alert_log_add(now, x, device, status, detail)
             sent[x["key"]] = now
-        if due:
-            store.set_meta(SENT_META, json.dumps({k: t for k, t in sent.items() if now - t < 7 * 86400}))
+            if x.get("kind"):
+                dev = str(x["station"])
+                radar_sent[dev] = [t for t in radar_sent.get(dev, []) if now - t < 3600] + [now]
+            if x.get("kind") == "storm":
+                e = x["evidence"]
+                storms[str(x["station"])] = {"t": now, "track": e.get("track"), "dbz": e["dbz"], "posh": e["hail_probability"],
+                                             "tvs": e["tornado_vortex_signature"], "eta": e["eta_seconds"]}
+        week = lambda d: {k: v for k, v in d.items() if now - (v["t"] if isinstance(v, dict) else v) < 7 * 86400}
+        store.set_meta(SENT_META, json.dumps(week(sent)))
+        store.set_meta(STORMS_META, json.dumps(week(storms)))
+        store.set_meta(RADAR_META, json.dumps({k: [t for t in v if now - t < 3600] for k, v in radar_sent.items()}))
+        store.set_meta(NOTED_META, json.dumps({k: t for k, t in noted.items() if now - t < cooldown}))
         return due

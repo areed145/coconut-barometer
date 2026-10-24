@@ -149,7 +149,7 @@ class AlertsTest(Base):
 
         with mock.patch("coconut_barometer.alerts.rd.arrival", return_value=60):
             alert = next(x for x in Alerts(self.cfg, radar=Radar()).check(self.store, self.now)
-                         if x["key"] == "storm:11")
+                         if x["key"].startswith("storm:11:"))
         self.assertEqual(alert["evidence"]["radar_observed_at"], cell["valid"])
 
 

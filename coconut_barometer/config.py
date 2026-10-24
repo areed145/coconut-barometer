@@ -44,6 +44,8 @@ DEFAULTS: dict[str, Any] = {
         "storm_minutes": 60,          # ... within this long
         "storm_dbz": 50,              # ... and at least this strong
         "rain_minutes": 30,           # rain on radar (MRMS) closing in on a station, due within this long
+        "storm_max_kmh": 120,         # a storm or rain reported faster than this is a tracking error: not projected
+        "radar_per_hour": 3,          # storm and rain alerts per station per hour, at most, whatever else
         "cooldown_minutes": 60,       # the same alert (same kind, same station or callsign) at most this often
     },
     "github": {
@@ -153,7 +155,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
           ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60),
           ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
-          ("alerts", "rain_minutes"): (0, 120)}
+          ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).

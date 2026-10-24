@@ -232,22 +232,91 @@ class RadarAlertsTest(unittest.TestCase):
     def by_kind(self):
         return {a["key"].split(":")[0]: a for a in self.alerts.check(self.store, T)}
 
+    def storm(self, **kw):
+        """A cell whose motion has held for two scans: what can alert."""
+        return CellsTest.cell(None, steady=2, track="HGX-A1", **kw)
+
     def test_a_storm_on_its_way(self):
-        self.radar.cells = [CellsTest.cell(None, posh=40)]
+        self.radar.cells = [self.storm(posh=40)]
         a = self.by_kind()["storm"]
-        self.assertEqual(a["title"], "Storm ~20 min from Conroe")
-        self.assertEqual(a["body"], "55 dBZ, moving E at 60 km/h; hail likely (40% severe).")
-        self.radar.cells = [CellsTest.cell(None, dbz=40)]                # under alerts.storm_dbz
+        self.assertEqual((a["title"], a["why"]), ("Storm ~20 min from Conroe", None))
+        self.assertEqual(a["body"], "55 dBZ, 30 km W, moving E at 60 km/h; hail likely (40% severe).")
+        self.radar.cells = [self.storm(dbz=40)]                          # under alerts.storm_dbz
         self.assertNotIn("storm", self.by_kind())
 
+    def test_storm_guards(self):
+        """#71: a cell seen once, or moving implausibly fast, is held back (with why); no speed isn't projected."""
+        self.radar.cells = [CellsTest.cell(None)]                        # one scan
+        self.assertIn("one scan", self.by_kind()["storm"]["why"])
+        self.radar.cells = [self.storm(west_km=200, kmh=250)]            # 250 km/h: a tracking error
+        self.assertIn("faster than 120 km/h", self.by_kind()["storm"]["why"])
+        self.radar.cells = [self.storm(kmh=0)]                           # 30 km off and not moving: nothing
+        self.assertNotIn("storm", self.by_kind())
+        self.radar.cells = [self.storm(west_km=5, kmh=0)]                # but overhead it is, moving or not
+        self.assertEqual((self.by_kind()["storm"]["title"], self.by_kind()["storm"]["why"]), ("Storm over Conroe", None))
+        self.radar.cells = [CellsTest.cell(None), self.storm(west_km=40)]   # the soonest believable one, not the soonest
+        a = self.by_kind()["storm"]
+        self.assertEqual((a["why"], a["evidence"]["distance_km"]), (None, 40.0))
+
+    def test_a_storm_keeps_its_track_across_radars_and_a_jump_starts_over(self):
+        first = R.track([CellsTest.cell(None)], [], T)
+        self.assertEqual((first[0]["track"], first[0]["steady"]), ("HGX-A1", 1))
+        moved = {**CellsTest.cell(None, west_km=25, valid=T + 300), "id": "LCH-B7"}   # 5 km east in 5 min: 60 km/h, as reported
+        second = R.track([moved], first, T + 300)
+        self.assertEqual((second[0]["track"], second[0]["steady"], round(second[0]["obs_kmh"])), ("HGX-A1", 2, 60))
+        jumped = {**CellsTest.cell(None, west_km=28, valid=T + 600, toward=270, kmh=90), "id": "LCH-B7"}   # turned round
+        self.assertEqual(R.track([jumped], second, T + 600)[0]["steady"], 1)
+        again = R.track([dict(second[0])], second, T + 300)              # the same scan again: as it was
+        self.assertEqual(again[0]["steady"], 2)
+
+    def rain(self, *kms):
+        self.radar.rain[11] = R.deque(((T - 240 * (len(kms) - 1) + i * 240, km) for i, km in enumerate(kms)), maxlen=20)
+
     def test_rain_closing_in(self):
-        for i, km in enumerate((30, 25, 20)):
-            self.radar.rain.setdefault(11, R.deque(maxlen=20)).append((T - 480 + i * 240, km))
+        self.rain(30, 25, 20)
         a = self.by_kind()["rain"]
-        self.assertEqual(a["title"], "Rain ~14 min from Conroe")          # (20 − 3) km at 75 km/h
+        self.assertEqual((a["title"], a["why"]), ("Rain ~14 min from Conroe", None))   # (20 − 3) km at 75 km/h
         self.assertEqual(a["body"], "20 km away, closing at 75 km/h.")
         self.cfg["alerts"]["rain_minutes"] = 10
         self.assertNotIn("rain", self.by_kind())
+
+    def test_rain_guards(self):
+        self.rain(40, 40, 39, 12)                                        # a new echo forming nearer
+        self.assertIn("new echo", self.by_kind()["rain"]["why"])
+        self.cfg["alerts"]["rain_minutes"] = 60
+        self.rain(30, 24, 29, 23, 28, 21, 18)                            # coming and going: not a steady approach
+        self.assertIn("not a steady approach", self.by_kind()["rain"]["why"])
+
+    def send_rounds(self):
+        push.subscribe(self.store, {"endpoint": "https://push.example/1", "keys": {"p256dh": "k", "auth": "a"}}, "owner", "Phone", "")
+        sent = mock.patch.object(push, "send", return_value={"sent": 1, "failed": [], "removed": 0})
+        sent.start()
+        self.addCleanup(sent.stop)
+        return lambda at: [x["key"] for x in self.alerts.run_once(self.store, at)]
+
+    def test_one_alert_per_storm_unless_it_gets_worse(self):
+        run = self.send_rounds()
+        self.radar.cells = [self.storm()]
+        self.assertEqual(run(T), ["storm:11:HGX-A1"])
+        self.assertEqual(run(T + 60), [])                                # the same storm: held back, noted once
+        self.assertEqual(run(T + 120), [])
+        held = [x for x in self.store.alert_log_recent() if x["status"] == "suppressed"]
+        self.assertEqual(len(held), 1)
+        self.assertIn("cool-down", held[0]["detail"])
+        self.radar.cells = [{**self.storm(dbz=45, west_km=20), "track": "HGX-Z9"}]   # a new, weaker storm: no
+        self.assertEqual(run(T + 180), [])
+        self.radar.cells = [self.storm(dbz=60, posh=40)]                 # worse news: through the cool-down
+        self.assertEqual(run(T + 240), ["storm:11:HGX-A1"])
+
+    def test_at_most_so_many_radar_alerts_an_hour(self):
+        run = self.send_rounds()
+        self.cfg["alerts"].update(radar_per_hour=2, cooldown_minutes=5)
+        for i in range(3):
+            self.radar.cells = [self.storm(dbz=55 + 10 * i)]             # worse every time: only the limit stops it
+            run(T + 600 * i)
+        held = [x for x in self.store.alert_log_recent() if x["status"] == "suppressed"]
+        self.assertEqual(len([x for x in self.store.alert_log_recent() if x["status"] == "sent"]), 2)
+        self.assertIn("last hour", held[0]["detail"])
 
 
 class RadarApiTest(unittest.TestCase):
