@@ -37,7 +37,7 @@ import requests
 
 from .. import activity
 from ..errors import caught
-from . import grib
+from . import grib, shapes
 
 MRMS_URL = "https://mrms.ncep.noaa.gov/2D/MergedReflectivityQCComposite/MRMS_MergedReflectivityQCComposite.latest.grib2.gz"
 CELLS_URL = "https://mesonet.agron.iastate.edu/geojson/nexrad_attr.py"
@@ -127,10 +127,8 @@ def clean(dbz: np.ndarray, speck_px: int = SPECK_PX) -> np.ndarray:
 def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list[list]:
     """The map's shapes at one level of detail: for each BAND_STEP dBZ level, everything at that level *or above*
     (so the bands are drawn stacked, lowest first, and neighbours can't show a seam between them: #67), as
-    [dbz, [poly, ...]]. A poly is [west, south, east, north, text]: its bounds in whole 1/q degrees, and its JSON
-    text `[w,s,e,n,ring,ring...]` (the outer ring first, then its holes), each ring flat `[x0,y0,dx1,dy1,...]`, every
-    point after the first the step from the one before. The text is made once, here: a request picks the polys in
-    view and joins their texts (view())."""
+    [dbz, [poly, ...]], each poly as shapes.py has it, in whole 1/q degrees. The text is made once, here: a request
+    picks the polys in view and joins their texts (view())."""
     import contourpy
     from scipy import ndimage
 
@@ -148,25 +146,14 @@ def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list
         for pts, offs in zip(points, offsets):
             rings = []
             for i, (a, b) in enumerate(zip(offs[:-1], offs[1:])):
-                if b - a < 4 or _area(pts[a:b]) < min_area:
+                qi = None if b - a < 4 or _area(pts[a:b]) < min_area else shapes.ring(pts[a:b], q)
+                if qi is None:
                     if i == 0:
                         break                  # no outer ring: none of its holes either
                     continue
-                qi = np.round(pts[a:b] * q).astype(np.int64)
-                step = np.diff(qi, axis=0)
-                qi = np.vstack([qi[:1], qi[1:][np.any(step != 0, axis=1)]])   # rounding can repeat a point
-                if len(qi) > 1 and (qi[0] == qi[-1]).all():
-                    qi = qi[:-1]                                              # closed by the drawing, not a point
-                if len(qi) < 3:
-                    if i == 0:
-                        break
-                    continue
-                if i == 0:
-                    (w, s), (e, n) = qi.min(axis=0), qi.max(axis=0)
-                rings.append(np.concatenate([qi[:1], np.diff(qi, axis=0)]).ravel().tolist())
+                rings.append(qi)
             if rings:
-                bounds = [int(w), int(s), int(e), int(n)]
-                polys.append([*bounds, json.dumps([*bounds, *rings], separators=(",", ":"))])
+                polys.append(shapes.poly(rings))
         if polys:
             out.append([lo, polys])
     return out
@@ -177,11 +164,9 @@ def view(frame: dict, bbox: tuple | None = None, zoom: float | None = None) -> s
     west/south/east/north degrees), else the coarse one (also filtered, if `bbox` is given)."""
     level = "fine" if zoom is not None and zoom >= FINE_ZOOM else "coarse"
     q = LEVELS[level][2]
-    if bbox:
-        w, s, e, n = (x * q for x in bbox)
     bands = []
     for dbz, polys in (frame.get("levels") or {}).get(level, []):
-        texts = [p[4] for p in polys if not bbox or (p[0] <= e and p[2] >= w and p[1] <= n and p[3] >= s)]
+        texts = [p[4] for p in polys if shapes.in_view(p, bbox, q)]
         if texts:
             bands.append(f'{{"dbz":{dbz},"polys":[{",".join(texts)}]}}')
     return f'{{"level":"{level}","q":{q},"bands":[{",".join(bands)}]}}'

@@ -90,7 +90,12 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('role="dialog" aria-label="Map layers"', c)           # radar and storm tracks toggle apart
         self.assertIn('check("storms", "Storm tracks")', c)
         self.assertIn('check("fronts", "Fronts")', c)                       # WPC's fronts and highs and lows (#69)
-        self.assertIn('api("/api/wx/fronts")', m)
+        self.assertIn('useFeed(showFronts, "/api/wx/fronts", 15 * 60000)', m)
+        self.assertIn('check("hazards", "Watches & warnings")', c)          # the NWS's watches and warnings (#87)
+        self.assertIn('check("hazardsMinor", "with advisories & marine", !layers.hazards', c)
+        self.assertIn('useFeed(showHazards, view && `/api/wx/hazards?${radarQuery(view)}`, 120000)', m)
+        self.assertIn('createPane("wxhazards").style.zIndex = 355', m)      # under the radar: echoes show through
+        self.assertIn("if (x.pending) soon = setTimeout(load, PENDING_MS);", m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
         self.assertIn('fetch("/api/wx/map/errors"', m)
@@ -146,7 +151,7 @@ class FrontendTest(unittest.TestCase):
           const bad = loadLayers();
           store.set("cb-wxmap-layers", "{not json");
           console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad,
-            broken: loadLayers().radar, summary: layersSummary(again) }));
+            broken: loadLayers().radar, summary: layersSummary(again), first_hazards: first.hazards, first_minor: first.hazardsMinor }));
         """ % os.path.join(STATIC, "js", "wx_controls.js")
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
         with open(stub, "w") as f:      # wx_controls.js imports lib.js (Preact): enough of a DOM for it to load
@@ -160,7 +165,33 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual({k: out["again"][k] for k in ("radar", "sat", "satOpacity", "basemap", "storms")},
                          {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True})
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
-        self.assertEqual(out["summary"], "Storms · Lightning · Sat")
+        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Sat")
+        self.assertEqual((out["first_hazards"], out["first_minor"]), (True, False))   # warnings on, advisories off
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_a_tap_finds_the_watches_and_warnings_there(self):
+        """#87: alerts decoded as radar shapes are; a tap inside finds them most important first, not in a hole,
+        and the minor ones only when they're shown."""
+        script = r"""
+          import { decodeHazards, alertsAt } from "%s";
+          // whole 1/100 degrees: a square 37-38 N, 106-105 W with a hole 37.4-37.6 N, 105.6-105.4 W; and a warning inside it
+          const sq = (w, s, e, n) => [w, s, e - w, 0, 0, n - s, w - e, 0];
+          const poly = (w, s, e, n, ...holes) => [w, s, e, n, sq(w, s, e, n), ...holes.map((h) => sq(...h))];
+          const x = { shapes: { level: "fine", q: 100, alerts: [
+            { id: "tor", event: "Tornado Warning", color: "#FF0000", minor: false, polys: [poly(-10580, 3770, -10560, 3790)] },
+            { id: "watch", event: "Flood Watch", color: "#2E8B57", minor: false, polys: [poly(-10600, 3700, -10500, 3800, [-10560, 3740, -10540, 3760])] },
+            { id: "sca", event: "Small Craft Advisory", color: "#D8BFD8", minor: true, polys: [poly(-10600, 3700, -10500, 3800)] } ] } };
+          const d = decodeHazards(x), ids = (lat, lon, minor) => alertsAt(d.alerts, lat, lon, minor).map((a) => a.id);
+          console.log(JSON.stringify({ level: d.level, both: ids(37.8, -105.7, false), hole: ids(37.5, -105.5, false),
+            minor: ids(37.2, -105.2, true), outside: ids(36, -105.5, true), none: decodeHazards(null) }));
+        """ % os.path.join(STATIC, "js", "hazards_layer.js")
+        stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
+        with open(stub, "w") as f:
+            f.write(script)
+        r = subprocess.run([NODE, stub], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual(out, {"level": "fine", "both": ["tor", "watch"], "hole": [], "minor": ["watch", "sca"], "outside": [], "none": None})
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_the_loop_is_the_hour_both_radar_and_satellite_cover(self):

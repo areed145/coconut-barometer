@@ -4,16 +4,18 @@
 // tracks and satellite share one timeline over the last hour or so, opening on now; the radar's past frames load
 // only once it's played or scrubbed. The shapes come for the view: ~2 km detail and only what's in sight when zoomed
 // in, ~8 km for the US zoomed out (radar_layer.js draws them). Fronts and highs and lows are WPC's latest surface
-// analysis (fronts_layer.js), whatever the timeline shows. The map's own errors go to the server (#65), which
+// analysis (fronts_layer.js), and watches and warnings the NWS's in effect now (hazards_layer.js, #87), whatever the
+// timeline shows: each fetched while it's shown (useFeed). The map's own errors go to the server (#65), which
 // reports them like its own. A Tempest reports how far
 // away a strike was but not which way, so lightning is drawn as a ring at that distance around the station.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 // The controls (wx_controls.js, #78) sit on the map: my location and full screen with the zoom buttons, the Layers
 // panel (a bottom sheet on a phone) and the timeline bar along the bottom; the layer choices are remembered.
-import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
+import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
 import { loopWindow } from "./wx_loop.js";
 import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
 
@@ -23,6 +25,7 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 const FINE_ZOOM = 6;          // radar.py FINE_ZOOM: from here in, the ~2 km shapes for the view
 const LOADING = 4;            // loop frames fetched at once
+const PENDING_MS = 4000;      // a layer the server is still fetching (pending) is asked for again this soon
 // What the radar shapes are asked for: zoomed in, the view padded by half its size and rounded out to whole degrees
 // (so small pans need nothing new); zoomed out, the whole US.
 function radarView(m) {
@@ -41,6 +44,26 @@ const inside = (view, m) => {                    // is the map still within what
 };
 const radarQuery = (view) => `zoom=${view.zoom}` + (view.bbox ? `&bbox=${view.bbox.join(",")}` : "");
 const unpack = (x) => ({ ...x, shapes: decode(x.shapes) });
+
+// A layer of what's in effect now, whatever the timeline shows (fronts, watches and warnings): /api/... fetched every
+// `ms` while `on`, again whenever `url` changes (another view), and soon again while the server is still fetching
+// it (feed.py's pending).
+function useFeed(on, url, ms) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    if (!on || !url) return;
+    let alive = true, soon = null;
+    const load = () => api(url).then((x) => {
+      if (!alive) return;
+      setData(x);
+      clearTimeout(soon);
+      if (x.pending) soon = setTimeout(load, PENDING_MS);
+    }).catch(() => {});
+    const stop = every(load, ms);
+    return () => { alive = false; clearTimeout(soon); stop(); };
+  }, [on, url]);
+  return data;
+}
 
 // The newest time in `times` (ascending) at or before `t`, or null.
 const latestBy = (times, t) => { let best = null; for (const x of times) if (x <= t) best = x; else break; return best; };
@@ -74,6 +97,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const wrap = useRef(null), box = useRef(null), map = useRef(null);
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
+  const hazardsLayer = useRef(null);
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
@@ -82,7 +106,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const set = (change) => setLayers((l) => ({ ...l, ...change }));
   useEffect(() => saveLayers(layers), [layers]);
   const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, lightning: showRings, radarOpacity: opacity } = layers;
-  const [fronts, setFronts] = useState(null);      // /api/wx/fronts: WPC's latest surface analysis
+  const { hazards: showHazards, hazardsMinor: showMinor } = layers;
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (radarView)
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
@@ -104,12 +128,23 @@ export function WxMap({ show, unitsFor, compass }) {
       if (!alive || !box.current) return;
       map.current = baseMap(lf, box.current, { minZoom: 3 }).setView([39, -96], 4);
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
+      map.current.createPane("wxhazards").style.zIndex = 355;  // over the satellite, under the radar: echoes show through
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
       rings.current = lf.L.layerGroup().addTo(map.current);
       storms.current = lf.L.layerGroup().addTo(map.current);
       canvas.current = radarCanvas(lf.L, "wxradar", 'Radar: <a href="https://mrms.nssl.noaa.gov/">NOAA MRMS</a>').addTo(map.current);
       frontsLayer.current = frontsCanvas(lf.L, "wxfronts", 'Fronts: <a href="https://www.wpc.ncep.noaa.gov/html/sfctxt.html">NOAA WPC</a>');
+      hazardsLayer.current = hazardsCanvas(lf.L, "wxhazards", 'Alerts: <a href="https://www.weather.gov/">NOAA NWS</a>');
+      // A tap on watches or warnings: what they are there (the most important first), when the layer is on.
+      map.current.on("click", (e) => {
+        const m = map.current, layer = hazardsLayer.current;
+        if (!m?.hasLayer(layer)) return;
+        const hits = layer.at(e.latlng);
+        if (!hits.length) return;
+        const text = (id) => api(`/api/wx/hazards/alert?id=${encodeURIComponent(id)}`);
+        lf.L.popup({ maxWidth: 300 }).setLatLng(e.latlng).setContent(hazardPopup(hits, e.latlng.lat, e.latlng.lng, text)).openOn(m);
+      });
       const moved = () => setView((v) => (inside(v, map.current) ? v : radarView(map.current)));
       map.current.on("moveend", moved);
       moved();
@@ -141,13 +176,11 @@ export function WxMap({ show, unitsFor, compass }) {
     const stop = every(smooth, 120000);
     return () => { alive = false; stop(); };
   }, [view?.key]);
-  // Fronts while they're shown: the analysis is every 3 hours, so a look every 15 minutes is plenty.
-  useEffect(() => {
-    if (!showFronts) return;
-    let alive = true;
-    const stop = every(() => api("/api/wx/fronts").then((x) => alive && setFronts(x)).catch(() => {}), 15 * 60000);
-    return () => { alive = false; stop(); };
-  }, [showFronts]);
+  // Fronts while they're shown: the analysis is every 3 hours, so a look every 15 minutes is plenty. Watches and
+  // warnings every 2 minutes (a new tornado warning matters), for the view as the radar is.
+  const fronts = useFeed(showFronts, "/api/wx/fronts", 15 * 60000);
+  const hazardsNow = useFeed(showHazards, view && `/api/wx/hazards?${radarQuery(view)}`, 120000);
+  const hazards = useMemo(() => decodeHazards(hazardsNow), [hazardsNow]);
   useEffect(() => {
     const m = map.current, layer = frontsLayer.current;
     if (!ready || !m || !layer) return;
@@ -155,6 +188,13 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!m.hasLayer(layer)) layer.addTo(m);
     layer.set(fronts, css("--bg") || "#fff");
   }, [ready, showFronts, fronts]);
+  useEffect(() => {
+    const m = map.current, layer = hazardsLayer.current;
+    if (!ready || !m || !layer) return;
+    if (!showHazards) { layer.remove(); return; }
+    if (!m.hasLayer(layer)) layer.addTo(m);
+    layer.set(hazards, showMinor);
+  }, [ready, showHazards, showMinor, hazards]);
   useEffect(() => {
     if (!info) return;
     let alive = true;
@@ -391,7 +431,9 @@ export function WxMap({ show, unitsFor, compass }) {
     ${radarOn && live_?.t && !times.length ? " The radar's past fills in as frames arrive (one every 2 minutes)." : ""}${satInfo?.error ? " Satellite unavailable right now." : ""}
     ${sat ? " Satellite images run about 30–60 minutes behind." : ""}
     ${showFronts ? (fronts?.valid ? ` Fronts, highs and lows: WPC's surface analysis at ${clock(fronts.valid)} (every 3 hours), whatever time the radar shows.`
-      : fronts?.error ? " Fronts unavailable right now." : "") : ""}`;
+      : fronts?.error ? " Fronts unavailable right now." : "") : ""}
+    ${showHazards ? (hazardsNow?.error && !hazards?.alerts.length ? " Watches and warnings unavailable right now."
+      : hazardsNow?.checked_at ? ` Watches and warnings: the NWS's in effect now${showMinor ? "" : " (advisories and marine alerts hidden)"}, whatever time the radar shows; tap one for details.` : "") : ""}`;
   return html`
     <div ref=${wrap} class=${mapboxClass(fullscreen, "wxmap")}>
       <div class="mapwrap" ref=${box}></div>
