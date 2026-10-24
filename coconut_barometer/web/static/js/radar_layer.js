@@ -39,28 +39,29 @@ const my = (lat) => {
   return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
 };
 
+export const mercator = (lat, lon) => [mx(lon), my(lat)];
+
+// One poly (weather/shapes.py: [w, s, e, n, ring...] in whole 1/q degrees, each ring's points after the first a step
+// from the one before) -> {box, rings}, in Web Mercator. The radar's and the watches and warnings' alike.
+export function decodePoly(p, q) {
+  return {
+    box: [mx(p[0] / q), my(p[3] / q), mx(p[2] / q), my(p[1] / q)],     // left, top, right, bottom
+    rings: p.slice(4).map((r) => {
+      const out = new Float32Array(r.length);
+      let x = 0, y = 0;
+      for (let i = 0; i < r.length; i += 2) {
+        x += r[i]; y += r[i + 1];
+        out[i] = mx(x / q); out[i + 1] = my(y / q);
+      }
+      return out;
+    }),
+  };
+}
+
 // {level, q, bands: [{dbz, polys: [[w, s, e, n, ring...]]}]} -> {level, bands: [{dbz, polys: [{box, rings}]}]}
 export function decode(shapes) {
   if (!shapes?.bands) return null;
-  const q = shapes.q;
-  return {
-    level: shapes.level,
-    bands: shapes.bands.map((b) => ({
-      dbz: b.dbz,
-      polys: b.polys.map((p) => ({
-        box: [mx(p[0] / q), my(p[3] / q), mx(p[2] / q), my(p[1] / q)],     // left, top, right, bottom
-        rings: p.slice(4).map((r) => {
-          const out = new Float32Array(r.length);
-          let x = 0, y = 0;
-          for (let i = 0; i < r.length; i += 2) {
-            x += r[i]; y += r[i + 1];
-            out[i] = mx(x / q); out[i + 1] = my(y / q);
-          }
-          return out;
-        }),
-      })),
-    })),
-  };
+  return { level: shapes.level, bands: shapes.bands.map((b) => ({ dbz: b.dbz, polys: b.polys.map((p) => decodePoly(p, shapes.q)) })) };
 }
 
 // A Leaflet layer in `pane`: set(shapes, colorOf) shows a decoded frame (colorOf(dbz) -> CSS color), setOpacity()
