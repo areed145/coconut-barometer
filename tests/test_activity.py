@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fakes import FakeFlickr, CFG
@@ -68,31 +69,21 @@ class FakeApi:
 
 
 class InstrumentedTest(unittest.TestCase):
-    def test_flickr_calls_record_the_wait_for_the_shared_limit(self):
-        waiting = []
+    def test_flickr_calls_record_the_wait_for_their_rate_limit_slot(self):
+        """Each call shows as waiting until its slot, and its wait is logged. The limiter and the activity log share a
+        fake clock, moved on instead of slept: a real window could pass before it was checked on a slow runner (#63)."""
+        clock = SimpleNamespace(now=1000.0)
+        clock.time = lambda: clock.now
+        seen = []
 
-        class FakeClock:
-            now = 1000.0
-
-            def time(self):
-                return self.now
-
-            def advance_to(self, timestamp):
-                self.now = timestamp
-
-        clock = FakeClock()
-
-        class WaitingLimiter:
+        class Limiter:               # a slot 0.2 s off each time; what the Status page shows meanwhile, then the slot
             def wait(self, on_slot=None):
-                slot = clock.time() + 0.2
-                if on_slot:
-                    on_slot(slot)
-                waiting.extend(p["state"] for p in activity.log.snapshot()["pending"]
-                               if p["what"] == "flickr.photos.getInfo")
-                clock.advance_to(slot)
+                slot = clock.now + 0.2
+                on_slot(slot)
+                seen.extend(p["state"] for p in activity.log.snapshot()["pending"] if p["what"] == "flickr.photos.getInfo")
+                clock.now = slot
 
-        limiter = WaitingLimiter()
-        client = FlickrClient("k", "s", limiter=limiter)
+        client = FlickrClient("k", "s", limiter=Limiter())
         client.api = FakeApi()
         seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
         with patch.object(activity, "time", clock):
@@ -100,8 +91,8 @@ class InstrumentedTest(unittest.TestCase):
                 client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
         got = [e for e in activity.log.since(seq) if e["source"] == "flickr"]
         self.assertEqual([e["detail"] for e in got], ["photo_id=1", "photo_id=2", "photo_id=3"])
-        self.assertGreater(got[-1]["waited"], 0.1)
-        self.assertEqual(waiting, ["waiting"] * 3)
+        self.assertEqual([e["waited"] for e in got], [0.2] * 3)
+        self.assertEqual(seen, ["waiting"] * 3)
 
     def test_expected_answers_are_not_logged_as_errors(self):
         client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
