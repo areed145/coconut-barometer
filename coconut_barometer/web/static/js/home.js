@@ -55,12 +55,15 @@ const Rings = () => html`<svg class="homebg rings" viewBox="0 0 200 200" aria-hi
   ${[40, 80, 120, 160].map((r) => html`<circle key=${r} cx="200" cy="200" r=${r} />`)}<circle class="dot" cx="200" cy="200" r="10" />
 </svg>`;
 
-function Section({ href, title, line, image, srcset, alt = "", bg, children }) {
-  return html`<a class=${"homecard" + (image ? " pic" : "")} href=${href}>
-    ${image && html`<img src=${image} srcset=${srcset} alt=${alt} decoding="async" />`}${bg}
+// image: a photo behind the card's text; media: a picture below it, shown whole (the radar, whose time and credits
+// are at its edges).
+function Section({ href, title, line, image, media, srcset, alt = "", bg, children }) {
+  return html`<a class=${"homecard" + (image ? " pic" : media ? " wide" : "")} href=${href}>
+    ${image && html`<img src=${image} alt="" decoding="async" />`}${bg}
     <h2>${title}</h2>
     <div class="glance">${children}</div>
-    <small>${line}</small></a>`;
+    <small>${line}</small>
+    ${media && html`<img class="media" src=${media} srcset=${srcset} alt=${alt} width="640" height="360" decoding="async" />`}</a>`;
 }
 
 function PhotosCard() {
@@ -93,7 +96,7 @@ function RadarCard() {
   if (!d?.stations.length) return null;
   const src = (scale) => `/api/wx/radar/snapshot.png?theme=${isDark() ? "dark" : "light"}&scale=${scale}&t=${d.t || 0}`;
   const n = d.nearest, around = d.stations.join(", ");
-  return html`<${Section} href="#/weather/map" title="Radar" image=${src(1)} srcset=${`${src(1)} 1x, ${src(2)} 2x`}
+  return html`<${Section} href="#/weather/map" title="Radar" media=${src(1)} srcset=${`${src(1)} 1x, ${src(2)} 2x`}
     alt=${d.fresh ? `Radar at ${clock(d.t)} around ${around}` : `Radar unavailable around ${around}`}
     line="The latest radar and storm cells around the stations">
     <div class="glance-row"><b>${d.fresh ? `radar ${clock(d.t)}` : "radar unavailable"}</b></div>

@@ -245,7 +245,7 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .home-head .logo.hero { width: 132px; margin-bottom: var(--s3); }
 .home-head .site-name { text-transform: lowercase; font-size: 32px; letter-spacing: -.01em; margin: 0 0 var(--s1); }
 .home-head p { margin: 0; font-size: var(--text-md); }
-.homecards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--s4); }
+.homecards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); grid-auto-flow: dense; gap: var(--s4); }
 .homecard { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: var(--s2); min-height: 220px;
   padding: var(--s5); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
   transition: border-color .15s, box-shadow .15s, transform .15s; }
@@ -262,6 +262,18 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .homecard.pic::after { content: ""; position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .45), rgba(0, 0, 0, .25) 45%, rgba(0, 0, 0, .75)); }
 .homecard > :not(img):not(.homebg) { position: relative; z-index: 1; }
 .homecard.pic small, .homecard.pic .muted { color: rgba(255, 255, 255, .8); }
+/* a card with a picture beside its text (Home's radar), a row of its own: the picture whole and uncovered, since its time
+   and credits sit at its edges; stacked under the text on a narrow screen */
+.homecard.wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.6fr);
+  grid-template-rows: auto 1fr auto; column-gap: var(--s5); align-items: start; }
+.homecard.wide > img.media { grid-column: 2; grid-row: 1 / 4; display: block; width: calc(100% + var(--s5)); max-width: none;
+  margin: calc(-1 * var(--s5)) calc(-1 * var(--s5)) calc(-1 * var(--s5)) 0; aspect-ratio: 16 / 9; object-fit: cover;
+  background: var(--surface-2); border-left: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .homecard.wide { display: flex; }
+  .homecard.wide > img.media { width: calc(100% + 2 * var(--s5)); margin: var(--s1) calc(-1 * var(--s5)) calc(-1 * var(--s5));
+    border-left: 0; border-top: 1px solid var(--line); }
+}
 /* The Weather and APRS cards' backgrounds: faint, behind the text */
 .homebg { position: absolute; z-index: 0; pointer-events: none; }
 .homebg.curve { left: 0; right: 0; bottom: 0; width: 100%; height: 42%; }
@@ -731,6 +743,7 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .wxbuf.in { background: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .wxtick { position: absolute; top: 16px; height: 10px; width: 1px; background: var(--muted); }
 .wxtick span { position: absolute; top: -16px; transform: translateX(-50%); font-size: 10px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.wxmap input[type=range] { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; }   /* not a text box */
 .wxtrack input { position: absolute; left: 0; right: 0; top: 8px; width: 100%; height: 26px; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: pointer; }
 .wxtrack input::-webkit-slider-runnable-track { background: none; height: 26px; }
 .wxtrack input::-moz-range-track { background: none; }
@@ -749,7 +762,7 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 @media (max-width: 639px) {
   .wxmap .mapwrap { height: calc(100dvh - var(--header-h) - 60px - var(--safe-b)); }
   .wxmap.full .mapwrap { height: 100%; }
-  .wxbar { flex-wrap: wrap; left: var(--s1); right: var(--s1); bottom: calc(20px + var(--safe-b)); gap: var(--s1); padding: 2px var(--s1); }
+  .wxbar { flex-wrap: wrap; left: var(--s1); right: var(--s1); bottom: calc(30px + var(--safe-b)); gap: var(--s1); padding: 2px var(--s1); }
   .wxbar button { min-height: 44px; height: 44px; min-width: 44px; padding: 0 var(--s2); }
   .wxbar .extra { display: none; order: 5; }
   .wxbar.more .extra { display: inline-flex; }
@@ -764,9 +777,11 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
   .wxtick span { top: -20px; }
   .wxgap { margin-top: 24px; }
   /* zoom, my location and full screen: bottom right, above the timeline, in thumb reach */
-  .wxmap .leaflet-top.leaflet-left { top: auto; left: auto; right: 0; bottom: calc(84px + var(--safe-b)); }
+  .wxmap .leaflet-top.leaflet-left { top: auto; left: auto; right: 0; bottom: calc(94px + var(--safe-b)); }
+  .wxmap:has(.wxbar.more) .leaflet-top.leaflet-left { bottom: calc(150px + var(--safe-b)); }   /* above the bar's second row */
   .wxmap .leaflet-top.leaflet-left .leaflet-control { float: none; margin: 0 var(--s2) var(--s2) 0; }
-  .wxmap .leaflet-control-zoom a, .wxtools button { width: 44px; height: 44px; line-height: 44px; }
+  .wxmap .leaflet-bar.leaflet-control-zoom a, .wxtools button { width: 44px; height: 44px; line-height: 44px; font-size: 22px; }
+  .wxmap .leaflet-control-attribution { font-size: 9px; line-height: 1.3; }
   .wxlayers { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 50%; z-index: 1002; border-radius: 14px 14px 0 0;
     padding-bottom: var(--safe-b); transition: transform .15s ease-out; }
   .wxhandle { display: flex; justify-content: center; padding: var(--s2) 0 var(--s1); touch-action: none; cursor: grab; position: sticky; top: 0;
