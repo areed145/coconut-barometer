@@ -7,7 +7,9 @@ Public photos and albums only, whoever asks: a private one gets the plain page, 
 doesn't exist, so a link doesn't tell anyone it's there."""
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import functools
 import html
 import re
 from pathlib import Path
@@ -55,7 +57,22 @@ def page(request: Request, rt, title: str = "", description: str = "", image: st
             f'<meta name="twitter:card" content="{"summary_large_image" if image else "summary"}">']
     head = f"<title>{html.escape(f'{title} · {SITE}' if title else SITE)}</title>\n" + "\n".join(tags)
     doc = versioned((STATIC / "index.html").read_text(encoding="utf-8")).replace(f"<title>{SITE}</title>", head, 1)
-    return HTMLResponse(doc, headers={"Cache-Control": "no-cache"})
+    return HTMLResponse(inline_icons(doc), headers={"Cache-Control": "no-cache"})
+
+
+# The page's icons go in the page itself. iOS's Add to Home Screen shows a linked icon in its sheet, then fetches
+# it again when it saves the app, and that fetch doesn't make it: the Home Screen (and so every alert) got a
+# letter tile, with every icon address answering a good PNG (#72). An inlined one is saved as it is.
+INLINED = re.compile(r'href="/static/img/((?:apple-touch-icon|favicon-32)\.png)(?:\?[^"]*)?"')
+
+
+@functools.cache
+def _data_uri(name: str) -> str:
+    return "data:image/png;base64," + base64.b64encode((STATIC / "img" / name).read_bytes()).decode()
+
+
+def inline_icons(doc: str) -> str:
+    return INLINED.sub(lambda m: f'href="{_data_uri(m[1])}"', doc)
 
 
 @router.get("/p/{photo_id}")

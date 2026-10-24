@@ -1,5 +1,6 @@
 """Alerts (alerts.py) and Web Push (push.py): what's worth a notification, the cool-down, the devices turned on,
 and a push service saying a device is gone."""
+import base64
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from coconut_barometer import settings as S
 from coconut_barometer.alerts import Alerts
 from coconut_barometer.config import from_dict
 from coconut_barometer.store import Store
-from coconut_barometer.web.app import create_app
+from coconut_barometer.web.app import STATIC, create_app
 from coconut_barometer.web.security import hash_password
 
 STATION = {"station_id": 7, "name": "Backyard", "latitude": 30.27, "longitude": -97.74, "timezone": "America/Chicago",
@@ -240,12 +241,14 @@ class PushApiTest(Base):
         self.assertIn("<!doctype html>", self.c.get("/weather").text)              # other addresses still are
         self.assertEqual(self.c.head("/weather").status_code, 200)
 
-    def test_the_icons_the_page_and_manifest_link_are_served(self):
+    def test_the_page_carries_its_icons_and_the_manifest_links_served_ones(self):
+        # Inlined: iOS saves a linked touch icon by fetching it again, and got a letter tile instead (#72).
         page = self.c.get("/").text
-        links = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]* href="([^"]+)"', page)
-        links += [i["src"] for i in self.c.get("/static/manifest.webmanifest").json()["icons"]]
-        self.assertTrue(any("apple-touch-icon" in u for u in links))
-        for u in links:
+        for rel, name in (("apple-touch-icon", "apple-touch-icon.png"), ("icon", "favicon-32.png")):
+            uri = re.search(rf'<link rel="{rel}"[^>]* href="data:image/png;base64,([^"]+)"', page)
+            self.assertIsNotNone(uri, rel)
+            self.assertEqual(base64.b64decode(uri[1]), (STATIC / "img" / name).read_bytes(), rel)
+        for u in [i["src"] for i in self.c.get("/static/manifest.webmanifest").json()["icons"]]:
             r = self.c.get(u)
             self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"), u)
 
