@@ -6,7 +6,7 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 // ---- remembered per device ------------------------------------------------------------------------------------
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
 export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, lightning: true,
-  sat: "", radarOpacity: 0.85, satOpacity: 0.9, basemap: "auto" };
+  temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
@@ -201,7 +201,7 @@ const FOCUSABLE = "button, input, a[href]";
 
 // What's on, for the closed button.
 export const layersSummary = (l) => [l.radar && "Radar", l.storms && "Storms", l.hazards && "Warnings", l.fronts && "Fronts",
-  l.lightning && "Lightning", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
+  l.lightning && "Lightning", l.temp && "Temp", l.wind && "Wind", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
 
 export function LayersPanel({ layers, set, strikes, legend, notes }) {
   const [open, setOpen] = useState(false);
@@ -256,6 +256,9 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         ${check("hazardsMinor", "with advisories & marine", !layers.hazards, "wxlayer wxsub")}
         ${check("fronts", "Fronts")}
         ${check("lightning", `Lightning${strikes ? ` (${strikes})` : ""}`)}
+        <h3>Surface</h3>
+        <div class="wxrow">${check("temp", "Temperature")}${slider("tempOpacity", "Temperature opacity", !layers.temp)}</div>
+        ${check("wind", "Surface wind")}
         <h3>Satellite</h3>
         <div class="wxrow"><span class="wxradios" role="radiogroup" aria-label="Satellite">${SATS.map(([k, l]) => html`<label key=${k}>
           <input type="radio" name="wxsat" checked=${layers.sat === k} onChange=${() => set({ sat: k })} /><span>${l}</span></label>`)}</span>

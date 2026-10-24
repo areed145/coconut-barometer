@@ -96,6 +96,13 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('useFeed(showHazards, view && `/api/wx/hazards?${radarQuery(view)}`, 120000)', m)
         self.assertIn('createPane("wxhazards").style.zIndex = 355', m)      # under the radar: echoes show through
         self.assertIn("if (x.pending) soon = setTimeout(load, PENDING_MS);", m)
+        self.assertIn('check("temp", "Temperature")', c)                    # RTMA's temperature and wind (#85, #86)
+        self.assertIn('slider("tempOpacity", "Temperature opacity", !layers.temp)', c)
+        self.assertIn('check("wind", "Surface wind")', c)
+        self.assertIn('createPane("wxtemp").style.zIndex = 345', m)
+        self.assertIn('createPane("wxwind").style.zIndex = 365', m)
+        self.assertIn("useFeed(showTemp, surfaceQuery && `/api/wx/temperature?${surfaceQuery}`, 5 * 60000)", m)
+        self.assertIn("inside(v, map.current, SURFACE_ZOOMS) ? v : viewFor(map.current, SURFACE_ZOOMS)", m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
         self.assertIn('fetch("/api/wx/map/errors"', m)
@@ -192,6 +199,40 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertEqual(out, {"level": "fine", "both": ["tor", "watch"], "hole": [], "minor": ["watch", "sca"], "outside": [], "none": None})
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_surface_grids_read_back_and_wind_arrows_agree_with_the_pins(self):
+        """#85, #86: a grid decoded from int16 tenths and read bilinearly (NaN off it and beside a missing point);
+        a wind arrow points the way the wind blows, as a station pin's arrow does (rotated wind_dir + 180)."""
+        script = r"""
+          import { decodeGrid, sample, arrow, TEMP_STOPS } from "%s";
+          import { rampColor } from "%s";
+          const ints = new Int16Array([100, 200, 300, 400, 500, -32768]);         // 2 rows of 3: 10, 20, 30 / 40, 50, -
+          const b64 = Buffer.from(ints.buffer).toString("base64");
+          const g = decodeGrid({ valid: 1, lat0: 30, lon0: -100, dlat: 1, dlon: 1, nx: 3, ny: 2, scale: 0.1, missing: -32768, fields: { t: b64 } });
+          const at = (lat, lon) => { const v = sample(g, "t", lat, lon); return Number.isNaN(v) ? null : Math.round(v * 100) / 100; };
+          // A recording canvas: the first stroke's moveTo (tail) and lineTo (tip).
+          const bearing = (u, v) => {
+            const pts = [];
+            const ctx = new Proxy({}, { get: (_, k) => (k === "moveTo" || k === "lineTo" ? (x, y) => pts.push([x, y]) : () => {}), set: () => true });
+            arrow(ctx, 0, 0, u, v, 40, "#fff");
+            const [[x0, y0], [x1, y1]] = pts;
+            return Math.round(((Math.atan2(x1 - x0, -(y1 - y0)) * 180) / Math.PI + 360) %% 360);
+          };
+          const from = [0, 90, 225, 300], pins = from.map((d) => (d + 180) %% 360);
+          const arrows = from.map((d) => { const r = (d * Math.PI) / 180; return bearing(-5 * Math.sin(r), -5 * Math.cos(r)); });
+          console.log(JSON.stringify({ corner: at(30, -100), mid: at(30, -99.5), off: at(29, -100), missing: at(30.5, -98.5),
+            none: decodeGrid(null), pins, arrows, freezing: rampColor(TEMP_STOPS, 0) }));
+        """ % (os.path.join(STATIC, "js", "surface_layer.js"), os.path.join(STATIC, "js", "ramp.js"))
+        stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
+        with open(stub, "w") as f:
+            f.write(script)
+        r = subprocess.run([NODE, stub], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual((out["corner"], out["mid"], out["off"], out["missing"], out["none"]), (10, 15, None, None, None))
+        self.assertEqual(out["arrows"], out["pins"])                        # the way it blows, as the pins show it
+        self.assertEqual(out["freezing"], "#4fc3f7")                        # 32 °F is a stop of its own
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_the_loop_is_the_hour_both_radar_and_satellite_cover(self):
