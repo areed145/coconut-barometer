@@ -90,6 +90,13 @@ class MapTest(unittest.TestCase):
         self.assertTrue(any("theme.color_low: should be a color" in e for e in errors))
         self.assertTrue(any("map.expand_at" in e for e in errors))
 
+    def test_radar_color_stops_each_need_their_own_dbz(self):
+        same = [{"dbz": 20, "color": "#000000"}, {"dbz": 20, "color": "#ffffff"}]
+        raw = {"theme": {"radar_colors": same}}
+        self.assertIn("theme.radar_colors: two stops at the same dBZ; give each its own", validate(raw, _merge(DEFAULTS, raw))[0])
+        raw = {"theme": {"radar_colors": [same[0], {"dbz": 30, "color": "#ffffff"}]}}
+        self.assertEqual([e for e in validate(raw, _merge(DEFAULTS, raw))[0] if "radar_colors" in e], [])
+
     def test_tiles_are_allowed_and_the_libraries_are_here(self):
         self.assertIn("https://basemaps.cartocdn.com ", CSP)
         loader = open(os.path.join(STATIC, "js", "leaflet.js")).read()

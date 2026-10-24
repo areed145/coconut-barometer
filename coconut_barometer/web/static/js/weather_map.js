@@ -10,7 +10,7 @@
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
-import { decode, radarCanvas } from "./radar_layer.js";
+import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
 import { loopWindow } from "./wx_loop.js";
 
@@ -18,20 +18,6 @@ const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const SATS = [["", "No satellite"], ["geocolor", "Satellite: color"], ["infrared", "Satellite: infrared"]];
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
-// The color at `dbz`, blended between the nearest stops of Settings → Display → Radar colors.
-function radarColor(stops, dbz) {
-  const s = [...stops].sort((a, b) => a.dbz - b.dbz);
-  if (dbz <= s[0].dbz) return s[0].color;
-  const j = s.findIndex((x) => x.dbz >= dbz);
-  if (j < 0) return s[s.length - 1].color;
-  const [a, b] = [s[j - 1], s[j]], k = (dbz - a.dbz) / (b.dbz - a.dbz);
-  return `rgb(${hex(a.color).map((x, i) => Math.round(x + (hex(b.color)[i] - x) * k)).join(",")})`;
-}
-const radarScale = (stops) => {
-  const s = [...stops].sort((a, b) => a.dbz - b.dbz), lo = s[0].dbz, hi = s[s.length - 1].dbz;
-  return `linear-gradient(90deg, ${s.map((x) => `${x.color} ${Math.round(((x.dbz - lo) / (hi - lo || 1)) * 100)}%`).join(", ")})`;
-};
 
 const FINE_ZOOM = 6;          // radar.py FINE_ZOOM: from here in, the ~2 km shapes for the view
 const LOADING = 4;            // loop frames fetched at once
@@ -102,7 +88,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const [, setLoaded] = useState(0);               // bumped as they arrive
   const [sat, setSat] = useState("");
   const [showRings, setShowRings] = useState(true);
-  const [opacity, setOpacity] = useState(0.7);
+  const [opacity, setOpacity] = useState(0.85);
   const [idx, setIdx] = useState(null);            // position in the loop; null = the newest frame
   const [playing, setPlaying] = useState(false);
 
@@ -213,7 +199,10 @@ export function WxMap({ show, unitsFor, compass }) {
   const frameOf = (rt) => (rt == null ? null : kept.current.get(rt) || (live_?.t === rt ? live_ : null));
   const shownRadar = past ? radarAt(t) : null;
   const vector = !radarOn ? null : past ? frameOf(shownRadar) : live_;
-  const colors = live_?.colors;
+  // The radar colors: as the newest radar came with them, else the last ones known, else the defaults (#75).
+  const lastColors = useRef(DEFAULT_STOPS);
+  if (live_?.colors?.length) lastColors.current = live_.colors;
+  const colors = lastColors.current;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
   useEffect(() => {
     for (const [k, layer] of tiles.current.sat) layer.setOpacity(shownSat && k === `${sat}:${shownSat.time}` ? Math.min(1, opacity + 0.2) : 0);
@@ -276,7 +265,7 @@ export function WxMap({ show, unitsFor, compass }) {
   useEffect(() => {
     if (!ready || !canvas.current) return;
     const shapes = showRadar && colors ? vector?.shapes : null;
-    canvas.current.set(shapes, (dbz) => radarColor(colors, dbz + 2.5)).setOpacity(opacity);
+    canvas.current.set(shapes, (dbz) => levelColor(colors, dbz)).setOpacity(opacity);
   }, [ready, vector, colors, showRadar, opacity]);
 
   // Storm cells: a dot colored by strength, and a dashed line to where it'll be in 30 and 60 minutes.
@@ -287,16 +276,17 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!showStorms || !vector || !colors) return;
     const unit = live_.units;
     for (const c of vector.cells) {
-      const color = radarColor(colors, c.dbz || 0);
+      const color = levelColor(colors, c.dbz) ?? css("--muted");     // its level's color; unknown: neutral
       const moving = c.kmh ? `moving ${COMPASS[Math.round(c.toward / 45) % 8]} at ${show(unit, "speed", c.kmh / 3.6, 0)}` : "barely moving";
       const tip = [`${c.dbz} dBZ storm, ${moving}`, c.posh >= 30 && `hail likely (${c.posh}% severe)`, c.tvs && "tornado vortex signature",
         c.kmh && "dashes: 30 and 60 minutes on its present course", c.valid && `scanned ${clock(c.valid)}`].filter(Boolean).join(" · ");
-      if (c.kmh) L.polyline(c.path, { color, weight: 2, dashArray: "4 6", interactive: false }).addTo(group);
-      for (const p of c.kmh ? c.path.slice(1) : []) L.circleMarker(p, { radius: 2, color, weight: 1, fillOpacity: 1, interactive: false }).addTo(group);
-      L.circleMarker(c.path[0], { radius: c.tvs || c.posh >= 30 ? 8 : 6, color: css("--fg"), weight: c.tvs ? 3 : 1, fillColor: color, fillOpacity: 0.95 })
+      // Faded as the radar is, so a storm and the level under it look the same color (#75).
+      if (c.kmh) L.polyline(c.path, { color, weight: 2, dashArray: "4 6", opacity, interactive: false }).addTo(group);
+      for (const p of c.kmh ? c.path.slice(1) : []) L.circleMarker(p, { radius: 2, color, weight: 1, opacity, fillOpacity: opacity, interactive: false }).addTo(group);
+      L.circleMarker(c.path[0], { radius: c.tvs || c.posh >= 30 ? 8 : 6, color: css("--fg"), weight: c.tvs ? 3 : 1, fillColor: color, fillOpacity: opacity })
         .bindTooltip(tip, { sticky: true }).addTo(group);
     }
-  }, [ready, vector, colors, showStorms, live]);
+  }, [ready, vector, colors, showStorms, live, opacity]);
 
   // Station pins: the temperature, an arrow the way the wind blows, and a popup of the main readings.
   useEffect(() => {
@@ -376,7 +366,7 @@ export function WxMap({ show, unitsFor, compass }) {
       <label class="muted wxopacity">Opacity <input type="range" min="0.2" max="1" step="0.05" value=${opacity} onInput=${(e) => setOpacity(Number(e.target.value))} /></label>
     </div>
     <div class="mapwrap" ref=${box}></div>
-    <p class="muted heatkey">${showRadar && colors && html`<span>radar: light</span><i style=${`background: ${radarScale(colors)}`}></i><span>heavy / hail</span>`}
+    <p class="muted heatkey">${showRadar && colors && html`<span>radar: light</span><i style=${`background: ${radarScale(colors)}; opacity: ${opacity}`}></i><span>heavy / hail</span>`}
       <span>${showRings ? "Rings: lightning in the last hour, at the distance the station measured (it can't tell direction)." : ""}
         ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
         ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}

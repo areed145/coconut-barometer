@@ -5,6 +5,35 @@
 // whichever frame it's given, culling to the view, so a loop step is one canvas redraw - nothing is rebuilt and no
 // Leaflet object is made per polygon.
 
+// ---- colors (Settings → Display → Radar colors: dBZ → color stops), one place for the levels, the storm cells,
+// the legend and the alert page (#75) ---------------------------------------------------------------------------
+export const DEFAULT_STOPS = [{ dbz: 15, color: "#8fd3ff" }, { dbz: 25, color: "#2fa84f" }, { dbz: 35, color: "#f2d22e" },
+  { dbz: 45, color: "#f28c28" }, { dbz: 55, color: "#d7301f" }, { dbz: 65, color: "#b03ab5" }];   // config.py's
+export const BAND = 5, LOWEST = 15, HIGHEST = 75;      // radar.py: a level per 5 dBZ, 15 up to 75 and over
+const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+// The color at `dbz`, blended between the stops either side; below the first or above the last, theirs.
+export function radarColor(stops, dbz) {
+  const s = [...(stops?.length ? stops : DEFAULT_STOPS)].sort((a, b) => a.dbz - b.dbz);
+  if (dbz <= s[0].dbz) return s[0].color;
+  const j = s.findIndex((x) => x.dbz >= dbz);
+  if (j < 0) return s[s.length - 1].color;
+  const [a, b] = [s[j - 1], s[j]];
+  if (b.dbz === a.dbz || b.dbz === dbz) return b.color;   // on a stop (or two stops at one dBZ): that stop's color
+  const k = (dbz - a.dbz) / (b.dbz - a.dbz);
+  return `rgb(${hex(a.color).map((x, i) => Math.round(x + (hex(b.color)[i] - x) * k)).join(",")})`;
+}
+// What a level is drawn in, and a storm cell of that strength: the color at the floor of its level, so each stop's
+// color is exactly what shows for the level it starts, and the levels between stops blend. null: no dBZ known.
+export const levelColor = (stops, dbz) => (dbz == null ? null : radarColor(stops, Math.max(LOWEST, Math.floor(dbz / BAND) * BAND)));
+// The legend: a block of each level's color, as the map draws them.
+export function radarScale(stops) {
+  const n = (HIGHEST - LOWEST) / BAND + 1, at = (i) => `${((i / n) * 100).toFixed(2)}%`;
+  return `linear-gradient(90deg, ${Array.from({ length: n }, (_, i) => {
+    const c = levelColor(stops, LOWEST + i * BAND);
+    return `${c} ${at(i)} ${at(i + 1)}`;
+  }).join(", ")})`;
+}
+
 const mx = (lon) => (lon + 180) / 360;
 const my = (lat) => {
   const s = Math.sin((Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180);

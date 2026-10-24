@@ -373,6 +373,8 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             and isinstance(s["color"], str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["color"]) for s in stops)
         if not ok:
             errors.append("theme.radar_colors: should be at least two stops like {dbz: 20, color: \"#2fa84f\"} (dBZ 0-90)")
+        elif len({st["dbz"] for st in stops}) < len(stops):
+            errors.append("theme.radar_colors: two stops at the same dBZ; give each its own")
     checks.append(radar_colors)
 
     def github_repo():

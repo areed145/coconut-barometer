@@ -6,21 +6,12 @@ import { html, useState, useEffect, useMemo, useRef, api } from "./lib.js";
 import { unitsFor, show } from "./units.js";
 import { TimeChart } from "./weather.js";
 import { leaflet, baseMap } from "./leaflet.js";
-import { decode, radarCanvas } from "./radar_layer.js";
+import { decode, radarCanvas, levelColor } from "./radar_layer.js";
 
 const HOUR = 3600;
 const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const LABELS = { device_id: null, link: null, latitude: null, longitude: null, track: null, cell_id: "cell" };
 const label = (k) => (k in LABELS ? LABELS[k] : k.replaceAll("_", " "));
-const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
-function radarColor(stops, dbz) {
-  const s = [...stops].sort((a, b) => a.dbz - b.dbz);
-  if (dbz <= s[0].dbz) return s[0].color;
-  const j = s.findIndex((x) => x.dbz >= dbz);
-  if (j < 0) return s[s.length - 1].color;
-  const [a, b] = [s[j - 1], s[j]], k = (dbz - a.dbz) / (b.dbz - a.dbz);
-  return `rgb(${hex(a.color).map((x, i) => Math.round(x + (hex(b.color)[i] - x) * k)).join(",")})`;
-}
 // (lat, lon) moved `km` toward `deg` (degrees from north): near enough over an hour's travel.
 const ahead = (lat, lon, deg, km) => {
   const a = (deg * Math.PI) / 180;
@@ -85,11 +76,11 @@ function AlertMap({ alert, kind }) {
       }
       // The radar frame kept nearest the alert (within 10 minutes before it).
       const t = frames.frames.map((f) => f.t).filter((x) => x <= alert.at + 60 && alert.at - x <= 600).pop();
-      if (t == null || !now?.colors) { setNote("The radar from then is no longer kept (about two hours are)."); return; }
+      if (t == null) { setNote("The radar from then is no longer kept (about two hours are)."); return; }
       const b = map.getBounds().pad(0.5);
       const frame = await api(`/api/wx/radar/frame?t=${t}&zoom=8&bbox=${[b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(2)).join(",")}`);
       if (!alive) return;
-      radarCanvas(L, "wxradar").addTo(map).set(decode(frame.shapes), (dbz) => radarColor(now.colors, dbz + 2.5)).setOpacity(0.7);
+      radarCanvas(L, "wxradar").addTo(map).set(decode(frame.shapes), (dbz) => levelColor(now?.colors, dbz)).setOpacity(0.85);
       setNote(`Radar: NOAA MRMS at ${when(t)}.`);
     })().catch(() => setNote("The map couldn't load."));
     return () => { alive = false; map?.remove(); };

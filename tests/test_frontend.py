@@ -128,6 +128,30 @@ class FrontendTest(unittest.TestCase):
         page = open(os.path.join(STATIC, "js", "alert_page.js")).read()
         self.assertIn('api("/api/push/alert"', page)
 
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_radar_colors_are_the_settings_stops_everywhere(self):
+        """#75: one function for the levels, the storm cells and the legend; a stop's own color is what shows."""
+        script = r"""
+          import { radarColor, levelColor, radarScale, DEFAULT_STOPS as S } from "%s";
+          const stops = [{ dbz: 15, color: "#000000" }, { dbz: 25, color: "#ffffff" }, { dbz: 25, color: "#ff0000" }, { dbz: 45, color: "#0000ff" }];
+          console.log(JSON.stringify({
+            exact: [radarColor(S, 15), radarColor(S, 35)], between: radarColor(stops, 20), clamp: [radarColor(S, 0), radarColor(S, 99)],
+            dup: radarColor(stops, 25), dupBetween: radarColor(stops, 35),
+            level: [levelColor(S, 15), levelColor(S, 19.9), levelColor(S, 58), levelColor(S, 55), levelColor(S, null)],
+            legend: radarScale(S), firstLevels: [15, 20, 25].map((d) => levelColor(S, d)),
+          }));
+        """ % os.path.join(STATIC, "js", "radar_layer.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual(out["exact"], ["#8fd3ff", "#f2d22e"])                 # a stop: exactly its color
+        self.assertEqual(out["between"], "rgb(128,128,128)")                   # halfway between black and white
+        self.assertEqual(out["clamp"], ["#8fd3ff", "#b03ab5"])
+        self.assertNotIn("NaN", out["dup"] + out["dupBetween"])                # two stops at one dBZ: no NaN
+        self.assertEqual(out["level"][:2], ["#8fd3ff", "#8fd3ff"])            # the 15-20 level is the 15 stop's color
+        self.assertEqual(out["level"][2], out["level"][3])                     # a 58 dBZ cell: its level's (55) color
+        self.assertIsNone(out["level"][4])                                     # no dBZ: no color (drawn neutral)
+        for c in out["firstLevels"]:                                           # the legend: the levels' own colors
+            self.assertIn(c, out["legend"])
+
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)
