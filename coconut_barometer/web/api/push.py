@@ -5,7 +5,7 @@ browser's PushSubscription (and a name for the device), /api/push/unsubscribe wi
 /api/push/test to send one now (to one device, or all)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ... import push
@@ -36,6 +36,15 @@ def devices(db=Depends(store)):
 def history(db=Depends(store)):
     """The most recent alert contexts and per-device delivery outcomes."""
     return {"alerts": db.alert_log_recent()}
+
+
+@router.get("/alert")
+def alert(at: int, key: str = Query(..., min_length=1, max_length=200), db=Depends(store)):
+    """One alert, for its evidence page (#/alerts/<at>/<key>, where the notification opens)."""
+    found = db.alert_log_alert(at, key)
+    if not found:
+        raise HTTPException(404, "no such alert")
+    return found
 
 
 @router.post("/subscribe")

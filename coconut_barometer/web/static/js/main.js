@@ -29,6 +29,7 @@ const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
+const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
 const Aprs = lazy(() => import("./aprs.js"), "Aprs");
 const Igate = lazy(() => import("./igate.js"), "Igate");
 const Admin = lazy(() => import("./admin.js"), "Admin");
@@ -121,7 +122,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["home", "weather", "aprs", "status", "settings", "login"].includes(tab);
+  const inPhotos = !["home", "weather", "aprs", "status", "settings", "login", "alerts"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
@@ -140,6 +141,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
+  else if (tab === "alerts") page = session ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`   // where an alert opens (#73)
+    : html`<${Login} onLogin=${onLogin} />`;
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
 from . import push
@@ -161,7 +162,8 @@ class Alerts:
                                              "latitude": c["lat"], "longitude": c["lon"], "distance_km": round(km, 1),
                                              "speed_kmh": c["kmh"], "direction_degrees": c["toward"],
                                              "observed_kmh": c.get("obs_kmh"), "observed_direction": c.get("obs_toward"),
-                                             "steady_scans": c.get("steady"), "radar_observed_at": c["valid"], "eta_seconds": eta}})
+                                             "steady_scans": c.get("steady"), "radar_observed_at": c["valid"], "eta_seconds": eta,
+                                             "radius_km": a["storm_km"]}})
             if a["rain_minutes"]:
                 r = self.radar.closing(dev, now)
                 if r and r["km"] > rd.HERE_KM and r["kmh"] >= 5 and now - r["t"] < 15 * 60:
@@ -203,6 +205,10 @@ class Alerts:
         noted = json.loads(store.get_meta(NOTED_META) or "{}")        # "key|why" -> when it was noted
         due = []
         for x in self.check(store, now):
+            # The notification opens the alert's own page (#73): its evidence, and the chart or map from then. The
+            # full chart or map it used to open is linked from there.
+            x["evidence"] = {**x.get("evidence", {}), "link": x["url"]}
+            x["url"] = f"/#/alerts/{now}/{quote(x['key'], safe='')}"
             why, dev = x.get("why"), str(x.get("station", ""))
             if not why and x.get("kind") == "storm":
                 last = storms.get(dev)

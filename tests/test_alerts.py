@@ -103,9 +103,11 @@ class AlertsTest(Base):
             self.assertEqual((audit[0]["status"], audit[0]["device_label"]), ("sent", "Phone"))
             self.assertEqual(audit[0]["evidence"]["gust_ms"], 20.0)
             day = datetime.fromtimestamp(at, timezone.utc).date()
-            self.assertEqual(audit[0]["url"],
+            self.assertEqual(audit[0]["url"], f"/#/alerts/{at}/gust%3A11")             # its own page (#73) ...
+            self.assertEqual(audit[0]["evidence"]["link"],                               # ... which links the chart
                              f"/#/weather/history?from={(day - timedelta(days=1)).isoformat()}"
                              f"&to={(day + timedelta(days=1)).isoformat()}&station=11&chart=wind")
+            self.assertEqual(send.call_args.args[3], f"/#/alerts/{at}/gust%3A11")       # where the notification opens
             self.store.wx_save_obs(11, [obs(at + 30, gust=21.0)])
             self.assertEqual(self.alerts.run_once(self.store, at + 60), [])            # cooling down
             self.store.wx_save_obs(11, [obs(at + 3630, gust=21.0)])
@@ -201,6 +203,19 @@ class PushApiTest(Base):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["alerts"][0]["evidence"], {"gust_ms": 20.0})
         self.assertEqual(response.json()["alerts"][0]["status"], "sent")
+
+    def test_an_alert_has_its_own_page(self):
+        """#73: the notification opens #/alerts/<at>/<key>; /api/push/alert gives it, with every device's delivery."""
+        alert = {"key": "storm:11:HGX-A1", "title": "Storm ~20 min from Backyard", "body": "55 dBZ, 30 km W, moving E.",
+                 "url": "/#/alerts/1800000000/storm%3A11%3AHGX-A1", "evidence": {"dbz": 55, "link": "/#/weather/map"}}
+        for label, status in (("Phone", "sent"), ("Laptop", "failed")):
+            self.store.alert_log_add(1_800_000_000, alert, {"id": label, "label": label, "username": "owner"}, status)
+        self.assertEqual(self.c.get("/api/push/alert?at=1800000000&key=storm:11:HGX-A1").status_code, 401)
+        self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
+        d = self.c.get("/api/push/alert", params={"at": 1_800_000_000, "key": "storm:11:HGX-A1"}).json()
+        self.assertEqual((d["title"], d["evidence"]["dbz"], d["evidence"]["link"]), (alert["title"], 55, "/#/weather/map"))
+        self.assertEqual([(x["device_label"], x["status"]) for x in d["deliveries"]], [("Phone", "sent"), ("Laptop", "failed")])
+        self.assertEqual(self.c.get("/api/push/alert", params={"at": 1, "key": "storm:11:HGX-A1"}).status_code, 404)
 
     def test_turn_on_test_and_off(self):
         csrf = self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).json()["csrf"]

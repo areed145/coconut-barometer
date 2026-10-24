@@ -552,6 +552,7 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .alert-log { border-top: 1px solid var(--line); padding-top: var(--s3); }
 .alert-log-head { display: flex; justify-content: space-between; gap: var(--s2); }
 .alert-log p { margin: var(--s1) 0; }
+.alertmap { height: 360px; }
 .alert-evidence { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); color: var(--muted); font-size: var(--text-xs); }
 .savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap;
   padding: var(--s3) calc(var(--gutter) + var(--safe-r)) calc(var(--s3) + var(--safe-b)) calc(var(--gutter) + var(--safe-l));

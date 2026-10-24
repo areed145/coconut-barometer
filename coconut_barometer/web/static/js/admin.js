@@ -289,7 +289,7 @@ function AlertsPanel() {
         <div class="alert-log-head"><b>${x.title}</b><span class=${x.status === "sent" ? "up" : "problem"}>${x.status}</span></div>
         <p>${x.body}</p>
         <p class="muted">${new Date(x.at * 1000).toLocaleString()} · ${x.device_label} · ${x.username}</p>
-        ${Object.keys(x.evidence || {}).length > 0 && html`<p class="alert-evidence">${Object.entries(x.evidence).map(([k, v]) =>
+        ${Object.keys(x.evidence || {}).length > 0 && html`<p class="alert-evidence">${Object.entries(x.evidence).filter(([k]) => k !== "link").map(([k, v]) =>
           html`<span>${k.replaceAll("_", " ")}: ${String(v)}</span>`)}</p>`}
         ${x.detail && html`<p class="problem">${x.detail}</p>`}
         <a href=${x.url}>View chart or map</a>

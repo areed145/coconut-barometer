@@ -220,7 +220,7 @@ const pickRange = (from, to) => ({ from, to, range: [
 const RANGES = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365]];
 
 // `marks`: [{values, color}] shades the background of every point whose value is truthy, `step` seconds wide.
-function TimeChart({ t, series, height = 200, unit = "", bars = false, marks = [], step = 0 }) {
+export function TimeChart({ t, series, height = 200, unit = "", bars = false, marks = [], step = 0 }) {
   const box = useRef(null);
   const theme = useThemeTick();
   useEffect(() => {

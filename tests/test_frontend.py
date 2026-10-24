@@ -121,6 +121,13 @@ class FrontendTest(unittest.TestCase):
         self.assertTrue(out["alone"][2] and out["satOnly"])
         self.assertEqual(out["filling"][0], now)                               # no radar in that hour yet: the radar's own
 
+    def test_an_alert_opens_its_own_page(self):
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        self.assertIn('lazy(() => import("./alert_page.js"), "AlertPage")', main)
+        self.assertIn('tab === "alerts"', main)                             # #/alerts/<at>/<key> (#73)
+        page = open(os.path.join(STATIC, "js", "alert_page.js")).read()
+        self.assertIn('api("/api/push/alert"', page)
+
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)
@@ -140,7 +147,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('const parts = (path || "home").split("/");', lib)          # an empty address is Home
         self.assertIn('<a class="brand" href="#/" aria-label="Coconut Barometer: Home">', main)
         self.assertIn('if (tab === "home") page = html`<${Home}', main)
-        self.assertIn('!["home", "weather", "aprs", "status", "settings", "login"].includes(tab)', main)   # not a Photos page
+        self.assertIn('!["home", "weather", "aprs", "status", "settings", "login", "alerts"].includes(tab)', main)   # not a Photos page
         for href in ('"#/photos"', '"#/weather"', '"#/aprs"'):
             self.assertIn(f"href={href}", home)
         self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only
