@@ -5,7 +5,8 @@
     ok    working    warn  working, but something's behind or failed once    bad  not working
     off   not set up (left out of `overall`)
 
-Visitors get the public services only (WeatherFlow, APRS-IS, satellite and radar), without error text; signed
+Visitors get the public services only (WeatherFlow, APRS-IS, and the Weather map's satellite, radar, lightning,
+fronts and watches and warnings), without error text; signed
 in, every row, with the error and where it's fixed. Each row is read from what the app already tracks (the
 streams' state, the activity log, the sync and backup records); nothing here calls out, except Flickr's
 sign-in check, made at most every FLICKR_CHECK seconds. Cached for CACHE_SECONDS.
@@ -28,7 +29,9 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 CACHE_SECONDS, FLICKR_CHECK = 15, 600
 STALE_WARN, STALE_BAD = 15 * 60, 60 * 60          # a station's newest observation, this old
 LEVELS = ("ok", "off", "warn", "bad")             # worse to the right; "off" doesn't count
-PUBLIC = ("weatherflow", "aprs", "imagery", "radar")
+PUBLIC = ("weatherflow", "aprs", "imagery", "radar", "lightning", "fronts", "hazards")
+FEED_LATE = {"lightning": (10 * 60, 30 * 60), "fronts": (6 * 3600, 12 * 3600)}   # its newest data this much older than
+                                                                                 # the check: warn, bad
 _cache: dict[tuple, tuple] = {}
 _flickr_check: dict = {"at": 0.0, "status": None}   # the last sign-in check
 
@@ -132,6 +135,50 @@ def _imagery(now) -> dict:
                "; ".join(f"{k}: {e}" for k, e in down.items()) or None, "#/weather/map", int(at))
 
 
+def _feed(id_, name, feed, now, describe, newest=None) -> dict:
+    """A Weather map layer fetched while the map asks (weather/feed.py): what it last got, never fetching for the panel.
+    It's checked only while someone has the map open, so a long-ago check isn't trouble; data that was already old
+    when it was checked (FEED_LATE), or a failed check, is."""
+    with feed._lock:
+        data, checked, error = feed.data, feed.checked_at, feed.error
+    if checked is None:
+        return row(id_, name, "ok", "checked when the weather map shows it", href="#/weather/map")
+    t = newest(data) if newest and data else None
+    warn, bad = FEED_LATE.get(id_, (None, None))
+    late = t is not None and warn is not None and checked - t > warn
+    level = "bad" if data is None or (error and late) or (t is not None and bad and checked - t > bad) \
+        else "warn" if error or late else "ok"
+    state = (describe(data) if data else "nothing yet") + f" · checked {_ago(now, checked)}"
+    if error:
+        state = "last check failed · " + state
+    return row(id_, name, level, state, error, "#/weather/map", int(t or checked))
+
+
+def _lightning(now) -> dict:
+    from ...weather.glm import glm
+
+    return _feed("lightning", "Lightning", glm, now, newest=lambda d: d["newest"],
+                 describe=lambda d: f"GOES-East GLM, newest {_ago(glm.checked_at or now, d['newest'])} when checked · "
+                                    f"{len(d['t']):,} flashes held" if d["newest"] else "no flashes held")
+
+
+def _fronts(now) -> dict:
+    from ...weather.fronts import fronts
+
+    return _feed("fronts", "Fronts", fronts, now, newest=lambda d: d["valid"],
+                 describe=lambda d: f"WPC analysis for {time.strftime('%H:%MZ', time.gmtime(d['valid']))}, "
+                                    f"{len(d['fronts'])} fronts")
+
+
+def _hazards(now) -> dict:
+    from ...weather.hazards import hazards
+
+    def describe(d):
+        major = sum(not a["minor"] for a in d["alerts"])
+        return f"{major} watch{'es' if major != 1 else ''} and warnings, {len(d['alerts']) - major} advisories and statements"
+    return _feed("hazards", "Watches & warnings", hazards, now, describe=describe)
+
+
 def _radar(rt, now) -> dict:
     snap = rt.radar.snapshot()
     if rt.radar.checked_at is None:
@@ -196,7 +243,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     hit = _cache.get((rt.db_path, me is None))
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
-    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now)]
+    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
     if me is not None:
         rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _visitors(rt, now), _error_reports(now)]
     else:
