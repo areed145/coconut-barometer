@@ -99,6 +99,8 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     @app.middleware("http")
     async def add_headers(request: Request, call_next):
         response = await call_next(request)
+        if request.url.path.startswith("/static/icontest/bare/"):     # TEMPORARY (#72): an icon with none of these
+            return response
         for k, v in headers.items():
             response.headers.setdefault(k, v)
         if request.url.path.startswith("/api/"):
