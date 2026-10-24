@@ -5,9 +5,10 @@ rain and storm alerts need (alerts.py).
   radar merged), every 2 minutes on a 0.01° (~1 km) grid over the US. The `latest` file is fetched only when it
   has changed (If-Modified-Since). Its GRIB2 data is a PNG, so Pillow decodes it, once, and it's used twice:
     the map    the whole US, each US_BLOCK×US_BLOCK block kept at its strongest (~2 km, so a core isn't averaged
-               away), cleaned of specks, smoothed, and contoured (contourpy) on every US_THIN-th point (~4 km)
-               into a filled polygon per BAND_STEP dBZ band. The browser colors the bands from Settings → Display
-               → Radar colors. Shrinking first keeps the memory down (~150 MB at the peak, not ~500).
+               away), cleaned of specks, and traced (contourpy) at two LEVELS of detail into a shape per BAND_STEP
+               dBZ level and up (encode()). A request gets the fine level for the part of the US in view when zoomed
+               in, the coarse one zoomed out (view()); the browser draws them on one canvas, colored from Settings →
+               Display → Radar colors. Shrinking first keeps the memory down (~170 MB at the peak, not ~500).
     alerts     MARGIN degrees around the stations at the full ~1 km, cleaned (not smoothed): the distance from
                each station to the nearest rain.
 - Storm cells: the NWS radars' own storm tracking, as the Iowa Environmental Mesonet publishes it: every
@@ -45,15 +46,18 @@ FRAME_EVERY, CELLS_EVERY, TICK = 120, 300, 20     # seconds
 MARGIN = 3.0             # degrees around the stations (~330 km): the rain alert's reach
 MIN_DBZ = 15             # weaker is left out (drizzle, and what's left of clutter)
 SPECK_PX = 6             # connected echo smaller than this many ~1 km² pixels is dropped
-SMOOTH = 1.5             # Gaussian sigma, in pixels, for the shapes (the alerts use the unsmoothed field) ...
-THIN = 2                 # ... which are then traced on every THIN-th pixel: smooth anyway, and far fewer points
-US_BLOCK, US_SPECK, US_SMOOTH, US_THIN = 2, 2, 1.0, 2   # the map's whole-US field: the same, on ~2 km pixels
-MIN_RING = 4e-4          # deg² (~4 km²): smaller rings (specks, pinholes) are left out of the shapes
+US_BLOCK, US_SPECK = 2, 2   # the map's whole-US field: ~2 km pixels (each 2×2 block at its strongest), and specks
+# The map's two levels of detail, both from that field: name -> (Gaussian sigma in its pixels, traced on every n-th
+# pixel, coordinates in whole 1/q degrees). Fine is ~2 km, sent only for the part of the US in view; coarse is ~8 km
+# for the whole US, zoomed out, where a screen pixel is several km anyway.
+LEVELS = {"fine": (1.0, 1, 1000), "coarse": (2.0, 4, 100)}
+FINE_ZOOM = 6            # the map's zoom from which the fine level is sent (a pixel is ~2 km there)
 SAME_CELL_KM = 8         # cells this close are one storm seen by more than one radar
 BAND_STEP, BAND_TOP = 5, 75
 RAIN_DBZ, HERE_KM = 20, 3.0          # rain, and close enough to be raining at the station already
 RAIN_HISTORY, RAIN_WINDOW = 20, 20 * 60
 KM_PER_DEG = 111.2
+STORED_CACHE = 36       # loop frames held in memory once read (about the whole loop: ~1 MB each)
 LOOP_WINDOW = 65 * 60    # the radar loop's frames (and the storm cells with each) are kept on disk this long, then deleted
 
 
@@ -131,30 +135,67 @@ def clean(dbz: np.ndarray, speck_px: int = SPECK_PX) -> np.ndarray:
     return dbz
 
 
-def bands(field: dict, z: np.ndarray, smooth: float = SMOOTH, thin: int = THIN) -> list[dict]:
-    """Filled polygons per BAND_STEP dBZ, as GeoJSON features ({"dbz": the band's floor})."""
+def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list[list]:
+    """The map's shapes at one level of detail: for each BAND_STEP dBZ level, everything at that level *or above*
+    (so the bands are drawn stacked, lowest first, and neighbours can't show a seam between them: #67), as
+    [dbz, [poly, ...]]. A poly is [west, south, east, north, text]: its bounds in whole 1/q degrees, and its JSON
+    text `[w,s,e,n,ring,ring...]` (the outer ring first, then its holes), each ring flat `[x0,y0,dx1,dy1,...]`, every
+    point after the first the step from the one before. The text is made once, here: a request picks the polys in
+    view and joins their texts (view())."""
     import contourpy
     from scipy import ndimage
 
-    smooth = ndimage.gaussian_filter(z, smooth)[::thin, ::thin][::-1]   # south at row 0, for ascending y
-    ny, nx = smooth.shape
+    grid = ndimage.gaussian_filter(z, smooth)[::thin, ::thin][::-1]     # south at row 0, for ascending y
+    ny, nx = grid.shape
     di, dj = field["di"] * thin, field["dj"] * thin
     xs = field["west"] + np.arange(nx) * di
     ys = field["north"] - (ny - 1 - np.arange(ny)) * dj
-    gen = contourpy.contour_generator(xs, ys, smooth, fill_type=contourpy.FillType.OuterOffset)
+    gen = contourpy.contour_generator(xs, ys, grid, fill_type=contourpy.FillType.OuterOffset)
+    min_area = di * dj                     # a ring smaller than one traced cell is a speck or a pinhole
     out = []
     for lo in range(MIN_DBZ, BAND_TOP + 1, BAND_STEP):
-        points, offsets = gen.filled(lo, lo + BAND_STEP if lo < BAND_TOP else 1000)
+        points, offsets = gen.filled(lo, 1000)
         polys = []
         for pts, offs in zip(points, offsets):
-            rings = [np.round(pts[a:b], 3).tolist() for a, b in zip(offs[:-1], offs[1:])
-                     if b - a >= 4 and _area(pts[a:b]) >= MIN_RING]
-            if rings and _area(pts[offs[0]:offs[1]]) >= MIN_RING:      # the outer ring first, then its holes
-                polys.append(rings)
+            rings = []
+            for i, (a, b) in enumerate(zip(offs[:-1], offs[1:])):
+                if b - a < 4 or _area(pts[a:b]) < min_area:
+                    if i == 0:
+                        break                  # no outer ring: none of its holes either
+                    continue
+                qi = np.round(pts[a:b] * q).astype(np.int64)
+                step = np.diff(qi, axis=0)
+                qi = np.vstack([qi[:1], qi[1:][np.any(step != 0, axis=1)]])   # rounding can repeat a point
+                if len(qi) > 1 and (qi[0] == qi[-1]).all():
+                    qi = qi[:-1]                                              # closed by the drawing, not a point
+                if len(qi) < 3:
+                    if i == 0:
+                        break
+                    continue
+                if i == 0:
+                    (w, s), (e, n) = qi.min(axis=0), qi.max(axis=0)
+                rings.append(np.concatenate([qi[:1], np.diff(qi, axis=0)]).ravel().tolist())
+            if rings:
+                bounds = [int(w), int(s), int(e), int(n)]
+                polys.append([*bounds, json.dumps([*bounds, *rings], separators=(",", ":"))])
         if polys:
-            out.append({"type": "Feature", "properties": {"dbz": lo},
-                        "geometry": {"type": "MultiPolygon", "coordinates": polys}})
+            out.append([lo, polys])
     return out
+
+
+def view(frame: dict, bbox: tuple | None = None, zoom: float | None = None) -> str:
+    """A frame's shapes for the map, as JSON text: the fine level from FINE_ZOOM in (only the polys touching `bbox`,
+    west/south/east/north degrees), else the coarse one (also filtered, if `bbox` is given)."""
+    level = "fine" if zoom is not None and zoom >= FINE_ZOOM else "coarse"
+    q = LEVELS[level][2]
+    if bbox:
+        w, s, e, n = (x * q for x in bbox)
+    bands = []
+    for dbz, polys in (frame.get("levels") or {}).get(level, []):
+        texts = [p[4] for p in polys if not bbox or (p[0] <= e and p[2] >= w and p[1] <= n and p[3] >= s)]
+        if texts:
+            bands.append(f'{{"dbz":{dbz},"polys":[{",".join(texts)}]}}')
+    return f'{{"level":"{level}","q":{q},"bands":[{",".join(bands)}]}}'
 
 
 def _area(ring: np.ndarray) -> float:
@@ -251,6 +292,7 @@ class RadarService:
         self._modified: str | None = None
         self._next = {"frame": 0.0, "cells": 0.0}
         self._thread: threading.Thread | None = None
+        self._stored: dict[int, dict] = {}       # stored(): the frames read last, oldest first
         self.dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), "radar_frames") if db_path else None
 
     def stations(self, store) -> list[dict]:
@@ -284,9 +326,10 @@ class RadarService:
         msg = decode(data)
         raw = grid(msg)
         us = crop(msg, raw=raw, block=US_BLOCK)
+        z = clean(us.pop("dbz"), US_SPECK)
         frame = {"t": msg["t"], "box": (msg["la1"] - msg["nj"] * msg["dj"], msg["la1"], msg["lo1"], msg["lo1"] + msg["ni"] * msg["di"]),
-                 "bands": bands(us, clean(us.pop("dbz"), US_SPECK), US_SMOOTH, US_THIN)}
-        del us
+                 "levels": {name: encode(us, z, *spec) for name, spec in LEVELS.items()}}
+        del us, z
         lats, lons = [s["lat"] for s in stations], [s["lon"] for s in stations]
         field = crop(msg, min(lats) - MARGIN, max(lats) + MARGIN, min(lons) - MARGIN, max(lons) + MARGIN, raw=raw)
         del raw
@@ -335,14 +378,23 @@ class RadarService:
         return self._times()
 
     def stored(self, t: int) -> dict | None:
-        """A kept frame: {t, box, bands, cells}, or None."""
+        """A kept frame: {t, box, levels, cells}, or None. The last STORED_CACHE read are kept in memory: a playing
+        loop asks for each again whenever the map moves."""
+        with self.lock:
+            if t in self._stored:
+                return self._stored[t]
         if not self.dir or t not in self._times():
             return None
         try:
             with gzip.open(self._path(t), "rt", encoding="utf-8") as f:
-                return json.load(f)
+                frame = json.load(f)
         except (OSError, ValueError):
             return None
+        with self.lock:
+            self._stored[t] = frame
+            while len(self._stored) > STORED_CACHE:
+                self._stored.pop(next(iter(self._stored)))
+        return frame
 
     def refresh_cells(self, _stations: list[dict]) -> None:
         with activity.log.call("radar", "storm cells (IEM)") as a:

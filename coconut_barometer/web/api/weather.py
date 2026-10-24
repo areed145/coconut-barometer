@@ -2,9 +2,10 @@
 Public (read-only); starting a sync needs a login."""
 from __future__ import annotations
 
+import json
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ...weather.imagery import Imagery
 from ..deps import runtime, session, store
@@ -125,20 +126,47 @@ def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(ima
             **im.frames()}
 
 
-@router.get("/radar")
-def radar(rt=Depends(runtime)):
-    """The Map tab's smooth radar: the newest MRMS frame over the US as filled polygons per dBZ band
-    (colored in the browser from Settings → Display → Radar colors), and nationwide storm cells with where
-    each will be in 30 and 60 minutes on its present course."""
+def _bbox(bbox: str | None) -> tuple | None:
+    """`west,south,east,north` in degrees (the map's view, padded by the browser), or None for the whole US."""
+    if not bbox:
+        return None
+    try:
+        w, s, e, n = (float(x) for x in bbox.split(","))
+    except ValueError:
+        raise HTTPException(422, "bbox: west,south,east,north")
+    if not (-180 <= w < e <= 180 and -90 <= s < n <= 90):
+        raise HTTPException(422, "bbox: west,south,east,north")
+    return w, s, e, n
+
+
+def _cells(cells: list[dict], at: float, bbox: tuple | None) -> list[dict]:
+    """Storm cells (in `bbox`, give or take a degree), with where each is at `at` and 30 and 60 minutes on."""
     from ...weather.radar import where_at
 
-    snap, now = rt.radar.snapshot(), time.time()
+    if bbox:
+        w, s, e, n = bbox
+        cells = [c for c in cells if w - 1 <= c["lon"] <= e + 1 and s - 1 <= c["lat"] <= n + 1]
+    return [{**{k: c[k] for k in ("id", "lat", "lon", "toward", "kmh", "dbz", "posh", "tvs", "valid")},
+             "path": [where_at(c, at + m * 60) for m in (0, 30, 60)]} for c in cells]
+
+
+def _with_shapes(rest: dict, shapes: str) -> Response:
+    """`rest` as JSON with the shapes (radar.view()'s ready-made text) spliced in, not decoded and encoded again."""
+    return Response(json.dumps(rest, separators=(",", ":"))[:-1] + ',"shapes":' + shapes + "}", media_type="application/json")
+
+
+@router.get("/radar")
+def radar(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's smooth radar: the newest MRMS frame as shapes per dBZ level and up (weather/radar.py view():
+    zoomed in, ~2 km and only what's in `bbox`; zoomed out, ~8 km over the US), colored in the browser from
+    Settings → Display → Radar colors; and the storm cells, with where each will be in 30 and 60 minutes."""
+    from ...weather.radar import view
+
+    box, snap, now = _bbox(bbox), rt.radar.snapshot(), time.time()
     frame = snap["frame"]
-    cells = [{**{k: c[k] for k in ("id", "lat", "lon", "toward", "kmh", "dbz", "posh", "tvs", "valid")},
-              "path": [where_at(c, now + m * 60) for m in (0, 30, 60)]} for c in snap["cells"]]
-    return {"t": frame and frame["t"], "box": frame and frame["box"], "colors": rt.cfg["theme"]["radar_colors"],
-            "bands": {"type": "FeatureCollection", "features": frame["bands"] if frame else []},
-            "cells": cells, "cells_at": snap["cells_at"], "error": snap["error"], "units": _units(rt)}
+    rest = {"t": frame and frame["t"], "colors": rt.cfg["theme"]["radar_colors"], "cells": _cells(snap["cells"], now, box),
+            "cells_at": snap["cells_at"], "error": snap["error"], "units": _units(rt)}
+    return _with_shapes(rest, view(frame, box, zoom) if frame else '{"level":null,"q":1,"bands":[]}')
 
 
 @router.get("/radar/frames")
@@ -148,18 +176,17 @@ def radar_frames(rt=Depends(runtime)):
 
 
 @router.get("/radar/frame")
-def radar_frame(t: int, rt=Depends(runtime)):
-    """One kept loop frame, shaped like /radar: its bands, and the storm cells as they were then, with
-    where each was heading from there."""
-    from ...weather.radar import where_at
+def radar_frame(t: int, bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24),
+                rt=Depends(runtime)):
+    """One kept loop frame, shaped like /radar (for the same view): its shapes, and the storm cells as they were
+    then, with where each was heading from there."""
+    from ...weather.radar import view
 
+    box = _bbox(bbox)
     frame = rt.radar.stored(t)
-    if not frame:
+    if not frame or "levels" not in frame:             # (or kept before the shapes had levels: gone within the hour)
         raise HTTPException(404, "no such frame")
-    cells = [{**{k: c[k] for k in ("id", "lat", "lon", "toward", "kmh", "dbz", "posh", "tvs", "valid")},
-              "path": [where_at(c, t + m * 60) for m in (0, 30, 60)]} for c in frame["cells"]]
-    return {"t": frame["t"], "box": frame["box"], "bands": {"type": "FeatureCollection", "features": frame["bands"]},
-            "cells": cells}
+    return _with_shapes({"t": frame["t"], "cells": _cells(frame["cells"], t, box)}, view(frame, box, zoom))
 
 
 @router.get("/rose")

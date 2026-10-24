@@ -3,6 +3,7 @@ cells read, merged and carried along their course; and the storm and rain alerts
 import calendar
 import gzip
 import io
+import json
 import math
 import os
 import struct
@@ -49,6 +50,14 @@ def grib(dbz: np.ndarray, la1=31.0, lo1=-96.5, step=0.01, t=T) -> bytes:
     return b"GRIB\0\0\0\x02" + struct.pack(">Q", 16 + len(body)) + body
 
 
+def frame_of(z: np.ndarray) -> dict:
+    """A frame's shapes at both levels, as RadarService.refresh_frame makes them."""
+    msg = R.decode(grib(z))
+    us = R.crop(msg, raw=R.grid(msg), block=R.US_BLOCK)
+    clean = R.clean(us.pop("dbz"), R.US_SPECK)
+    return {"t": msg["t"], "box": (20, 55, -130, -60), "levels": {n: R.encode(us, clean, *spec) for n, spec in R.LEVELS.items()}}
+
+
 def blob(west_km: float, dbz: float = 40, radius_px: int = 5) -> np.ndarray:
     """A 200×200 grid around the station with a disc of rain `west_km` west of it, and a one-pixel speck."""
     z = np.full((200, 200), -99.0)
@@ -69,10 +78,26 @@ class FrameTest(unittest.TestCase):
         self.assertEqual(z.max(), 40.0)                                # the 60 dBZ speck is gone
         f = R.crop(msg, LAT - 1, LAT + 1, LON - 1, LON + 1)
         self.assertAlmostEqual(R.nearest_km(f, R.clean(f.pop("dbz")), LAT, LON), 20 - 5, delta=2)
-        bands = R.bands(f, z)
-        self.assertEqual([b["properties"]["dbz"] for b in bands][0], 15)
-        lons = [p[0] for b in bands for poly in b["geometry"]["coordinates"] for ring in poly for p in ring]
-        self.assertTrue(all(LON - 0.35 < x < LON - 0.05 for x in lons))   # the shapes are where the rain is
+
+
+    def test_two_levels_of_stacked_shapes_and_only_what_is_in_view(self):
+        frame = frame_of(blob(20, radius_px=12))
+        fine = json.loads(R.view(frame, (LON - 2, LAT - 2, LON + 2, LAT + 2), 7))
+        self.assertEqual((fine["level"], fine["q"]), ("fine", 1000))
+        self.assertEqual([b["dbz"] for b in fine["bands"]], [15, 20, 25, 30, 35])
+        boxes = [b["polys"][0][:4] for b in fine["bands"]]             # each level and up: inside the one below
+        for lower, upper in zip(boxes, boxes[1:]):
+            self.assertTrue(lower[0] <= upper[0] and lower[1] <= upper[1] and upper[2] <= lower[2] and upper[3] <= lower[3])
+        w, s_, e, n = (x / 1000 for x in boxes[0])
+        self.assertTrue(LON - 0.35 < w < e < LON - 0.05 and s_ < LAT < n)   # where the rain is, ~20 km west
+        ring = fine["bands"][0]["polys"][0][4]
+        x, y = np.cumsum(ring[0::2]), np.cumsum(ring[1::2])             # each point the step from the one before
+        self.assertTrue((x >= boxes[0][0]).all() and (x <= boxes[0][2]).all() and (y >= boxes[0][1]).all() and (y <= boxes[0][3]).all())
+        self.assertEqual(json.loads(R.view(frame, (LON + 1, LAT + 1, LON + 2, LAT + 2), 7))["bands"], [])   # nothing in view
+        coarse = json.loads(R.view(frame, None, 4))
+        self.assertEqual((coarse["level"], coarse["q"]), ("coarse", 100))
+        self.assertLess(sum(len(r) for b in coarse["bands"] for p in b["polys"] for r in p[4:]),
+                        sum(len(r) for b in fine["bands"] for p in b["polys"] for r in p[4:]))
 
     def test_service_fetches_only_a_new_frame_and_tracks_the_rain_closing_in(self):
         tmp = tempfile.mkdtemp()
@@ -231,13 +256,18 @@ class RadarApiTest(unittest.TestCase):
         cfg = from_dict({**CFG, "database": path, "web": {"allowed_hosts": ["testserver"]}})
         app = create_app(cfg, FakeFlickr(), scheduler=False)
         rt = app.state.runtime
-        rt.radar.frame = {"t": T, "box": (27, 33, -98.5, -92.5), "bands": [{"type": "Feature", "properties": {"dbz": 15},
-                                                                              "geometry": {"type": "MultiPolygon", "coordinates": []}}]}
-        rt.radar.cells = [CellsTest.cell(None)]
-        d = TestClient(app, base_url="https://testserver").get("/api/wx/radar").json()
-        self.assertEqual((d["t"], len(d["bands"]["features"]), d["colors"][0]), (T, 1, {"dbz": 15, "color": "#8fd3ff"}))
+        rt.radar.frame = frame_of(blob(20, radius_px=12))
+        rt.radar.cells = [CellsTest.cell(None), {**CellsTest.cell(None), "id": "OKX-B1", "lat": 40.7, "lon": -74.0}]
+        c = TestClient(app, base_url="https://testserver")
+        d = c.get(f"/api/wx/radar?zoom=7&bbox={LON - 2},{LAT - 2},{LON + 2},{LAT + 2}").json()
+        self.assertEqual((d["t"], d["shapes"]["level"], d["colors"][0]), (T, "fine", {"dbz": 15, "color": "#8fd3ff"}))
+        self.assertEqual(len(d["shapes"]["bands"]), 5)
+        self.assertEqual([x["id"] for x in d["cells"]], ["HGX-A1"])                   # only the cells near the view
         self.assertEqual(len(d["cells"][0]["path"]), 3)
         self.assertGreater(d["cells"][0]["path"][2][1], d["cells"][0]["path"][0][1])   # heading east
+        whole = c.get("/api/wx/radar?zoom=4").json()                                   # zoomed out: the US, coarse
+        self.assertEqual((whole["shapes"]["level"], len(whole["cells"])), ("coarse", 2))
+        self.assertEqual(c.get("/api/wx/radar?bbox=1,2,3").status_code, 422)
 
     def test_the_loop_keeps_frames_with_their_storm_cells_and_deletes_old_ones(self):
         path = os.path.join(tempfile.mkdtemp(), "db.duckdb")
@@ -246,12 +276,14 @@ class RadarApiTest(unittest.TestCase):
         svc = app.state.runtime.radar
         svc.cells = [CellsTest.cell(None)]
         for t in (T - 4000, T - 120, T):
-            svc._save({"t": t, "box": (27, 33, -98.5, -92.5), "bands": []})
+            svc._save({**frame_of(blob(20)), "t": t})
         self.assertEqual(svc.history(), [T - 120, T])                       # older than LOOP_WINDOW: deleted
         c = TestClient(app, base_url="https://testserver")
         self.assertEqual(c.get("/api/wx/radar/frames").json(), {"frames": [{"t": T - 120}, {"t": T}]})
-        d = c.get(f"/api/wx/radar/frame?t={T}").json()
+        d = c.get(f"/api/wx/radar/frame?t={T}&zoom=7&bbox={LON - 2},{LAT - 2},{LON + 2},{LAT + 2}").json()
         self.assertEqual((d["t"], len(d["cells"]), len(d["cells"][0]["path"])), (T, 1, 3))
+        self.assertEqual((d["shapes"]["level"], d["shapes"]["bands"][0]["dbz"]), ("fine", 15))
+        self.assertIs(svc.stored(T), svc.stored(T))                                    # read once, then from memory
         self.assertEqual(c.get("/api/wx/radar/frame?t=1").status_code, 404)
 
 
