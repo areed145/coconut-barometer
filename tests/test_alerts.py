@@ -117,6 +117,15 @@ class AlertsTest(Base):
         self.assertEqual(audit[0]["status"], "failed")
         self.assertEqual(audit[0]["detail"], "Phone: 503 unavailable")
 
+    def test_push_exception_is_kept_in_the_audit_log(self):
+        self.store.wx_save_obs(11, [obs(self.now - 30, gust=20.0)])
+        push.subscribe(self.store, SUB, "owner", "Phone", "https://site.example")
+        with mock.patch.object(push, "send", side_effect=RuntimeError("VAPID key unavailable")):
+            self.assertEqual(len(self.alerts.run_once(self.store, self.now)), 1)
+        audit = self.store.alert_log_recent()
+        self.assertEqual(audit[0]["status"], "failed")
+        self.assertEqual(audit[0]["detail"], "RuntimeError: VAPID key unavailable")
+
 
 class PushTest(Base):
     def test_the_key_is_made_once_and_kept_encrypted(self):
