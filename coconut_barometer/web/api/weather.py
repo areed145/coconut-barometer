@@ -2,15 +2,19 @@
 Public (read-only); starting a sync needs a login."""
 from __future__ import annotations
 
+import hashlib
+import re
+import threading
 import time
+from collections import deque
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ...errors import caught
 from ...weather.imagery import Imagery
-from ..deps import runtime, session, store
+from ..deps import client_ip, runtime, session, store
 
 router = APIRouter(prefix="/api/wx", tags=["weather"])
 
@@ -19,6 +23,75 @@ class MapError(BaseModel):
     message: str = Field(min_length=1, max_length=500)
     stack: str = Field("", max_length=6000)
     source: Literal["error", "unhandledrejection"]
+    name: str = Field("Error", min_length=1, max_length=100)
+
+
+class MapErrorThrottle:
+    """Bound anonymous browser-error ingestion by client and across the process."""
+
+    def __init__(self, per_client: int = 5, global_limit: int = 60, window: int = 60, max_clients: int = 4096):
+        self.per_client, self.global_limit, self.window, self.max_clients = per_client, global_limit, window, max_clients
+        self.lock = threading.Lock()
+        self.clients: dict[str, deque[float]] = {}
+        self.requests: deque[float] = deque()
+
+    def allow(self, client: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self.window
+        with self.lock:
+            while self.requests and self.requests[0] <= cutoff:
+                self.requests.popleft()
+            hits = self.clients.get(client)
+            if hits is not None:
+                while hits and hits[0] <= cutoff:
+                    hits.popleft()
+                if not hits:
+                    del self.clients[client]
+                    hits = None
+            if len(self.requests) >= self.global_limit:
+                return False
+            if hits is None:
+                if len(self.clients) >= self.max_clients:
+                    for ip, old_hits in list(self.clients.items()):
+                        while old_hits and old_hits[0] <= cutoff:
+                            old_hits.popleft()
+                        if not old_hits:
+                            del self.clients[ip]
+                    if len(self.clients) >= self.max_clients:
+                        return False
+                hits = self.clients[client] = deque()
+            if len(hits) >= self.per_client:
+                return False
+            hits.append(now)
+            self.requests.append(now)
+            return True
+
+
+_map_error_throttle = MapErrorThrottle()
+
+
+def _map_error_fingerprint(body: MapError) -> str:
+    for line in body.stack.splitlines():
+        frame = line.strip()
+        if not frame:
+            continue
+        if frame.startswith("at "):
+            frame = frame[3:]
+            if " (" in frame and frame.endswith(")"):
+                function, frame = frame.rsplit(" (", 1)
+                frame = frame[:-1]
+            else:
+                function = ""
+        elif "@" in frame:
+            function, frame = frame.rsplit("@", 1)
+        else:
+            continue
+        frame = re.sub(r":\d+(?::\d+)?$", "", frame).split("?", 1)[0].split("#", 1)[0]
+        callsite = f"{function}@{frame}"
+        identity = f"{body.name}\n{body.message}\n{callsite}"
+        return hashlib.sha1(identity.encode()).hexdigest()[:12]
+    identity = f"{body.name}\n{body.message}\n?"
+    return hashlib.sha1(identity.encode()).hexdigest()[:12]
 
 
 def _units(rt) -> str:
@@ -135,9 +208,12 @@ def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(ima
 
 
 @router.post("/map/errors")
-def map_error(body: MapError):
+def map_error(body: MapError, request: Request):
     """Log a browser-side Weather map error and send it to the configured GitHub reporter."""
+    if not _map_error_throttle.allow(client_ip(request)):
+        raise HTTPException(429, "too many browser errors; try again later")
     error = RuntimeError(f"{body.message}\n{body.stack}".rstrip())
+    error._coconut_fingerprint = _map_error_fingerprint(body)
     caught(error, f"weather map {body.source}")
     return {"reported": True}
 

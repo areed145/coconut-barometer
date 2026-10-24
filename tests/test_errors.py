@@ -130,6 +130,13 @@ class ReporterTest(unittest.TestCase):
             self.send_all()
         self.assertEqual(self.gh.issues, {})
 
+    def test_custom_fingerprints_distinguish_browser_error_call_sites(self):
+        first = RuntimeError("map render failed")
+        second = RuntimeError("map render failed")
+        first._coconut_fingerprint = "browser-error-one"
+        second._coconut_fingerprint = "browser-error-two"
+        self.assertNotEqual(errors.fingerprint(first), errors.fingerprint(second))
+
 
 class CaughtTest(unittest.TestCase):
     def setUp(self):

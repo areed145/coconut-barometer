@@ -92,6 +92,9 @@ class FrontendTest(unittest.TestCase):
         self.assertNotIn("Radar loop", m)
         self.assertIn('fetch("/api/wx/map/errors"', m)
         self.assertIn('window.addEventListener("unhandledrejection"', m)
+        self.assertIn("radarFrameAt(radarTimes, t)", m)
+        self.assertIn("f.t <= t && (!best || f.t > best.t)", m)
+        self.assertIn("&& !loop.times.length ? live_ : null", m)
 
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()

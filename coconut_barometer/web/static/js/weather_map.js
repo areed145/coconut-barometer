@@ -28,6 +28,7 @@ const radarScale = (stops) => {
 
 // The newest frame at or before `t` (or the oldest, when all are later).
 const frameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t + 150 ? f : best), frames[0]);
+const radarFrameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t && (!best || f.t > best.t) ? f : best), null);
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -61,7 +62,8 @@ export function WxMap({ show, unitsFor, compass }) {
         const e = error instanceof Error ? error : new Error(String(error || "Unknown map error"));
         fetch("/api/wx/map/errors", { method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source, message: e.message.slice(0, 500), stack: (e.stack || "").slice(0, 6000) }) }).catch(() => {});
+          body: JSON.stringify({ source, name: String(e.name || "Error").slice(0, 100),
+            message: e.message.slice(0, 500), stack: (e.stack || "").slice(0, 6000) }) }).catch(() => {});
       } catch { /* reporting must not cause another map error */ }
     };
     const onError = (e) => report("error", e.error || e.message);
@@ -133,8 +135,8 @@ export function WxMap({ show, unitsFor, compass }) {
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
   const t = at >= 0 ? timeline[at] : null;
   const radarTimes = showRadar || showStorms ? loop.times.map((t) => ({ t })) : [];
-  const shownRadar = t != null && radarTimes.length ? frameAt(radarTimes, t) : null;
-  const vector = shownRadar ? loop.data[shownRadar.t] || null : null;
+  const shownRadar = t != null && radarTimes.length ? radarFrameAt(radarTimes, t) : null;
+  const vector = shownRadar ? loop.data[shownRadar.t] || null : (showRadar || showStorms) && !loop.times.length ? live_ : null;
   const colors = live_?.colors;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
   useEffect(() => {

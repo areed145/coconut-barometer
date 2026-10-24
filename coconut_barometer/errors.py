@@ -61,6 +61,9 @@ def caught(exc: BaseException, where: str) -> None:
 
 def fingerprint(exc: BaseException) -> str:
     """The exception's type and the innermost frame in this package (or the innermost of all, if none is)."""
+    custom = getattr(exc, "_coconut_fingerprint", None)
+    if custom:
+        return custom
     frames = traceback.extract_tb(exc.__traceback__)
     ours = [f for f in frames if Path(f.filename).resolve().is_relative_to(PACKAGE)]
     f = (ours or frames or [None])[-1]

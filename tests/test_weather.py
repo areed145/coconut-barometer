@@ -374,23 +374,51 @@ class WeatherApiTest(unittest.TestCase):
         self.assertTrue(m["satellite"]["geocolor"]["frames"])
 
     def test_map_client_errors_are_logged_and_reported(self):
+        from coconut_barometer.errors import fingerprint
         from coconut_barometer.web.api import weather as wx_api
 
+        original_throttle = wx_api._map_error_throttle
+        wx_api._map_error_throttle = wx_api.MapErrorThrottle(per_client=3, global_limit=10)
+        self.addCleanup(setattr, wx_api, "_map_error_throttle", original_throttle)
         seen = []
         original = wx_api.caught
         wx_api.caught = lambda error, where: seen.append((error, where))
         self.addCleanup(setattr, wx_api, "caught", original)
         response = self.c.post("/api/wx/map/errors", json={
-            "source": "unhandledrejection", "message": "map render failed", "stack": "at draw (map.js:1)",
+            "source": "unhandledrejection", "name": "TypeError", "message": "map render failed",
+            "stack": "TypeError: map render failed\n    at draw (https://example.test/map.js?build=1:1:2)",
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"reported": True})
         self.assertEqual(seen[0][1], "weather map unhandledrejection")
         self.assertIn("map render failed", str(seen[0][0]))
-        self.assertIn("map.js:1", str(seen[0][0]))
+        self.assertIn("map.js?build=1:1:2", str(seen[0][0]))
+        first_fingerprint = fingerprint(seen[0][0])
+        second = self.c.post("/api/wx/map/errors", json={
+            "source": "error", "name": "TypeError", "message": "map render failed",
+            "stack": "TypeError: map render failed\n    at draw (https://example.test/other.js?build=1:9:2)",
+        })
+        self.assertEqual(second.status_code, 200)
+        self.assertNotEqual(first_fingerprint, fingerprint(seen[1][0]))
+        same_callsite = self.c.post("/api/wx/map/errors", json={
+            "source": "error", "name": "TypeError", "message": "map render failed",
+            "stack": "TypeError: map render failed\n    at draw (https://example.test/map.js?build=2:8:4)",
+        })
+        self.assertEqual(same_callsite.status_code, 200)
+        self.assertEqual(first_fingerprint, fingerprint(seen[2][0]))
+        self.assertEqual(self.c.post("/api/wx/map/errors", json={
+            "source": "error", "message": "too many", "stack": "at draw (map.js:1)",
+        }).status_code, 429)
         self.assertEqual(self.c.post("/api/wx/map/errors", json={
             "source": "error", "message": "x" * 501,
         }).status_code, 422)
+
+    def test_map_error_throttle_has_a_global_cap(self):
+        from coconut_barometer.web.api.weather import MapErrorThrottle
+
+        throttle = MapErrorThrottle(per_client=5, global_limit=1)
+        self.assertTrue(throttle.allow("client-one"))
+        self.assertFalse(throttle.allow("client-two"))
 
     def test_sync_is_queued_on_the_weather_lane_and_fails_cleanly_without_network(self):
         self.login()
