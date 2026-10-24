@@ -1,5 +1,5 @@
 // The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather
-// and APRS are public; Review, Analytics, Status and Settings need a login (and their tabs only show once signed in).
+// and APRS are public; Review, Analytics, Visitors, Status and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot, OfflineNote } from "./lib.js";
 import { Home } from "./home.js";
 
@@ -26,6 +26,7 @@ const Reviewer = lazy(() => import("./review.js"), "Reviewer");
 const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
 const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
+const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
@@ -92,7 +93,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
-const PRIVATE_TABS = ["status", "settings"];
+const PRIVATE_TABS = ["visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"]];
 
@@ -122,10 +123,12 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["home", "weather", "aprs", "status", "settings", "login", "alerts"].includes(tab);
+  const inPhotos = !["home", "weather", "aprs", "visitors", "status", "settings", "login", "alerts"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
+  // Visitors was a tab of Photos → Analytics: its old links open the page.
+  useEffect(() => { if (sub === "analytics" && route[2] === "visitors") location.replace("#/visitors"); }, [sub, route[2]]);
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
@@ -139,6 +142,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;
   else if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
+  else if (tab === "visitors") page = html`<${Visitors} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   else if (tab === "alerts") page = session ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`   // where an alert opens (#73)
@@ -167,7 +171,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
-        ${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
+        ${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />

@@ -1,8 +1,8 @@
-// Analytics → Visitors (#83): who opens this site (not Flickr). Counted by the page itself (main.js → /api/seen),
-// without cookies or IP addresses; see visitors.py on the server.
+// Visitors (#/visitors, #83): who opens this site, on every page of it (not Flickr). Counted by the page itself
+// (main.js → /api/seen), without cookies or IP addresses; see visitors.py on the server.
 import { html, useState, useEffect, useMemo, api, num, ago, go } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Kpi, Bars, Table, TopGrid, usePhotoBox } from "./viz.js";
+import { Kpi, Bars, Table, TopGrid, usePhotoBox, Range } from "./viz.js";
 
 const PAGES = {
   "/home": "Home", "/photos": "Photos", "/photos/photostream": "Photos", "/photos/albums": "Albums",
@@ -28,7 +28,9 @@ function allDays(since) {
   return out;
 }
 
-export function VisitorsTab({ days, range }) {
+export function Visitors() {
+  const [days, setDays] = useState(30);
+  const range = html`<${Range} days=${days} setDays=${setDays} />`;
   const [d, setD] = useState(null);
   const [box, open] = usePhotoBox();
   useEffect(() => { setD(null); api("/api/analytics/visitors", { params: { days } }).then(setD).catch((e) => setD({ error: e.message })); }, [days]);

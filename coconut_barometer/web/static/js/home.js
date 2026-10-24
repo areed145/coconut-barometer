@@ -197,6 +197,7 @@ export function Home({ session, pending, queued, health }) {
     ${session && html`<nav class="homelinks" aria-label="Signed in">
       <a href="#/photos/review">Review${pending ? html`<span class="badge">${pending}</span>` : ""}</a>
       <a href="#/photos/analytics">Analytics</a>
+      <a href="#/visitors">Visitors</a>
       <a href="#/status">Status<${StatusDot} health=${health} queued=${queued} /></a>
       <a href="#/settings">Settings</a></nav>`}
   </div>`;

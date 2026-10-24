@@ -100,7 +100,7 @@ DEFAULTS: dict[str, Any] = {
         "dir": None,                  # default: backups/ next to the database
     },
     "visitors": {
-        "enabled": True,              # count this site's visitors (Photos → Analytics → Visitors)
+        "enabled": True,              # count this site's visitors (the Visitors page)
         "keep_days": 90,              # raw page views kept; older days keep only their totals
         "honor_gpc": True,            # leave out browsers sending Global Privacy Control or Do Not Track
     },

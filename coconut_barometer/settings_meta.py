@@ -19,7 +19,7 @@ SECTIONS = [
     ("display", "Display", "How the app looks: theme, units, colors and maps."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
-    ("visitors", "Visitors", "Who opens this site, shown under Photos → Analytics → Visitors. No cookies are set for "
+    ("visitors", "Visitors", "Who opens this site, shown on the Visitors page. No cookies are set for "
                              "visitors and no IP address is stored: each is counted by a fingerprint that changes "
                              "every day, with the city, region and country their address gives. Your own visits "
                              "aren't counted on any device you've signed in on."),

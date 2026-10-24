@@ -265,6 +265,17 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("String(v)", admin)
         self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
 
+    def test_visitors_is_a_page_of_its_own(self):
+        """Visitors (#83) counts the whole site, so it's a signed-in page of its own, not a tab of Photos → Analytics."""
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        analytics = open(os.path.join(STATIC, "js", "analytics.js")).read()
+        self.assertIn('const PRIVATE_TABS = ["visitors", "status", "settings"];', main)
+        self.assertIn('${session && link("visitors", "Visitors")}', main)
+        self.assertIn('else if (tab === "visitors") page = html`<${Visitors} />`;', main)
+        self.assertIn('location.replace("#/visitors")', main)                     # the old tab's links still work
+        self.assertNotIn('"visitors"', analytics)
+        self.assertIn('<a href="#/visitors">Visitors</a>', open(os.path.join(STATIC, "js", "home.js")).read())
+
     def test_home_is_the_front_page(self):
         lib = open(os.path.join(STATIC, "js", "lib.js")).read()
         main = open(os.path.join(STATIC, "js", "main.js")).read()
@@ -272,7 +283,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('const parts = (path || "home").split("/");', lib)          # an empty address is Home
         self.assertIn('<a class="brand" href="#/" aria-label="Coconut Barometer: Home">', main)
         self.assertIn('if (tab === "home") page = html`<${Home}', main)
-        self.assertIn('!["home", "weather", "aprs", "status", "settings", "login", "alerts"].includes(tab)', main)   # not a Photos page
+        self.assertIn('!["home", "weather", "aprs", "visitors", "status", "settings", "login", "alerts"].includes(tab)', main)   # not a Photos page
         for href in ('"#/photos"', '"#/weather"', '"#/aprs"'):
             self.assertIn(f"href={href}", home)
         self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only

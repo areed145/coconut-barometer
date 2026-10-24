@@ -1,5 +1,5 @@
 """Who visits the site (#83): page views counted by the page itself, kept in this database, and shown signed in
-under Photos → Analytics → Visitors.
+on the Visitors page (#/visitors).
 
 The app's routes come after the # (#/photos, #/weather/history), so the server never sees them change: main.js
 sends a small POST to /api/seen each time the route does (navigator.sendBeacon). Hits are held here and written

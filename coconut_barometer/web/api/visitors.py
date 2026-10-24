@@ -1,5 +1,5 @@
 """The site's own visitors (#83, visitors.py): /api/seen, where every visitor's page sends its route changes, and
-/api/analytics/visitors, the signed-in report under Photos → Analytics → Visitors."""
+/api/analytics/visitors, the signed-in report on the Visitors page (#/visitors)."""
 from __future__ import annotations
 
 import datetime as dt

@@ -8,6 +8,14 @@ export const asPhoto = (r) => ({ id: r.photo_id || r.id, title: r.title, sizes: 
 export const pct = (x) => (x == null ? "–" : `${x > 0 ? "+" : ""}${Math.round(x * 100)}%`);
 export const times = (x) => (x == null ? "–" : `${x.toFixed(x >= 10 ? 0 : 2)}×`);
 
+// The 7 days ... All buttons over a report.
+const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"], [3650, "All"]];
+
+export function Range({ days, setDays }) {
+  return html`<span class="range">${RANGES.map(([d, label]) => html`<button class=${days === d ? "primary" : ""}
+      onClick=${() => setDays(d)}>${label}</button>`)}</span>`;
+}
+
 // The lightbox for a list of photo rows: [element, open(rows, index)].
 export function usePhotoBox() {
   const [box, setBox] = useState(null);
