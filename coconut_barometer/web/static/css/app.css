@@ -257,7 +257,7 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .homecard .glance-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s3); }
 .homecard small { color: var(--muted); font-size: var(--text-sm); }
 /* The Photos card: the newest photo behind it, darkened so the text reads in either theme */
-.homecard.pic { color: #fff; border-color: transparent; background: #1c1917; }
+.homecard.pic { color: #fff; background: #1c1917; }
 .homecard.pic > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
 .homecard.pic::after { content: ""; position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .45), rgba(0, 0, 0, .25) 45%, rgba(0, 0, 0, .75)); }
 .homecard > :not(img):not(.homebg) { position: relative; z-index: 1; }
