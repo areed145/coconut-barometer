@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from fakes import FakeFlickr, CFG
-from coconut_barometer import push
+from coconut_barometer import activity, push
 from coconut_barometer import settings as S
 from coconut_barometer.alerts import Alerts
 from coconut_barometer.config import from_dict
@@ -98,6 +98,61 @@ class FrameTest(unittest.TestCase):
         c = svc.closing(11, T + 480)
         self.assertAlmostEqual(c["kmh"], 75, delta=1)
         self.assertEqual(c["km"], 20)
+
+    def _service(self, responses):
+        tmp = tempfile.mkdtemp()
+        store = Store(os.path.join(tmp, "db.duckdb"))
+        store.wx_save_stations([STATION])
+        calls = []
+
+        def get(url, headers=None, timeout=None):
+            calls.append(headers)
+            return responses[len(calls) - 1]
+        svc = R.RadarService({}, "", get=get)
+        return svc, svc.stations(store), calls
+
+    def _ok(self):
+        return mock.Mock(status_code=200, content=gzip.compress(grib(blob(20))), raise_for_status=lambda: None,
+                         headers={"Last-Modified": "Sat, 24 Oct 2026 00:20:39 GMT"})
+
+    def _cut(self):
+        return mock.Mock(status_code=200, content=gzip.compress(grib(blob(20)))[:100], raise_for_status=lambda: None, headers={})
+
+    def _details(self):
+        return [e["detail"] for e in activity.log.entries["radar"] if e["kind"] == "call"]
+
+    def test_truncated_download_is_retried_and_noted(self):
+        svc, stations, calls = self._service([self._cut(), self._ok()])
+        self.assertTrue(svc.refresh_frame(stations))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("(truncated download)", self._details()[-1])
+        self.assertEqual(svc._modified, "Sat, 24 Oct 2026 00:20:39 GMT")
+
+    def test_two_truncated_downloads_return_false_and_keep_the_cache(self):
+        svc, stations, calls = self._service([self._cut(), self._cut()])
+        svc._modified = "old"
+        self.assertFalse(svc.refresh_frame(stations))
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(svc.frame)
+        self.assertEqual(svc._modified, "old")
+        self.assertIn("(truncated download)", self._details()[-1])
+
+    def test_retry_returning_304_keeps_the_truncation_note(self):
+        svc, stations, calls = self._service([self._cut(), mock.Mock(status_code=304)])
+        svc._modified = "old"
+        self.assertFalse(svc.refresh_frame(stations))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(svc._modified, "old")
+        self.assertIn("(truncated download)", self._details()[-1])
+
+    def test_retry_http_error_raises(self):
+        def boom():
+            raise OSError("503")
+        svc, stations, calls = self._service([self._cut(), mock.Mock(status_code=503, raise_for_status=boom)])
+        with self.assertRaises(OSError):
+            svc.refresh_frame(stations)
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(svc.frame)
 
 
 class CellsTest(unittest.TestCase):
