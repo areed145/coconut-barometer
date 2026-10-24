@@ -2,6 +2,7 @@
 and a push service saying a device is gone."""
 import json
 import os
+import re
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
@@ -230,11 +231,23 @@ class PushApiTest(Base):
             self.assertEqual(self.c.get(f).status_code, 200, f)
 
     def test_the_icons_browsers_look_for_at_the_root_are_images(self):
-        for path in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"):
-            r = self.c.get(path)
-            self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"), path)
+        for path in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/apple-touch-icon-180x180.png",
+                     "/apple-touch-icon-120x120-precomposed.png", "/favicon.ico"):
+            for r in (self.c.get(path), self.c.head(path)):
+                self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"), path)
         self.assertEqual(self.c.get("/no-such-icon.png").status_code, 404)        # not the page
+        self.assertEqual(self.c.get("/apple-touch-icon-big.png").status_code, 404)
         self.assertIn("<!doctype html>", self.c.get("/weather").text)              # other addresses still are
+        self.assertEqual(self.c.head("/weather").status_code, 200)
+
+    def test_the_icons_the_page_and_manifest_link_are_served(self):
+        page = self.c.get("/").text
+        links = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]* href="([^"]+)"', page)
+        links += [i["src"] for i in self.c.get("/static/manifest.webmanifest").json()["icons"]]
+        self.assertTrue(any("apple-touch-icon" in u for u in links))
+        for u in links:
+            r = self.c.get(u)
+            self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"), u)
 
 if __name__ == "__main__":
     unittest.main()

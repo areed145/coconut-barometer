@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from .runtime import Runtime
 from .security import security_headers
 
 STATIC = Path(__file__).parent / "static"
+ROOT_TOUCH_ICON = re.compile(r"apple-touch-icon(-\d+x\d+)?(-precomposed)?\.png")
 logger = logging.getLogger(__name__)
 
 
@@ -178,14 +180,17 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
     app.include_router(share.router)       # /p/<id>, /a/<id> (share links with previews), robots.txt, sitemap.xml
 
     # The icons browsers and iPhones look for at the root on their own, whatever the page links (Safari for a
-    # notification's icon, iOS for a Home Screen one).
-    ROOT_ICONS = {"apple-touch-icon.png": "apple-touch-icon.png", "apple-touch-icon-precomposed.png": "apple-touch-icon.png",
-                  "favicon.ico": "favicon-32.png"}
+    # notification's icon, iOS for a Home Screen one): apple-touch-icon[-180x180][-precomposed].png, favicon.ico.
+    def root_icon(name: str) -> str | None:
+        if name == "favicon.ico":
+            return "favicon-32.png"
+        return "apple-touch-icon.png" if ROOT_TOUCH_ICON.fullmatch(name) else None
 
-    @app.get("/{rest:path}", include_in_schema=False)
+    # GET and HEAD: icon fetchers and link checkers may ask with HEAD first, and a 405 there reads as no icon.
+    @app.api_route("/{rest:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def frontend(rest: str, request: Request):
-        if rest in ROOT_ICONS:
-            return FileResponse(STATIC / "img" / ROOT_ICONS[rest], media_type="image/png",
+        if icon := root_icon(rest):
+            return FileResponse(STATIC / "img" / icon, media_type="image/png",
                                 headers={"Cache-Control": "public, max-age=86400"})
         if "." in rest.rsplit("/", 1)[-1]:     # a file that isn't here: a 404, not the page (which isn't an icon)
             return JSONResponse({"detail": "not found"}, status_code=404)

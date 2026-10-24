@@ -134,7 +134,7 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(sorted(statics), ["home.js", "lib.js"])                  # nothing else up front
 
     def test_everything_the_page_loads_exists(self):
-        refs = re.findall(r'(?:src|href)="/static/([^"]+)"', open(os.path.join(STATIC, "index.html")).read())
+        refs = re.findall(r'(?:src|href)="/static/([^"?]+)', open(os.path.join(STATIC, "index.html")).read())
         for path in OURS:
             refs += [os.path.normpath(os.path.join("js", m)) for m in re.findall(r'from\s+"(\.\.?/[^"]+)"', open(path).read())]
         self.assertTrue(refs)
