@@ -319,6 +319,16 @@ def watches_warnings(bbox: str | None = Query(None, max_length=100), zoom: float
     return _with_shapes(rest, shapes)
 
 
+@router.get("/glm")
+def glm_lightning(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24),
+                  since: int | None = Query(None, ge=0)):
+    """The Map tab's lightning: the flashes GOES-East's lightning mapper saw in `bbox` since `since` (weather/glm.py),
+    counted per minute and cell, ~3 km cells zoomed in and ~11 km out. `pending` while the server is catching up."""
+    from ...weather.glm import glm
+
+    return glm.view(_bbox(bbox), zoom, since)
+
+
 @router.get("/temperature")
 def surface_temperature(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
     """The Map tab's temperature: the newest RTMA analysis of the air 2 m up (°C, weather/rtma.py) on a lat/lon grid,
