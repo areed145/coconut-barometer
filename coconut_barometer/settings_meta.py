@@ -185,11 +185,20 @@ META = {
                                    "2 hPa is about 0.06 inHg.", group="Weather"),
     "alerts.callsign_quiet_hours": _m("alerts", "Callsign heard after quiet (hours)", "A callsign from Settings → APRS "
                                       "heard again after this long without a packet.", group="APRS"),
+    "alerts.storm_km": _m("alerts", "Storm passing within (km)", "A storm cell the NWS radars are tracking whose path "
+                          "comes this close to a station. 0 turns storm alerts off.", group="Radar"),
+    "alerts.storm_minutes": _m("alerts", "Storm warning ahead (minutes)", "How far ahead to look along its path.", group="Radar"),
+    "alerts.storm_dbz": _m("alerts", "Storm at least (dBZ)", "50 is a strong thunderstorm; 60 often means hail.",
+                           group="Radar"),
+    "alerts.rain_minutes": _m("alerts", "Rain due within (minutes)", "Rain on radar closing in on a station and due "
+                              "within this long. 0 turns rain alerts off.", group="Radar"),
     "alerts.cooldown_minutes": _m("alerts", "Repeat at most every (minutes)", "Per alert and station (or callsign), so "
                                   "one storm isn't fifty notifications.", group="All alerts"),
     "theme.color_low": _m("display", "Low", "e.g. a cluster of a few photos, or a short bar.", group="Colors"),
     "theme.color_mid": _m("display", "Medium", "Halfway along: the gradient runs low → medium → high.", group="Colors"),
     "theme.color_high": _m("display", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
+    "theme.radar_colors": _m("display", "Radar colors", "The Weather map's radar, from light rain to hail: each "
+                             "stop is a dBZ and its color, blended in between.", group="Radar"),
     "map.expand_at": _m("display", "Show thumbnails from (photos)", "On the photo map, clicking a cluster zooms in one "
                         "level; once it holds this many photos or fewer, it opens into thumbnails instead.", group="Map"),
 

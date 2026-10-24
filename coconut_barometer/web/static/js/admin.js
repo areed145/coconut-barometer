@@ -46,6 +46,23 @@ function MapField({ value, onChange, disabled }) {
   </div>`;
 }
 
+// Settings → Display → Radar colors: a dBZ and a color per stop, blended in between on the Weather map.
+function StopsField({ value, onChange, disabled }) {
+  const rows = [...(value || [])].sort((a, b) => a.dbz - b.dbz);
+  const set = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const next = rows.length ? Math.min(90, rows[rows.length - 1].dbz + 10) : 20;
+  return html`<div class="maprows">
+    ${rows.map((r, i) => html`<div class="maprow" key=${i}>
+      <input type="number" min="0" max="90" step="1" value=${r.dbz} disabled=${disabled} aria-label="dBZ"
+             onChange=${(e) => set(i, { dbz: Number(e.target.value) })} /><span class="muted">dBZ</span>
+      <span class="colorfield"><input type="color" value=${r.color} disabled=${disabled} aria-label="color"
+             onInput=${(e) => set(i, { color: e.target.value })} /><code>${r.color}</code></span>
+      ${!disabled && rows.length > 2 && html`<button class="link" onClick=${() => onChange(rows.filter((_, j) => j !== i))} aria-label="Remove">✕</button>`}
+    </div>`)}
+    ${!disabled && html`<button class="link" onClick=${() => onChange([...rows, { dbz: next, color: rows[rows.length - 1]?.color || "#ffffff" }])}>+ Add a stop</button>`}
+  </div>`;
+}
+
 // Settings → APRS → Stations that report: a row per Tempest the site knows, each with the callsign-SSID it
 // reports to CWOP as (blank: it doesn't). Saved as {station name: callsign}; a name no station has any more
 // (renamed or gone) is listed so it can be removed.
@@ -128,7 +145,8 @@ function SecretField({ s, onSaved }) {
 function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
   const disabled = !!s.locked;
   let input;
-  if (s.kind === "secret") input = html`<${SecretField} s=${s} onSaved=${onSaved} />`;
+  if (s.path === "theme.radar_colors") input = html`<${StopsField} value=${value} onChange=${onChange} disabled=${disabled} />`;
+  else if (s.kind === "secret") input = html`<${SecretField} s=${s} onSaved=${onSaved} />`;
   else if (s.kind === "bool") input = html`<input type="checkbox" checked=${!!value} disabled=${disabled} onChange=${(e) => onChange(e.target.checked)} />`;
   else if (s.kind === "int" || s.kind === "float") input = html`<input type="number" step=${s.kind === "int" ? 1 : "any"} value=${value ?? ""} disabled=${disabled}
       onInput=${(e) => onChange(e.target.value === "" ? null : s.kind === "int" ? parseInt(e.target.value, 10) : parseFloat(e.target.value))} />`;

@@ -18,6 +18,8 @@ dependencies = [
     "websockets>=13",
     "aprslib>=0.7",
     "pywebpush>=2.5.0",
+    "pillow>=12.3.0",
+    "contourpy>=1.3.2",
 ]
 
 [project.optional-dependencies]

@@ -40,6 +40,10 @@ DEFAULTS: dict[str, Any] = {
         "gust_kmh": 60,               # a gust this strong
         "pressure_drop_hpa": 2.0,     # pressure down this much in 3 hours (a storm sign)
         "callsign_quiet_hours": 6,    # a tracked callsign heard after this long without a packet
+        "storm_km": 10,               # a storm cell (NWS radar tracking) whose path comes this close to a station ...
+        "storm_minutes": 60,          # ... within this long
+        "storm_dbz": 50,              # ... and at least this strong
+        "rain_minutes": 30,           # rain on radar (MRMS) closing in on a station, due within this long
         "cooldown_minutes": 60,       # the same alert (same kind, same station or callsign) at most this often
     },
     "github": {
@@ -107,6 +111,10 @@ DEFAULTS: dict[str, Any] = {
         "color_low": "#f7d125",       # the gradient for map clusters and chart bars: low values ...
         "color_mid": "#8abe35",       # ... through the middle (by default halfway between the other two) ...
         "color_high": "#1dab45",      # ... to high (log scale)
+        "radar_colors": [             # the Weather map's radar, by dBZ: blended between these stops
+            {"dbz": 15, "color": "#8fd3ff"}, {"dbz": 25, "color": "#2fa84f"}, {"dbz": 35, "color": "#f2d22e"},
+            {"dbz": 45, "color": "#f28c28"}, {"dbz": 55, "color": "#d7301f"}, {"dbz": 65, "color": "#b03ab5"},
+        ],
     },
     "map": {
         "expand_at": 40,              # a cluster this small opens into thumbnails when clicked
@@ -143,7 +151,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
-          ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60)}
+          ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60),
+          ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
+          ("alerts", "rain_minutes"): (0, 120)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
@@ -353,6 +363,15 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
         if gate and not CALLSIGN.match(gate.upper()):
             errors.append(f"aprs.igate: {gate!r} isn't a callsign (like WA5DTR-15), or leave it empty")
     checks.append(igate)
+
+    def radar_colors():
+        stops = get(("theme", "radar_colors"))
+        ok = isinstance(stops, list) and len(stops) >= 2 and all(
+            isinstance(s, dict) and set(s) == {"dbz", "color"} and isinstance(s["dbz"], (int, float)) and 0 <= s["dbz"] <= 90
+            and isinstance(s["color"], str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["color"]) for s in stops)
+        if not ok:
+            errors.append("theme.radar_colors: should be at least two stops like {dbz: 20, color: \"#2fa84f\"} (dBZ 0-90)")
+    checks.append(radar_colors)
 
     def github_repo():
         repo = get(("github", "repo")).strip()

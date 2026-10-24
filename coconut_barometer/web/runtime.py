@@ -15,6 +15,7 @@ from ..alerts import CHECK_EVERY, Alerts
 from ..errors import caught
 from ..review import ReviewApp
 from ..schedule import due
+from ..weather.radar import RadarService
 from ..weather.service import WeatherService
 from ..aprs.service import AprsService
 from ..store import Store
@@ -36,7 +37,8 @@ class Runtime:
                                 process_kw=process_kw)
         self.weather = self.review.weather = WeatherService(cfg, self.db_path)
         self.aprs = AprsService(cfg, self.db_path)
-        self.alerts = Alerts(cfg, self.aprs.callsigns)
+        self.radar = RadarService(cfg, self.db_path)
+        self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()
@@ -100,6 +102,7 @@ class Runtime:
         # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
+        self.radar.start(self._stop, self.store)     # MRMS and storm cells near the stations (weather/radar.py)
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
 
     def _alerts_loop(self) -> None:

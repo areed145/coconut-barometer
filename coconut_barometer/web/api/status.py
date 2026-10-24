@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 CACHE_SECONDS, FLICKR_CHECK = 15, 600
 STALE_WARN, STALE_BAD = 15 * 60, 60 * 60          # a station's newest observation, this old
 LEVELS = ("ok", "off", "warn", "bad")             # worse to the right; "off" doesn't count
-PUBLIC = ("weatherflow", "aprs", "imagery")
+PUBLIC = ("weatherflow", "aprs", "imagery", "radar")
 _cache: dict[tuple, tuple] = {}
 _flickr_check: dict = {"at": 0.0, "status": None}   # the last sign-in check
 
@@ -128,6 +128,18 @@ def _imagery(now) -> dict:
                "#/weather/map", int(at))
 
 
+def _radar(rt, now) -> dict:
+    snap = rt.radar.snapshot()
+    if rt.radar.checked_at is None:
+        return row("radar", "Radar", "off", "no station with a location", href="#/settings/weather")
+    t = snap["frame"] and snap["frame"]["t"]
+    level = "bad" if not t or now - t > 30 * 60 else "warn" if snap["error"] or now - t > 10 * 60 else "ok"
+    state = f"MRMS frame {_ago(now, t)}" if t else "no frame yet"
+    if snap["cells_at"]:
+        state += f" · {len(snap['cells'])} storm cell{'s' if len(snap['cells']) != 1 else ''} nearby"
+    return row("radar", "Radar", level, state, snap["error"], "#/weather/map", t)
+
+
 def _backups(rt, db, now) -> dict:
     every = rt.cfg["backup"]["every_hours"]
     if every <= 0:
@@ -158,7 +170,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     hit = _cache.get((rt.db_path, me is None))
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
-    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now)]
+    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now)]
     if me is not None:
         rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _error_reports(now)]
     else:

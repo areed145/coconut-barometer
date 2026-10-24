@@ -7,8 +7,11 @@ streams have already stored, and sent with push.py to the devices turned on.
     pressure    sea-level pressure down alerts.pressure_drop_hpa or more over 3 hours (the newest observation
                 against the one 3 hours before it, as the Live card shows)
     callsign    a callsign from Settings → APRS heard after alerts.callsign_quiet_hours without a packet
+    storm       a storm cell the NWS radars track (weather/radar.py) of at least alerts.storm_dbz whose path comes
+                within alerts.storm_km of a station in the next alerts.storm_minutes
+    rain        rain on radar closing in on a station, due within alerts.rain_minutes
 
-Each looks only at what arrived since the last check (on startup, the last CHECK_EVERY), so a restart doesn't
+The radar alerts read the radar's latest state; the others look only at what arrived since the last check (on startup, the last CHECK_EVERY), so a restart doesn't
 replay old storms. The same alert for the same station or callsign is sent at most every
 alerts.cooldown_minutes; when each was last sent is kept in the meta table, so a restart doesn't reset it."""
 from __future__ import annotations
@@ -17,6 +20,7 @@ import json
 import time
 
 from . import push
+from .weather import radar as rd
 
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
@@ -39,9 +43,16 @@ def _hours(s: float) -> str:
     return f"{s / 86400:.0f} days" if s >= 2 * 86400 else f"{s / 3600:.0f} hours"
 
 
+COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
+def _minutes(s: float) -> str:
+    return "now" if s < 90 else f"~{round(s / 60)} min"
+
+
 class Alerts:
-    def __init__(self, cfg: dict, callsigns=lambda: []):
-        self.cfg, self.callsigns = cfg, callsigns
+    def __init__(self, cfg: dict, callsigns=lambda: [], radar=None):
+        self.cfg, self.callsigns, self.radar = cfg, callsigns, radar
         self.since: int | None = None
 
     def check(self, store, now: float | None = None) -> list[dict]:
@@ -77,6 +88,8 @@ class Alerts:
                     out.append({"key": f"pressure:{dev}", "url": "/#/weather",
                                 "title": f"Pressure falling at {name}",
                                 "body": f"Down {_pressure(-change, units)} in 3 hours, now {_pressure(o['pressure_sl'], units)}."})
+        if self.radar is not None:
+            out += self._radar(store, now, units)
         if a["callsign_quiet_hours"]:
             for call in self.callsigns():
                 first = store.db.execute("SELECT MIN(ts) FROM aprs_positions WHERE callsign=? AND ts > ? AND ts <= ?",
@@ -86,6 +99,31 @@ class Alerts:
                 if before and first - before >= a["callsign_quiet_hours"] * 3600:
                     out.append({"key": f"callsign:{call}", "url": "/#/aprs", "title": f"{call} heard",
                                 "body": f"Its first packet in {_hours(first - before)}."})
+        return out
+
+    def _radar(self, store, now: int, units: str) -> list[dict]:
+        a, out = self.cfg["alerts"], []
+        cells = self.radar.snapshot()["cells"]
+        for s in self.radar.stations(store):
+            name, dev = s["name"], s["device_id"]
+            if a["storm_km"]:
+                due = [(eta, c) for c in cells if (c["dbz"] or 0) >= a["storm_dbz"]
+                       for eta in [rd.arrival(c, s["lat"], s["lon"], now, a["storm_km"], a["storm_minutes"] * 60)] if eta is not None]
+                if due:
+                    eta, c = min(due, key=lambda x: x[0])
+                    extra = [f"hail likely ({c['posh']}% severe)" if c["posh"] >= 30 else "",
+                             "a tornado vortex signature" if c["tvs"] else ""]
+                    moving = f"moving {COMPASS[round(c['toward'] / 45) % 8]} at {_speed(c['kmh'] / 3.6, units)}" if c["kmh"] else "barely moving"
+                    out.append({"key": f"storm:{dev}", "url": "/#/weather/map",
+                                "title": f"Storm over {name}" if eta == 0 else f"Storm {_minutes(eta)} from {name}",
+                                "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {moving}", *extra])) + "."})
+            if a["rain_minutes"]:
+                r = self.radar.closing(dev, now)
+                if r and r["km"] > rd.HERE_KM and r["kmh"] >= 5 and now - r["t"] < 15 * 60:
+                    eta = (r["km"] - rd.HERE_KM) / r["kmh"] * 3600
+                    if eta <= a["rain_minutes"] * 60:
+                        out.append({"key": f"rain:{dev}", "url": "/#/weather/map", "title": f"Rain {_minutes(eta)} from {name}",
+                                    "body": f"{_dist(r['km'], units)} away, closing at {_speed(r['kmh'] / 3.6, units)}."})
         return out
 
     def run_once(self, store, now: float | None = None) -> list[dict]:

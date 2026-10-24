@@ -52,7 +52,7 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(set(self.rows(d)), {"weatherflow", "aprs", "imagery"})
         self.assertTrue(all(r["detail"] is None and r["href"] is None for r in d["rows"]))
         self.login()
-        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "cwop", "flickr", "vision", "backups", "errors"})
+        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "radar", "cwop", "flickr", "vision", "backups", "errors"})
 
     def test_a_station_gone_quiet_turns_weatherflow_red(self):
         now = int(time.time())

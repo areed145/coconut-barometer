@@ -125,6 +125,22 @@ def map_layers(db=Depends(store), rt=Depends(runtime), im: Imagery = Depends(ima
             **im.frames()}
 
 
+@router.get("/radar")
+def radar(rt=Depends(runtime)):
+    """The Map tab's smooth radar: the newest MRMS frame around the stations as filled polygons per dBZ band
+    (colored in the browser from Settings → Display → Radar colors), and the storm cells near them with where
+    each will be in 30 and 60 minutes on its present course."""
+    from ...weather.radar import where_at
+
+    snap, now = rt.radar.snapshot(), time.time()
+    frame = snap["frame"]
+    cells = [{**{k: c[k] for k in ("id", "lat", "lon", "toward", "kmh", "dbz", "posh", "tvs", "valid")},
+              "path": [where_at(c, now + m * 60) for m in (0, 30, 60)]} for c in snap["cells"]]
+    return {"t": frame and frame["t"], "box": frame and frame["box"], "colors": rt.cfg["theme"]["radar_colors"],
+            "bands": {"type": "FeatureCollection", "features": frame["bands"] if frame else []},
+            "cells": cells, "cells_at": snap["cells_at"], "error": snap["error"], "units": _units(rt)}
+
+
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
          part: str | None = Query(None, pattern="^(night|morning|afternoon|evening)$"), db=Depends(store)):

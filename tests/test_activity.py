@@ -79,12 +79,13 @@ class InstrumentedTest(unittest.TestCase):
         watch.start()
         for pid in ("1", "2", "3"):
             client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
+        ahead = limiter.next_free() - time.time()     # read now: the next slot is only 0.25 s off, and join() takes longer
         watch.join()
         got = [e for e in activity.log.since(seq) if e["source"] == "flickr"]
         self.assertEqual([e["detail"] for e in got], ["photo_id=1", "photo_id=2", "photo_id=3"])
         self.assertGreater(got[-1]["waited"], 0.1)
         self.assertIn("waiting", seen)
-        self.assertGreater(limiter.next_free(), time.time())
+        self.assertGreater(ahead, 0)
 
     def test_expected_answers_are_not_logged_as_errors(self):
         client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
