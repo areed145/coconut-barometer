@@ -1,13 +1,14 @@
 // Analytics, in tabs (#/photos/analytics/<tab>): Overview, Photos, Tags, Places, Gear, Audience,
-// Albums & groups, and "Did it help?". Each tab loads its own data when opened.
+// Albums & groups, "Did it help?", and Visitors (this site's, not Flickr's). Each tab loads its own data when opened.
 import { html, useState, useEffect, useMemo, api, num, ago, plain } from "./lib.js";
 import { Chart } from "./chart.js";
 import { Kpi, TopGrid, usePhotoBox } from "./viz.js";
 import { TagsTab } from "./analytics_tags.js";
 import { PlacesTab, GearTab, AudienceTab, GroupsTab, ImpactTab } from "./analytics_more.js";
+import { VisitorsTab } from "./analytics_visitors.js";
 
 const TABS = [["overview", "Overview"], ["photos", "Photos"], ["tags", "Tags"], ["places", "Places"], ["gear", "Gear & technique"],
-              ["audience", "Audience"], ["groups", "Albums & groups"], ["impact", "Did it help?"]];
+              ["audience", "Audience"], ["groups", "Albums & groups"], ["impact", "Did it help?"], ["visitors", "Visitors"]];
 const RANGES = [[7, "7 days"], [30, "30 days"], [90, "90 days"], [365, "1 year"], [3650, "All"]];
 
 function Range({ days, setDays }) {
@@ -99,6 +100,7 @@ export function Analytics({ tab = "overview" }) {
     overview: html`<${Overview} days=${days} setDays=${setDays} />`, photos: html`<${Photos} days=${days} setDays=${setDays} />`,
     tags: html`<${TagsTab} />`, places: html`<${PlacesTab} />`, gear: html`<${GearTab} />`, audience: html`<${AudienceTab} />`,
     groups: html`<${GroupsTab} />`, impact: html`<${ImpactTab} />`,
+    visitors: html`<${VisitorsTab} days=${days} range=${html`<${Range} days=${days} setDays=${setDays} />`} />`,
   }[current];
   return html`<div class="analytics">
     <nav class="subtabs" aria-label="Analytics">${TABS.map(([t, label]) => html`<a href=${"#/photos/analytics/" + t}

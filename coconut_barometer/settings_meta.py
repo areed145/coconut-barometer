@@ -19,6 +19,10 @@ SECTIONS = [
     ("display", "Display", "How the app looks: theme, units, colors and maps."),
     ("backup", "Backups", "Compressed copies of the database, safe while the app runs. API keys stay encrypted "
                           "in them; keep the encryption key somewhere else."),
+    ("visitors", "Visitors", "Who opens this site, shown under Photos → Analytics → Visitors. No cookies are set for "
+                             "visitors and no IP address is stored: each is counted by a fingerprint that changes "
+                             "every day, with the city, region and country their address gives. Your own visits "
+                             "aren't counted on any device you've signed in on."),
     ("web", "Server", "The settings in grey protect the server itself and stay in config.yaml or the environment."),
 ]
 
@@ -211,6 +215,13 @@ META = {
     "backup.every_hours": _m("backup", "Back up every (hours)", "0 turns automatic backups off."),
     "backup.keep": _m("backup", "Backups kept", "The newest are kept; older ones deleted."),
     "backup.dir": _m("backup", "Backup folder", "Empty: backups/ next to the database (on the disk)."),
+
+    # ---- Visitors
+    "visitors.enabled": _m("visitors", "Count visitors", "Off: nothing new is recorded; what's kept stays."),
+    "visitors.keep_days": _m("visitors", "Keep page views for (days)", "Older days keep only their visitor and page "
+                             "view totals."),
+    "visitors.honor_gpc": _m("visitors", "Respect Global Privacy Control", "Browsers that ask not to be tracked "
+                             "(Sec-GPC or Do Not Track) aren't counted."),
 
     # ---- Server
     "web.session_days": _m("web", "Stay signed in for (days)", "Applies to new sign-ins."),

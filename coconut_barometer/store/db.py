@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS applied (id BIGINT PRIMARY KEY DEFAULT nextval('appli
 CREATE TABLE IF NOT EXISTS settings_log (id BIGINT PRIMARY KEY DEFAULT nextval('settings_log_id_seq'), "at" BIGINT, username TEXT, path TEXT, old TEXT, new TEXT);
 CREATE SEQUENCE IF NOT EXISTS alerts_log_id_seq START 1;
 CREATE TABLE IF NOT EXISTS alerts_log (id BIGINT PRIMARY KEY DEFAULT nextval('alerts_log_id_seq'), "at" BIGINT, alert_key TEXT, title TEXT, body TEXT, url TEXT, evidence TEXT, device_id TEXT, device_label TEXT, username TEXT, status TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS site_hits (ts BIGINT, day TEXT, visitor TEXT, session TEXT, kind TEXT, route TEXT, item TEXT, ref_host TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, city TEXT, region TEXT, country TEXT, country_code TEXT, device TEXT, browser TEXT, os TEXT, width INTEGER);
+CREATE TABLE IF NOT EXISTS site_days (day TEXT PRIMARY KEY, visitors INTEGER, views INTEGER);
 """
 
 
@@ -167,7 +169,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 def is_sqlite_file(path) -> bool:

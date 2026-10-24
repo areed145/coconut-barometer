@@ -20,6 +20,7 @@ from ..weather.service import WeatherService
 from ..weather.snapshot import Snapshots
 from ..aprs.service import AprsService
 from ..store import Store
+from ..visitors import Visitors
 from .security import LoginThrottle
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class Runtime:
         self.radar = RadarService(cfg, self.db_path)
         self.snapshots = Snapshots(self.radar, self.db_path)   # Home's Radar card (#77)
         self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar)
+        self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()
@@ -106,6 +108,7 @@ class Runtime:
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
         self.radar.start(self._stop, self.store)     # MRMS and nationwide storm cells (weather/radar.py)
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
+        threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 
     def _alerts_loop(self) -> None:
         """Settings → Alerts: what the streams stored, checked every minute (alerts.py)."""
@@ -117,6 +120,7 @@ class Runtime:
 
     def stop(self) -> None:
         self._stop.set()
+        self.visitors.flush(self.store())           # the page views not written yet
 
     def _schedule_loop(self, first_delay: float) -> None:
         """Reads web.sync_every_minutes each time round, so changing it on the admin page
