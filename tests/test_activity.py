@@ -2,9 +2,10 @@
 messages, finished jobs; and that the clients and streams write to it."""
 import os
 import tempfile
-import threading
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from fakes import FakeFlickr, CFG
 from coconut_barometer import activity
@@ -68,24 +69,30 @@ class FakeApi:
 
 
 class InstrumentedTest(unittest.TestCase):
-    def test_flickr_calls_record_the_wait_for_the_shared_limit(self):
-        limiter = SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 4)    # 0.25 s apart
-        client = FlickrClient("k", "s", limiter=limiter)
+    def test_flickr_calls_record_the_wait_for_their_rate_limit_slot(self):
+        """Each call shows as waiting until its slot, and its wait is logged. The limiter and the activity log share a
+        fake clock, moved on instead of slept: a real window could pass before it was checked on a slow runner (#63)."""
+        clock = SimpleNamespace(now=1000.0)
+        clock.time = lambda: clock.now
+        seen = []
+
+        class Limiter:               # a slot 0.2 s off each time; what the Status page shows meanwhile, then the slot
+            def wait(self, on_slot=None):
+                slot = clock.now + 0.2
+                on_slot(slot)
+                seen.extend(p["state"] for p in activity.log.snapshot()["pending"] if p["what"] == "flickr.photos.getInfo")
+                clock.now = slot
+
+        client = FlickrClient("k", "s", limiter=Limiter())
         client.api = FakeApi()
         seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
-        seen = []
-        watch = threading.Thread(target=lambda: [seen.extend(p["state"] for p in activity.log.snapshot()["pending"]) or time.sleep(0.02)
-                                                 for _ in range(30)])
-        watch.start()
-        for pid in ("1", "2", "3"):
-            client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
-        ahead = limiter.next_free() - time.time()     # read now: the next slot is only 0.25 s off, and join() takes longer
-        watch.join()
+        with patch.object(activity, "time", clock):
+            for pid in ("1", "2", "3"):
+                client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
         got = [e for e in activity.log.since(seq) if e["source"] == "flickr"]
         self.assertEqual([e["detail"] for e in got], ["photo_id=1", "photo_id=2", "photo_id=3"])
-        self.assertGreater(got[-1]["waited"], 0.1)
-        self.assertIn("waiting", seen)
-        self.assertGreater(ahead, 0)
+        self.assertEqual([e["waited"] for e in got], [0.2] * 3)
+        self.assertEqual(seen, ["waiting"] * 3)
 
     def test_expected_answers_are_not_logged_as_errors(self):
         client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
