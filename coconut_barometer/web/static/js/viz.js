@@ -1,7 +1,6 @@
 // Small charts for the Analytics tabs, drawn as plain HTML/SVG (no library): bar lists
-// (colored along the Settings → Display → Colors gradient), photo tiles and a week heatmap. Nothing uses inline
-// HTML or style attributes in markup, so the Content-Security-Policy holds.
-import { html, useState, useMemo, num, pick, shade, logShare } from "./lib.js";
+// (colored along the Settings → Display → Colors gradient), photo tiles and a week heatmap.
+import { html, useState, useMemo, num, pick, shade, logShare, useThemeTick, ramp } from "./lib.js";
 import { Lightbox } from "./gallery.js";
 
 export const asPhoto = (r) => ({ id: r.photo_id || r.id, title: r.title, sizes: r.sizes || {}, views: r.views,
@@ -64,12 +63,13 @@ export function Table({ rows, cols, onPick, initial }) {
 
 // 7 rows × 24 columns of counts; rows/cols are labels.
 export function Heatmap({ cells, rows, cols }) {
+  useThemeTick();
   const max = Math.max(...cells.flat(), 1);
   return html`<div class="heat">
-    <span></span>${cols.map((c, i) => html`<span class="hcol">${i % 3 === 0 ? c : ""}</span>`)}
-    ${rows.map((r, y) => html`<span class="hrow">${r}</span>${cells[y].map((v, x) => html`<span
-        class=${"hcell l" + Math.min(5, Math.ceil((5 * v) / max))} title=${`${r} ${cols[x]}:00 · ${num(v)}`}></span>`)}`)}
-  </div>`;
+    <span></span>${cols.map((c, i) => html`<span class=${"hcol" + (i % 6 === 0 ? " hcol6" : i % 3 === 0 ? " hcol3" : "")}>${i % 3 === 0 ? c : ""}</span>`)}
+    ${rows.map((r, y) => html`<span class="hrow"><span class="hday-full">${r}</span><span class="hday-short">${r[0]}</span></span>${cells[y].map((v, x) => html`<span
+        class="hcell" style=${v > 0 ? `background:${shade(logShare(v, max))}` : ""} title=${`${r} ${cols[x]}:00 · ${num(v)}`}></span>`)}`)}
+  </div><p class="muted heatkey"><span>fewer</span><i style=${`background:${ramp()}`}></i><span>more faves in that hour</span></p>`;
 }
 
 // A number with its change against the period before.

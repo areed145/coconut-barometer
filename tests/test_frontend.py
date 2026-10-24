@@ -153,14 +153,25 @@ class FrontendTest(unittest.TestCase):
             self.assertIn(c, out["legend"])
 
     def test_analytics_views_are_drawn_in_the_color_gradient(self):
-        """#68: the views lines use Settings -> Display -> Colors; bars and the dashed previous period stay flat."""
+        """#68/#79: analytics lines and the audience heatmap use Settings -> Display -> Colors."""
         js = lambda name: open(os.path.join(STATIC, "js", name)).read()
         self.assertIn("s.gradient ? (u) => upward(u)", js("chart.js"))
         self.assertIn('color: "--chart-1", gradient: true }];', js("analytics.js"))
         self.assertIn('color: "--chart-1", gradient: true }]', js("analytics_tags.js"))
-        self.assertNotIn("gradient", js("analytics_more.js"))                  # favers: bars, flat
+        viz = js("viz.js")
+        self.assertIn("useThemeTick();", viz)                                  # refresh after a gradient setting changes
+        self.assertIn("shade(logShare(v, max))", viz)
+        self.assertIn('class="hcell"', viz)                                    # no fixed accent levels
+        self.assertNotIn('class=${"hcell l"', viz)
+        self.assertIn("ramp()", viz)                                            # heatmap color key
         self.assertIn('window.dispatchEvent(new Event("cb:gradient"))', js("lib.js"))   # a changed gradient redraws them
         self.assertIn('window.addEventListener("cb:gradient", on)', js("lib.js"))
+
+    def test_audience_heatmap_fits_narrow_cards(self):
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn("repeat(24, minmax(0, 1fr))", css)
+        self.assertIn(".heat .hcol3 { display: none; }", css)                 # phone labels every 6 hours
+        self.assertIn(".heat .hday-short { display: inline; }", css)
 
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()

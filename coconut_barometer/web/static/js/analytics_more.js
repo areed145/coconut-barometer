@@ -77,7 +77,7 @@ export function AudienceTab() {
   return html`<div class="cols">
       <div class="card"><h2>When your audience faves <span class="muted">(last year, your time)</span></h2>
         <${Heatmap} cells=${cells} rows=${DAYS} cols=${[...Array(24).keys()].map((h) => String(h).padStart(2, "0"))} />
-        <p class="muted small">Darker: more faves in that hour. Uploading just before the busiest hours gives a photo the best first day.</p></div>
+        <p class="muted small">Uploading just before the busiest hours gives a photo the best first day.</p></div>
       <div class="card"><h2>How soon faves arrive</h2>
         <${Bars} rows=${d.timing} value="faves" right=${(r) => num(r.faves)} />
         <p class="muted small">Time from upload to fave, over every fave recorded.</p></div>
