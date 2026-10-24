@@ -115,7 +115,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const timeline = radarFrames.length ? radarFrames : satFrames;
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
   const t = at >= 0 ? timeline[at].t : null;
-  const shownRadar = radarFrames.length && t != null ? frameAt(radarFrames, t) : null;
+  const shownRadar = radarFrames.length && at >= 0 ? radarFrames[at] : null;
   const vector = radar === "loop" ? (shownRadar && loop.data[shownRadar.t]) || null : live_;
   const colors = live_?.colors;
   const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
@@ -124,20 +124,29 @@ export function WxMap({ show, unitsFor, compass }) {
   });
 
   // The loop's frames are fetched once each (the server keeps them for the last hour); older ones are dropped.
-  const asked = useRef(new Set());
+  const asked = useRef(new Map());
   useEffect(() => {
     if (radar !== "loop") return;
     let alive = true;
-    for (const t of loop.times) if (!asked.current.has(t)) {
-      asked.current.add(t);
-      api(`/api/wx/radar/frame?t=${t}`).then((x) => alive && setLoop((l) => ({ ...l, data: { ...l.data, [t]: x } })))
-        .catch(() => asked.current.delete(t));
+    const requests = new Map();
+    for (const t of loop.times) if (!loop.data[t] && !asked.current.has(t)) {
+      const request = {};
+      requests.set(t, request);
+      asked.current.set(t, request);
+      api(`/api/wx/radar/frame?t=${t}`).then((x) => {
+        if (alive && asked.current.get(t) === request) setLoop((l) => ({ ...l, data: { ...l.data, [t]: x } }));
+      }).catch(() => {
+        if (asked.current.get(t) === request) asked.current.delete(t);
+      });
     }
     setLoop((l) => {
       const keep = Object.keys(l.data).filter((k) => l.times.includes(+k));
       return keep.length === Object.keys(l.data).length ? l : { ...l, data: Object.fromEntries(keep.map((k) => [k, l.data[k]])) };
     });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+      for (const [t, request] of requests) if (!loop.data[t] && asked.current.get(t) === request) asked.current.delete(t);
+    };
   }, [radar, loop.times]);
 
   useEffect(() => {
