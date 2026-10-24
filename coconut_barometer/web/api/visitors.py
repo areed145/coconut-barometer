@@ -1,5 +1,5 @@
 """The site's own visitors (#83, visitors.py): /api/seen, where every visitor's page sends its route changes, and
-/api/analytics/visitors, the signed-in report on the Visitors page (#/visitors)."""
+/api/analytics/visitors, the signed-in report on the Visitors page (#/visitors), and /api/visitors/glance, Home's card."""
 from __future__ import annotations
 
 import datetime as dt
@@ -94,3 +94,20 @@ def report(days: int = Query(30, ge=1, le=3650), db=Depends(store), rt=Depends(r
             "bots": top("browser", 10, "bot"),
             "photos": photos, "previews": db.visitors_previews(since),
             "recent": db.visitors_recent(), "collector": rt.visitors.status()}
+
+
+GLANCE_DAYS = 14
+
+
+@router.get("/api/visitors/glance", dependencies=[Depends(session)])
+def glance(db=Depends(store), rt=Depends(runtime)):
+    """Home's Visitors card: today so far (UTC), who's here now, the top city today, and visitors per day for the
+    last GLANCE_DAYS days (oldest first, 0 for a day nobody came)."""
+    rt.visitors.flush(db)
+    today = _since(1)
+    t = db.visitors_totals(today)
+    by = {r["day"]: r["visitors"] for r in db.visitors_series(_since(GLANCE_DAYS))}
+    city = db.visitors_top(today, "city", 1)
+    return {"enabled": rt.visitors.enabled, "visitors": t["visitors"], "views": t["views"], "now": t["now"],
+            "city": city[0]["label"] if city else None,
+            "days": [by.get(_since(GLANCE_DAYS - i), 0) for i in range(GLANCE_DAYS)]}

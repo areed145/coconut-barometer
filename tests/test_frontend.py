@@ -274,7 +274,9 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('else if (tab === "visitors") page = html`<${Visitors} />`;', main)
         self.assertIn('location.replace("#/visitors")', main)                     # the old tab's links still work
         self.assertNotIn('"visitors"', analytics)
-        self.assertIn('<a href="#/visitors">Visitors</a>', open(os.path.join(STATIC, "js", "home.js")).read())
+        home = open(os.path.join(STATIC, "js", "home.js")).read()
+        self.assertIn('<a href="#/visitors">Visitors</a>', home)
+        self.assertIn('<${AprsCard} />${session && html`<${VisitorsCard} />`}', home)   # Home's card: signed in only
 
     def test_home_is_the_front_page(self):
         lib = open(os.path.join(STATIC, "js", "lib.js")).read()

@@ -280,6 +280,9 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .homebg.curve { left: 0; right: 0; bottom: 0; width: 100%; height: 42%; }
 .homebg.curve .fill { opacity: .18; }
 .homebg.curve .edge { fill: none; stroke-width: 2; opacity: .55; }
+.homebg.bars { left: 0; right: 0; bottom: 0; width: 100%; height: 38%; }
+.homebg.bars rect { fill: var(--accent); opacity: .16; }
+.homebg.bars rect.now { opacity: .32; }
 .homebg.rings { right: 0; bottom: 0; width: 200px; height: 200px; }
 .homebg.rings circle { fill: none; stroke: var(--muted); stroke-width: 1.5; opacity: .3; }
 .homebg.rings .dot { fill: var(--accent); stroke: none; opacity: .45; }

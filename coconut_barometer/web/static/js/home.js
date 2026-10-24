@@ -1,5 +1,5 @@
 // The home page (#/): a large link per public section, each with a glance at what's there now (the newest
-// photo, each station's weather, when each tracked callsign was last heard; signed in, the radar too); signed in, the private pages
+// photo, each station's weather, when each tracked callsign was last heard; signed in, the radar and visitors too); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
 import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, isDark, today, dayLabel, photosLink, HealthPanel,
   StatusDot } from "./lib.js";
@@ -113,6 +113,27 @@ function AprsCard() {
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
 }
 
+// Visitors per day for the last two weeks, as faint bars along the bottom of the card.
+function DayBars({ days }) {
+  if (!days?.some(Boolean)) return null;
+  const hi = Math.max(...days), w = 100 / days.length;
+  return html`<svg class="homebg bars" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+    ${days.map((n, i) => html`<rect key=${i} x=${(i * w + w * 0.15).toFixed(2)} width=${(w * 0.7).toFixed(2)}
+      y=${(40 - (n / hi) * 36).toFixed(2)} height=${((n / hi) * 36).toFixed(2)} class=${i === days.length - 1 ? "now" : ""} />`)}
+  </svg>`;
+}
+
+// This site's visitors today (signed in only, as the page is); your own devices aren't among them.
+function VisitorsCard() {
+  const d = useGlance("/api/visitors/glance", 60000);
+  return html`<${Section} href="#/visitors" title="Visitors" bg=${html`<${DayBars} days=${d?.days} />`}
+    line=${d && !d.enabled ? "Not being counted: turn it on in Settings → Visitors" : "Who's opened this site, and from where"}>
+    ${d && html`<div class="glance-row"><b>${num(d.visitors)}</b><span>visitor${d.visitors === 1 ? "" : "s"} today</span>
+        <span class="muted">${num(d.views)} page view${d.views === 1 ? "" : "s"}</span></div>
+      ${d.now > 0 && html`<div class="glance-row"><span>${num(d.now)} here now</span></div>`}
+      ${d.city && html`<div class="glance-row"><span class="muted">Most from ${d.city}</span></div>`}`}<//>`;
+}
+
 // Highlights: running totals and streaks that mean something from the first week of history, each linking to
 // where it comes from. "Record" only once there's more than a year to compare with (the server decides).
 function Hl({ href, label, value, note, record }) {
@@ -189,7 +210,7 @@ export function Home({ session, pending, queued, health }) {
       <p class="muted">Photos, live weather and APRS radio, in one place.</p>
     </header>
     <nav class="homecards" aria-label="Sections">
-      <${PhotosCard} /><${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />
+      <${PhotosCard} /><${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />${session && html`<${VisitorsCard} />`}
     </nav>
     <${HealthPanel} health=${health} fix=${session} />
     <${Highlights} />

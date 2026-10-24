@@ -222,6 +222,16 @@ class VisitorsWebTest(unittest.TestCase):
         self.assertEqual(d["series"][-1]["views"], 2)
         self.assertIn("visitors", [r["id"] for r in self.c.get("/api/status").json()["rows"]])
 
+    def test_homes_glance_needs_the_login(self):
+        self.assertEqual(self.c.get("/api/visitors/glance").status_code, 401)
+        self.send(self.visitor())
+        self.send(self.visitor(), body={"p": "#/weather"})
+        self.login()
+        d = self.c.get("/api/visitors/glance").json()
+        self.assertEqual((d["enabled"], d["visitors"], d["views"], d["now"], d["city"]), (True, 1, 2, 1, "Bakersfield, California"))
+        self.assertEqual(len(d["days"]), 14)
+        self.assertEqual(d["days"][-1], 1)                                       # today, last
+
 
 if __name__ == "__main__":
     unittest.main()
