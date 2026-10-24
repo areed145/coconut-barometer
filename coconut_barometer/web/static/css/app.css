@@ -638,7 +638,7 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
   .lightbox .navbtn { width: 40px; height: 56px; }
   .maprow { grid-template-columns: 1fr; }
   .heat { grid-template-columns: minmax(0, 20px) repeat(24, minmax(0, 1fr)); gap: 1px; }
-  .heat .hcol3 { display: none; }
+  .heat .hcol3 { visibility: hidden; }     /* keep its grid cell, or every cell after it shifts */
   .heat .hday-full { display: none; }
   .heat .hday-short { display: inline; }
 }

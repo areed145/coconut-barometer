@@ -249,7 +249,8 @@ class FrontendTest(unittest.TestCase):
     def test_audience_heatmap_fits_narrow_cards(self):
         css = open(os.path.join(STATIC, "css", "app.css")).read()
         self.assertIn("repeat(24, minmax(0, 1fr))", css)
-        self.assertIn(".heat .hcol3 { display: none; }", css)                 # phone labels every 6 hours
+        self.assertIn(".heat .hcol3 { visibility: hidden; }", css)            # phone labels every 6 hours, keeping their cells (#81)
+        self.assertNotIn(".hcol3 { display: none", css)                       # out of the grid, every cell after shifts
         self.assertIn(".heat .hday-short { display: inline; }", css)
 
     def test_settings_panels_sit_with_their_settings(self):
