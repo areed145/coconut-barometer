@@ -278,6 +278,44 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["none"], 3)
         self.assertEqual(out["ends"], [0, out["TRAIL"]])                       # the colors span the trail shown
 
+    def test_the_weather_maps_names_sit_over_its_layers(self):
+        """#95: the Weather map's base without names, the names as tiles of their own over every layer (and light on
+        dark over the satellite), the other maps as before."""
+        js = lambda name: open(os.path.join(STATIC, "js", name)).read()
+        lf, m = js("leaflet.js"), js("weather_map.js")
+        self.assertIn('url(labels ? "nolabels" : "all")', lf)
+        self.assertIn('L.tileLayer(url("only_labels"), { pane: "cblabels"', lf)
+        self.assertIn("baseMap(lf, box.current, { minZoom: 3, labels: true })", m)
+        self.assertIn('m.setLabels(sat ? "dark" : null);', m)
+        self.assertNotIn("labels: true", js("map.js") + js("aprs.js") + js("igate.js"))
+        panes = {k: int(v) for k, v in re.findall(r'createPane\("(\w+)"\)\.style\.zIndex = (\d+)', m)}
+        names = int(re.search(r"pane\.style\.zIndex = (\d+)", lf).group(1))
+        self.assertGreater(names, max(panes.values()))                     # over every weather layer ...
+        self.assertLess(names, 400)                                        # ... under the storm cells and pins
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_borders_over_the_satellite_decode(self):
+        """#95: Natural Earth's lines, delta-encoded, decode to where they are."""
+        path = os.path.join(STATIC, "vendor", "natural-earth-lines.json")
+        data = json.load(open(path))
+        self.assertEqual(set(data["layers"]), {"coast", "lake", "country", "state"})
+        self.assertTrue(all(len(line) >= 4 and len(line) % 2 == 0 for lines in data["layers"].values() for line in lines))
+        script = r"""
+          import { decodeLine } from "%s";
+          import { readFileSync } from "node:fs";
+          const d = JSON.parse(readFileSync("%s", "utf8"));
+          const all = Object.values(d.layers).flat().map((enc) => decodeLine(enc, d.q));
+          const box = all.reduce((b, l) => [Math.min(b[0], l.bounds[0]), Math.min(b[1], l.bounds[1]), Math.max(b[2], l.bounds[2]),
+            Math.max(b[3], l.bounds[3])], [Infinity, Infinity, -Infinity, -Infinity]);
+          // Galveston Island's coast is somewhere near 29.3 N, 94.8 W.
+          const near = all.some((l) => l.pts.some(([lat, lon]) => Math.abs(lat - 29.3) < 0.2 && Math.abs(lon + 94.8) < 0.2));
+          console.log(JSON.stringify({ line: decodeLine([-9500, 2900, 10, -5, -20, 0], 100).pts, box, near }));
+        """ % (os.path.join(STATIC, "js", "lines_layer.js"), path)
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual(out["line"], [[29, -95], [28.95, -94.9], [28.95, -95.1]])
+        self.assertLess(out["box"][0], -150)                               # the Americas, GOES-East's side ...
+        self.assertTrue(out["near"])                                       # ... and the Texas coast where it is
+
     def test_an_alert_opens_its_own_page(self):
         main = open(os.path.join(STATIC, "js", "main.js")).read()
         self.assertIn('lazy(() => import("./alert_page.js"), "AlertPage")', main)

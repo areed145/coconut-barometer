@@ -22,19 +22,34 @@ export function leaflet() {
 }
 
 
-export function baseMap({ L, cfg }, el, options = {}) {
+// A map on CARTO's tiles. labels: the place names as tiles of their own in a pane over everything but the pins and
+// popups (the Weather map's, so its layers never hide them, the satellite least of all: #95), the base without them.
+export function baseMap({ L, cfg }, el, { labels = false, ...options } = {}) {
   const map = L.map(el, { worldCopyJump: true, minZoom: 2, ...options });
   const key = cfg.carto_key ? `?key=${encodeURIComponent(cfg.carto_key)}` : "";
   let mode = "auto";                               // map.setBasemap("auto" | "light" | "dark"): auto follows the theme
+  let labelMode = null;                            // map.setLabels("light" | "dark" | null): null, as the basemap
   const dark = () => (mode === "auto" ? isDark() : mode === "dark");
-  const url = () => `https://basemaps.cartocdn.com/rastertiles/${dark() ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png${key}`;
-  const tiles = L.tileLayer(url(), {
+  const style = (m) => (m ? m === "dark" : dark()) ? "dark" : "light";
+  const url = (kind, m) => `https://basemaps.cartocdn.com/rastertiles/${style(m)}_${kind}/{z}/{x}/{y}{r}.png${key}`;
+  const tiles = L.tileLayer(url(labels ? "nolabels" : "all"), {
     maxZoom: 20,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(map);
+  let names = null;
+  if (labels) {
+    const pane = map.createPane("cblabels");
+    pane.style.zIndex = 390;                       // over the Weather map's own panes, under the vector overlays (400)
+    pane.style.pointerEvents = "none";
+    names = L.tileLayer(url("only_labels"), { pane: "cblabels", maxZoom: 20 }).addTo(map);
+  }
   map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
-  const swap = () => tiles.setUrl(url());          // light or dark tiles, following the theme
+  const swap = () => {                             // light or dark tiles, following the theme
+    tiles.setUrl(url(labels ? "nolabels" : "all"));
+    names?.setUrl(url("only_labels", labelMode));
+  };
   map.setBasemap = (m) => { if (m !== mode) { mode = m; swap(); } return map; };
+  map.setLabels = (m) => { if (m !== labelMode) { labelMode = m; swap(); } return map; };
   window.addEventListener("cb:theme", swap);
   map.on("unload", () => window.removeEventListener("cb:theme", swap));
   return map;
