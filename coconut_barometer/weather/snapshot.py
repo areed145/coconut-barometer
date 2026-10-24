@@ -34,7 +34,7 @@ ZOOMS = (4, 8)                  # the box's zoom: as close as fits the stations 
 MARGIN = 0.75                   # degrees around the stations
 STALE = 15 * 60                 # a frame older than this is "Radar unavailable"
 ALPHA = 0.85                    # the map's default radar opacity
-BAND, LOWEST, HIGHEST = 5, 15, 75   # radar_layer.js: a level per 5 dBZ, 15 up to 75 and over
+BAND, LOWEST, HIGHEST = 2, 15, 75   # radar_layer.js: a level per 2 dBZ, 15 up to 75 and over
 CACHED = 8
 TILE_URL = "https://basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}{r}.png"
 TILE_RETRY = 600                # after a failed tile fetch, plain backgrounds for this long
@@ -69,7 +69,7 @@ def radar_color(stops: list[dict], dbz: float) -> tuple[int, int, int]:
 
 def level_color(stops: list[dict], dbz: float | None) -> tuple[int, int, int] | None:
     """What a level is drawn in (the color at its floor), and a storm cell of that strength; None: no dBZ known."""
-    return None if dbz is None else radar_color(stops, max(LOWEST, math.floor(dbz / BAND) * BAND))
+    return None if dbz is None else radar_color(stops, LOWEST + max(0, math.floor((dbz - LOWEST) / BAND)) * BAND)
 
 
 # ---- the box ----------------------------------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def radar_rgba(field: dict | None, box: Box, stops: list[dict], alpha: float = A
     rr, cc = np.meshgrid(rows, cols, indexing="ij")
     dbz = ndimage.map_coordinates(field["z"], [rr, cc], order=1, cval=0.0, mode="constant")
     on = dbz >= MIN_DBZ
-    levels = np.clip(np.floor(dbz / BAND) * BAND, LOWEST, HIGHEST)
+    levels = np.clip(LOWEST + np.floor((dbz - LOWEST) / BAND) * BAND, LOWEST, HIGHEST)
     lut = np.array([level_color(stops, d) for d in range(LOWEST, HIGHEST + 1, BAND)], np.uint8)
     out[..., :3] = lut[((levels - LOWEST) // BAND).astype(int)]
     out[..., 3] = np.where(on, round(alpha * 255), 0)

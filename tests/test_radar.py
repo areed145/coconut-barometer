@@ -86,7 +86,7 @@ class FrameTest(unittest.TestCase):
         frame = frame_of(blob(20, radius_px=12))
         fine = json.loads(R.view(frame, (LON - 2, LAT - 2, LON + 2, LAT + 2), 7))
         self.assertEqual((fine["level"], fine["q"]), ("fine", 1000))
-        self.assertEqual([b["dbz"] for b in fine["bands"]], [15, 20, 25, 30, 35])
+        self.assertEqual([b["dbz"] for b in fine["bands"]], list(range(15, 40, 2)))
         boxes = [b["polys"][0][:4] for b in fine["bands"]]             # each level and up: inside the one below
         for lower, upper in zip(boxes, boxes[1:]):
             self.assertTrue(lower[0] <= upper[0] and lower[1] <= upper[1] and upper[2] <= lower[2] and upper[3] <= lower[3])
@@ -332,7 +332,7 @@ class RadarApiTest(unittest.TestCase):
         c = TestClient(app, base_url="https://testserver")
         d = c.get(f"/api/wx/radar?zoom=7&bbox={LON - 2},{LAT - 2},{LON + 2},{LAT + 2}").json()
         self.assertEqual((d["t"], d["shapes"]["level"], d["colors"][0]), (T, "fine", {"dbz": 15, "color": "#8fd3ff"}))
-        self.assertEqual(len(d["shapes"]["bands"]), 5)
+        self.assertEqual(len(d["shapes"]["bands"]), 13)   # 15, 17 ... 39
         self.assertEqual([x["id"] for x in d["cells"]], ["HGX-A1"])                   # only the cells near the view
         self.assertEqual(len(d["cells"][0]["path"]), 3)
         self.assertGreater(d["cells"][0]["path"][2][1], d["cells"][0]["path"][0][1])   # heading east
@@ -406,8 +406,8 @@ class SnapshotTest(unittest.TestCase):
 
     def test_colors_are_the_maps(self):
         # radar_layer.js: a level in the color at its floor, blended between the stops (Math.round)
-        self.assertEqual(SN.level_color(self.STOPS, 40), (0xf2, 0xaf, 0x2b))      # halfway from #f2d22e to #f28c28
-        self.assertEqual(SN.level_color(self.STOPS, 44.9), SN.level_color(self.STOPS, 40))
+        self.assertEqual(SN.radar_color(self.STOPS, 40), (0xf2, 0xaf, 0x2b))      # halfway from #f2d22e to #f28c28
+        self.assertEqual(SN.level_color(self.STOPS, 42.9), SN.radar_color(self.STOPS, 41))   # the 41-43 level
         self.assertEqual(SN.level_color(self.STOPS, 45), (0xf2, 0x8c, 0x28))      # on a stop: its own color
         self.assertEqual(SN.level_color(self.STOPS, 3), (0x8f, 0xd3, 0xff))        # below the first: the first
         self.assertEqual(SN.level_color(self.STOPS, 80), (0xb0, 0x3a, 0xb5))
@@ -418,11 +418,11 @@ class SnapshotTest(unittest.TestCase):
         box = SN.Box.around([(LAT, LON)])
         rgba = SN.radar_rgba(field, box, self.STOPS)
         x, y = (round(v) for v in box.px(LAT, LON))
-        self.assertEqual(tuple(rgba[y, x]), (*SN.level_color(self.STOPS, 40), round(0.85 * 255)))
+        self.assertEqual(tuple(rgba[y, x]), (*SN.level_color(self.STOPS, 42), round(0.85 * 255)))
         self.assertEqual(rgba[5, 5, 3], 0)                                          # no echo: clear
         png = Image.open(io.BytesIO(SN.render(box, "dark", self.STOPS, field, [], [], None)))
         r, g, b = png.getpixel((x, y + 40))                                          # over the plain background, at 85%
-        want = [round(c * 0.85 + bg * 0.15) for c, bg in zip(SN.level_color(self.STOPS, 40), SN.THEMES["dark"]["bg"])]
+        want = [round(c * 0.85 + bg * 0.15) for c, bg in zip(SN.level_color(self.STOPS, 42), SN.THEMES["dark"]["bg"])]
         for got, w in zip((r, g, b), want):
             self.assertAlmostEqual(got, w, delta=2)
 

@@ -60,7 +60,7 @@ SAME_CELL_KM = 8         # cells this close are one storm seen by more than one 
 # means little, so any is consistent.
 SAME_TRACK_KM, HEADING_DEG, SPEED_DIFF, SPEED_FLOOR, SLOW_KMH = 15, 45, 0.5, 25, 20
 STEADY_SCANS = 2         # scans in a row a storm's motion must hold before it can alert (#71)
-BAND_STEP, BAND_TOP = 5, 75
+BAND_STEP, BAND_TOP = 2, 75   # thin levels, so the map's colors step finely (and its blur blends them)
 RAIN_DBZ, HERE_KM = 20, 3.0          # rain, and close enough to be raining at the station already
 RAIN_HISTORY, RAIN_WINDOW = 20, 20 * 60
 KM_PER_DEG = 111.2

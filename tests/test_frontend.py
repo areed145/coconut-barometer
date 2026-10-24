@@ -203,7 +203,7 @@ class FrontendTest(unittest.TestCase):
           console.log(JSON.stringify({
             exact: [radarColor(S, 15), radarColor(S, 35)], between: radarColor(stops, 20), clamp: [radarColor(S, 0), radarColor(S, 99)],
             dup: radarColor(stops, 25), dupBetween: radarColor(stops, 35),
-            level: [levelColor(S, 15), levelColor(S, 19.9), levelColor(S, 58), levelColor(S, 55), levelColor(S, null)],
+            level: [levelColor(S, 15), levelColor(S, 16.9), levelColor(S, 58), levelColor(S, 57), levelColor(S, null)],
             legend: radarScale(S), firstLevels: [15, 20, 25].map((d) => levelColor(S, d)),
           }));
         """ % os.path.join(STATIC, "js", "radar_layer.js")
@@ -212,8 +212,8 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["between"], "rgb(128,128,128)")                   # halfway between black and white
         self.assertEqual(out["clamp"], ["#8fd3ff", "#b03ab5"])
         self.assertNotIn("NaN", out["dup"] + out["dupBetween"])                # two stops at one dBZ: no NaN
-        self.assertEqual(out["level"][:2], ["#8fd3ff", "#8fd3ff"])            # the 15-20 level is the 15 stop's color
-        self.assertEqual(out["level"][2], out["level"][3])                     # a 58 dBZ cell: its level's (55) color
+        self.assertEqual(out["level"][:2], ["#8fd3ff", "#8fd3ff"])            # the 15-17 level is the 15 stop's color
+        self.assertEqual(out["level"][2], out["level"][3])                     # a 58 dBZ cell: its level's (57) color
         self.assertIsNone(out["level"][4])                                     # no dBZ: no color (drawn neutral)
         for c in out["firstLevels"]:                                           # the legend: the levels' own colors
             self.assertIn(c, out["legend"])
