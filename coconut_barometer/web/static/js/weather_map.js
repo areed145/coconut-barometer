@@ -10,6 +10,10 @@
 // (lightning_layer.js, #94): the 15 minutes up to the time the timeline shows, fetched each minute and only what's
 // new. The map's own errors go to the server (#65), which reports them like its own. The stations' own strikes are
 // rings: a Tempest reports how far away a strike was but not which way, so each is a ring at that distance.
+// The place names are the basemap's own, as tiles of their own (leaflet.js baseMap's labels) over the satellite and
+// under the radar (which is sparse, and matters more); with the satellite on they turn to light text on a dark halo,
+// and Natural Earth's coastlines and borders are drawn under them over the imagery (lines_layer.js, #95), which hides
+// the basemap's own.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 // The controls (wx_controls.js, #78) sit on the map: my location and full screen with the zoom buttons, the Layers
 // panel (a bottom sheet on a phone) and the timeline bar along the bottom; the layer choices are remembered.
@@ -20,6 +24,7 @@ import { frontsCanvas } from "./fronts_layer.js";
 import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
 import { decodeGrid, temperatureCanvas, windCanvas, tempScale, windScale, TEMP_RANGE, WIND_RANGE } from "./surface_layer.js";
 import { lightningCanvas, lightningScale, mergeMinutes, TRAIL } from "./lightning_layer.js";
+import { linesCanvas, loadLines } from "./lines_layer.js";
 import { loopWindow } from "./wx_loop.js";
 import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
 
@@ -30,6 +35,7 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const FINE_ZOOM = 6;          // radar.py FINE_ZOOM: from here in, the ~2 km shapes for the view
 const SURFACE_ZOOMS = [6, 8]; // rtma.py LEVELS: finer grids for the view from these zooms in
 const LOADING = 4;            // loop frames fetched at once
+const LABELS_Z = 357;         // the place names: over the satellite, warnings and borders, under the radar
 const PENDING_MS = 4000;      // a layer the server is still fetching (pending) is asked for again this soon
 // What a layer with finer detail from each of `zooms` in is asked for: below the first, the whole US; from there, the
 // view padded by half its size and rounded out to whole degrees (so small pans need nothing new), at the zoom tier
@@ -112,7 +118,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const wrap = useRef(null), box = useRef(null), map = useRef(null);
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
-  const hazardsLayer = useRef(null), tempLayer = useRef(null), windLayer = useRef(null), glmLayer = useRef(null);
+  const hazardsLayer = useRef(null), tempLayer = useRef(null), windLayer = useRef(null), glmLayer = useRef(null), linesLayer = useRef(null);
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
@@ -146,10 +152,11 @@ export function WxMap({ show, unitsFor, compass }) {
     window.addEventListener("unhandledrejection", onRejection);
     leaflet().then((lf) => {
       if (!alive || !box.current) return;
-      map.current = baseMap(lf, box.current, { minZoom: 3 }).setView([39, -96], 4);
+      map.current = baseMap(lf, box.current, { minZoom: 3, labels: LABELS_Z }).setView([39, -96], 4);
       map.current.createPane("wxtemp").style.zIndex = 345;     // the temperature: over the base map, under the rest
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
       map.current.createPane("wxhazards").style.zIndex = 355;  // over the satellite, under the radar: echoes show through
+      map.current.createPane("wxlines").style.zIndex = 356;    // coasts and borders, under the names (LABELS_Z)
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxwind").style.zIndex = 365;     // over the radar, under the fronts
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
@@ -164,6 +171,7 @@ export function WxMap({ show, unitsFor, compass }) {
       windLayer.current = windCanvas(lf.L, "wxwind", `Wind: ${rtmaLink}`);
       glmLayer.current = lightningCanvas(lf.L, "wxlightning",
         'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>');
+      linesLayer.current = linesCanvas(lf.L, "wxlines", 'Borders: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
       // A tap on watches or warnings: what they are there (the most important first), when the layer is on.
       map.current.on("click", (e) => {
         const m = map.current, layer = hazardsLayer.current;
@@ -416,6 +424,20 @@ export function WxMap({ show, unitsFor, compass }) {
 
   // The basemap (Auto follows the theme).
   useEffect(() => { if (ready) map.current?.setBasemap(layers.basemap); }, [ready, layers.basemap]);
+  // Over the satellite: the names in light text on a dark halo, and the coasts and borders the imagery hides (#95).
+  useEffect(() => {
+    const m = map.current, layer = linesLayer.current;
+    if (!ready || !m || !layer) return;
+    m.setLabels(sat ? "dark" : null);
+    if (!sat) { layer.remove(); return; }
+    let alive = true;
+    loadLines().then((lines) => {
+      if (!alive) return;
+      if (!m.hasLayer(layer)) layer.addTo(m);
+      layer.set(lines);
+    }).catch(() => {});                            // offline: the satellite without them
+    return () => { alive = false; };
+  }, [ready, sat]);
 
   // The smooth radar: the shown frame's shapes, each level colored at its middle (radar_layer.js draws them).
   useEffect(() => {
