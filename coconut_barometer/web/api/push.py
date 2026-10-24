@@ -32,6 +32,12 @@ def devices(db=Depends(store)):
     return {"public_key": push.public_key(db), "devices": [_public(d) for d in push.devices(db)]}
 
 
+@router.get("/history")
+def history(db=Depends(store)):
+    """The most recent alert contexts and per-device delivery outcomes."""
+    return {"alerts": db.alert_log_recent()}
+
+
 @router.post("/subscribe")
 def subscribe(body: Subscribe, request: Request, sess=Depends(session), db=Depends(store)):
     origin = f"{request.url.scheme}://{request.url.netloc}"

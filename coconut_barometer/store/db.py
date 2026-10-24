@@ -47,6 +47,8 @@ CREATE SEQUENCE IF NOT EXISTS requested_jobs_seq START 1;
 CREATE TABLE IF NOT EXISTS requested_jobs (kind TEXT, photo_id TEXT, "at" BIGINT, seq BIGINT DEFAULT nextval('requested_jobs_seq'), PRIMARY KEY (kind, photo_id));
 CREATE TABLE IF NOT EXISTS applied (id BIGINT PRIMARY KEY DEFAULT nextval('applied_id_seq'), photo_id TEXT, "at" BIGINT, changes TEXT, undone_at BIGINT, result TEXT);
 CREATE TABLE IF NOT EXISTS settings_log (id BIGINT PRIMARY KEY DEFAULT nextval('settings_log_id_seq'), "at" BIGINT, username TEXT, path TEXT, old TEXT, new TEXT);
+CREATE SEQUENCE IF NOT EXISTS alerts_log_id_seq START 1;
+CREATE TABLE IF NOT EXISTS alerts_log (id BIGINT PRIMARY KEY DEFAULT nextval('alerts_log_id_seq'), "at" BIGINT, alert_key TEXT, title TEXT, body TEXT, url TEXT, evidence TEXT, device_id TEXT, device_label TEXT, username TEXT, status TEXT, detail TEXT);
 """
 
 
@@ -165,7 +167,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def is_sqlite_file(path) -> bool:

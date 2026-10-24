@@ -47,6 +47,7 @@ Tables
 from __future__ import annotations
 
 from .analytics import AnalyticsStore
+from .alerts import AlertsStore
 from .aprs import AprsStore
 from .auth import AuthStore
 from .cache import CacheStore
@@ -62,7 +63,7 @@ from .weather import WeatherStore
 __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
-class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore,
+class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore, AlertsStore,
             GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, AprsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]

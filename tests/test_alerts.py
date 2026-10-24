@@ -54,7 +54,9 @@ class AlertsTest(Base):
         self.assertEqual(self.kinds(), {})
         self.alerts.since = self.now - 60
         self.store.wx_save_event(11, self.now - 20, "strike", 8.0, 1)
-        self.assertEqual(self.kinds()["lightning"]["title"], "Lightning 8 km from Backyard")
+        alert = self.kinds()["lightning"]
+        self.assertEqual(alert["title"], "Lightning 8 km from Backyard")
+        self.assertEqual(alert["evidence"]["matching_records"], 1)
 
     def test_a_strike_in_an_observation_counts_too_and_imperial_is_in_miles(self):
         self.cfg["display"]["units"] = "imperial"
@@ -89,14 +91,31 @@ class AlertsTest(Base):
         self.assertEqual(self.alerts.run_once(self.store, self.now), [])     # no device
         push.subscribe(self.store, SUB, "owner", "Phone", "https://site.example")
         with mock.patch.object(push, "send") as send:
+            send.return_value = {"sent": 1, "failed": [], "removed": 0}
             self.alerts.since = self.now - 60
             self.assertEqual(len(self.alerts.run_once(self.store, self.now)), 1)
+            audit = self.store.alert_log_recent()
+            self.assertEqual(len(audit), 1)
+            self.assertEqual((audit[0]["status"], audit[0]["device_label"]), ("sent", "Phone"))
+            self.assertEqual(audit[0]["evidence"]["gust_ms"], 20.0)
+            self.assertEqual(audit[0]["url"], "/#/weather/history?range=24h&station=11&chart=wind")
             self.store.wx_save_obs(11, [obs(self.now + 30, gust=21.0)])
             self.assertEqual(self.alerts.run_once(self.store, self.now + 60), [])            # cooling down
             self.store.wx_save_obs(11, [obs(self.now + 3630, gust=21.0)])
             self.assertEqual(len(self.alerts.run_once(self.store, self.now + 3660)), 1)     # an hour on
         self.assertEqual(send.call_count, 2)
+        self.assertEqual(len(self.store.alert_log_recent()), 2)
         self.assertEqual(send.call_args.kwargs["tag"], "gust:11")
+
+    def test_failed_delivery_is_kept_in_the_audit_log(self):
+        self.store.wx_save_obs(11, [obs(self.now - 30, gust=20.0)])
+        push.subscribe(self.store, SUB, "owner", "Phone", "https://site.example")
+        with mock.patch.object(push, "send", return_value={"sent": 0, "failed": ["Phone: 503 unavailable"],
+                                                           "removed": 0}):
+            self.assertEqual(len(self.alerts.run_once(self.store, self.now)), 1)
+        audit = self.store.alert_log_recent()
+        self.assertEqual(audit[0]["status"], "failed")
+        self.assertEqual(audit[0]["detail"], "Phone: 503 unavailable")
 
 
 class PushTest(Base):
@@ -135,6 +154,18 @@ class PushApiTest(Base):
 
     def test_signed_in_only(self):
         self.assertEqual(self.c.get("/api/push").status_code, 401)
+        self.assertEqual(self.c.get("/api/push/history").status_code, 401)
+
+    def test_history_returns_alert_evidence_for_signed_in_users(self):
+        self.store.alert_log_add(
+            123, {"key": "gust:11", "title": "Gust", "body": "Wind", "url": "/#/weather/map",
+                  "evidence": {"gust_ms": 20.0}},
+            {"id": "push-id", "label": "Phone", "username": "owner"}, "sent")
+        self.assertEqual(self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).status_code, 200)
+        response = self.c.get("/api/push/history")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["alerts"][0]["evidence"], {"gust_ms": 20.0})
+        self.assertEqual(response.json()["alerts"][0]["status"], "sent")
 
     def test_turn_on_test_and_off(self):
         csrf = self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).json()["csrf"]
