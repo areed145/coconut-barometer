@@ -5,8 +5,8 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 
 // ---- remembered per device ------------------------------------------------------------------------------------
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
-export const DEFAULT_LAYERS = { radar: true, storms: true, fronts: false, lightning: true, sat: "", radarOpacity: 0.85,
-  satOpacity: 0.9, basemap: "auto" };
+export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, lightning: true,
+  temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
@@ -200,8 +200,8 @@ const BASEMAPS = [["auto", "Auto (theme)"], ["light", "Light"], ["dark", "Dark"]
 const FOCUSABLE = "button, input, a[href]";
 
 // What's on, for the closed button.
-export const layersSummary = (l) => [l.radar && "Radar", l.storms && "Storms", l.fronts && "Fronts", l.lightning && "Lightning",
-  l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
+export const layersSummary = (l) => [l.radar && "Radar", l.storms && "Storms", l.hazards && "Warnings", l.fronts && "Fronts",
+  l.lightning && "Lightning", l.temp && "Temp", l.wind && "Wind", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
 
 export function LayersPanel({ layers, set, strikes, legend, notes }) {
   const [open, setOpen] = useState(false);
@@ -237,8 +237,8 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
       if (dy > 60) close();
     },
   };
-  const check = (key, label) => html`<label class="wxlayer"><input type="checkbox" checked=${layers[key]}
-    onChange=${(e) => set({ [key]: e.target.checked })} /><span>${label}</span></label>`;
+  const check = (key, label, disabled = false, cls = "wxlayer") => html`<label class=${cls}><input type="checkbox" checked=${layers[key]}
+    disabled=${disabled} onChange=${(e) => set({ [key]: e.target.checked })} /><span>${label}</span></label>`;
   const slider = (key, label, disabled) => html`<label class="wxslider"><span class="sr-only">${label}</span>
     <input type="range" min="0.2" max="1" step="0.05" value=${layers[key]} disabled=${disabled} aria-label=${label}
       onInput=${(e) => set({ [key]: Number(e.target.value) })} /><output>${Math.round(layers[key] * 100)}%</output></label>`;
@@ -252,8 +252,13 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         <h3>Layers <button type="button" class="wxclose" aria-label="Close layers" onClick=${close}>✕</button></h3>
         <div class="wxrow">${check("radar", "Radar")}${slider("radarOpacity", "Radar opacity", !layers.radar)}</div>
         ${check("storms", "Storm tracks")}
+        ${check("hazards", "Watches & warnings")}
+        ${check("hazardsMinor", "with advisories & marine", !layers.hazards, "wxlayer wxsub")}
         ${check("fronts", "Fronts")}
         ${check("lightning", `Lightning${strikes ? ` (${strikes})` : ""}`)}
+        <h3>Surface</h3>
+        <div class="wxrow">${check("temp", "Temperature")}${slider("tempOpacity", "Temperature opacity", !layers.temp)}</div>
+        ${check("wind", "Surface wind")}
         <h3>Satellite</h3>
         <div class="wxrow"><span class="wxradios" role="radiogroup" aria-label="Satellite">${SATS.map(([k, l]) => html`<label key=${k}>
           <input type="radio" name="wxsat" checked=${layers.sat === k} onChange=${() => set({ sat: k })} /><span>${l}</span></label>`)}</span>

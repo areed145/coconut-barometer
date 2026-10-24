@@ -6,24 +6,15 @@
 // Leaflet object is made per polygon. map_canvas.js keeps the canvas on screen while the map moves.
 
 import { mapCanvas } from "./map_canvas.js";
+import { rampColor } from "./ramp.js";
 
 // ---- colors (Settings → Display → Radar colors: dBZ → color stops), one place for the levels, the storm cells,
 // the legend and the alert page (#75) ---------------------------------------------------------------------------
 export const DEFAULT_STOPS = [{ dbz: 15, color: "#8fd3ff" }, { dbz: 25, color: "#2fa84f" }, { dbz: 35, color: "#f2d22e" },
   { dbz: 45, color: "#f28c28" }, { dbz: 55, color: "#d7301f" }, { dbz: 65, color: "#b03ab5" }];   // config.py's
 export const BAND = 2, LOWEST = 15, HIGHEST = 75;      // radar.py: a level per 2 dBZ, 15 up to 75 and over
-const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
-// The color at `dbz`, blended between the stops either side; below the first or above the last, theirs.
-export function radarColor(stops, dbz) {
-  const s = [...(stops?.length ? stops : DEFAULT_STOPS)].sort((a, b) => a.dbz - b.dbz);
-  if (dbz <= s[0].dbz) return s[0].color;
-  const j = s.findIndex((x) => x.dbz >= dbz);
-  if (j < 0) return s[s.length - 1].color;
-  const [a, b] = [s[j - 1], s[j]];
-  if (b.dbz === a.dbz || b.dbz === dbz) return b.color;   // on a stop (or two stops at one dBZ): that stop's color
-  const k = (dbz - a.dbz) / (b.dbz - a.dbz);
-  return `rgb(${hex(a.color).map((x, i) => Math.round(x + (hex(b.color)[i] - x) * k)).join(",")})`;
-}
+// The color at `dbz`, blended between the stops either side; below the first or above the last, theirs (ramp.js).
+export const radarColor = (stops, dbz) => rampColor(stops?.length ? stops : DEFAULT_STOPS, dbz, "dbz");
 // What a level is drawn in, and a storm cell of that strength: the color at the floor of its level, so each stop's
 // color is exactly what shows for the level it starts, and the levels between stops blend. null: no dBZ known.
 export const levelColor = (stops, dbz) => (dbz == null ? null : radarColor(stops, LOWEST + Math.max(0, Math.floor((dbz - LOWEST) / BAND)) * BAND));
@@ -39,28 +30,29 @@ const my = (lat) => {
   return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
 };
 
+export const mercator = (lat, lon) => [mx(lon), my(lat)];
+
+// One poly (weather/shapes.py: [w, s, e, n, ring...] in whole 1/q degrees, each ring's points after the first a step
+// from the one before) -> {box, rings}, in Web Mercator. The radar's and the watches and warnings' alike.
+export function decodePoly(p, q) {
+  return {
+    box: [mx(p[0] / q), my(p[3] / q), mx(p[2] / q), my(p[1] / q)],     // left, top, right, bottom
+    rings: p.slice(4).map((r) => {
+      const out = new Float32Array(r.length);
+      let x = 0, y = 0;
+      for (let i = 0; i < r.length; i += 2) {
+        x += r[i]; y += r[i + 1];
+        out[i] = mx(x / q); out[i + 1] = my(y / q);
+      }
+      return out;
+    }),
+  };
+}
+
 // {level, q, bands: [{dbz, polys: [[w, s, e, n, ring...]]}]} -> {level, bands: [{dbz, polys: [{box, rings}]}]}
 export function decode(shapes) {
   if (!shapes?.bands) return null;
-  const q = shapes.q;
-  return {
-    level: shapes.level,
-    bands: shapes.bands.map((b) => ({
-      dbz: b.dbz,
-      polys: b.polys.map((p) => ({
-        box: [mx(p[0] / q), my(p[3] / q), mx(p[2] / q), my(p[1] / q)],     // left, top, right, bottom
-        rings: p.slice(4).map((r) => {
-          const out = new Float32Array(r.length);
-          let x = 0, y = 0;
-          for (let i = 0; i < r.length; i += 2) {
-            x += r[i]; y += r[i + 1];
-            out[i] = mx(x / q); out[i + 1] = my(y / q);
-          }
-          return out;
-        }),
-      })),
-    })),
-  };
+  return { level: shapes.level, bands: shapes.bands.map((b) => ({ dbz: b.dbz, polys: b.polys.map((p) => decodePoly(p, shapes.q)) })) };
 }
 
 // A Leaflet layer in `pane`: set(shapes, colorOf) shows a decoded frame (colorOf(dbz) -> CSS color), setOpacity()

@@ -308,6 +308,49 @@ def surface_fronts():
     return fronts.latest()
 
 
+@router.get("/hazards")
+def watches_warnings(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24)):
+    """The Map tab's watches, warnings and advisories in effect now (weather/hazards.py), most important first, with
+    their areas as radar's shapes are (zoomed in, fine and only what's in `bbox`; zoomed out, coarse over the US)."""
+    from ...weather.hazards import hazards
+
+    shapes, state = hazards.view(_bbox(bbox), zoom)
+    rest = {k: state[k] for k in ("checked_at", "error", "pending")}
+    return _with_shapes(rest, shapes)
+
+
+@router.get("/temperature")
+def surface_temperature(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's temperature: the newest RTMA analysis of the air 2 m up (°C, weather/rtma.py) on a lat/lon grid,
+    the whole US zoomed out, finer and only `bbox` zoomed in."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("t",), _bbox(bbox), zoom), "units": _units(rt)}
+
+
+@router.get("/wind")
+def surface_wind(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's surface wind: the newest RTMA analysis's wind 10 m up (eastward u and northward v, m/s: the way
+    it blows to), as /temperature's grid."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("u", "v"), _bbox(bbox), zoom), "units": _units(rt)}
+
+
+@router.get("/hazards/alert")
+def hazard_alert(id: str = Query(..., min_length=1, max_length=200)):
+    """An alert's headline, area and instruction for its popup, from the NWS API: only for an alert on the map."""
+    from ...weather.hazards import hazards
+
+    if not hazards.known(id):
+        raise HTTPException(404, "no such alert in effect")
+    try:
+        return hazards.detail(id)
+    except Exception as e:  # noqa: BLE001 - the NWS API being down: the popup shows what the map already has
+        caught(e, "alert text")
+        raise HTTPException(502, "the NWS couldn't be reached")
+
+
 @router.get("/radar/frames")
 def radar_frames(rt=Depends(runtime)):
     """Times of the radar frames (MRMS shapes with the storm tracks then) kept for the Map tab's loop."""
