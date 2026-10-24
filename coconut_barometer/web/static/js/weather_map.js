@@ -12,6 +12,7 @@ import { html, useState, useEffect, useRef, api, toast, every } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
+import { loopWindow } from "./wx_loop.js";
 
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -186,7 +187,6 @@ export function WxMap({ show, unitsFor, compass }) {
 
   // One satellite tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
   const radarOn = showRadar || showStorms;
-  const radarTimes = radarOn ? times.filter((t) => !gone.current.has(t)) : [];
   const satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
   useEffect(() => {
     const m = map.current, L = window.L;
@@ -200,14 +200,16 @@ export function WxMap({ show, unitsFor, compass }) {
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
   }, [ready, info, sat]);
 
-  // One timeline for every layer shown: the radar's kept frames (~2 minutes apart) and the satellite's (10 minutes),
-  // each layer showing its newest frame at or before the time picked. idx null is now: the radar's newest frame is
-  // the one already here (live_), so the past is only fetched once the loop is played or scrubbed.
-  const timeline = [...new Set([...radarTimes, ...satFrames.map((f) => f.t)])].sort((a, b) => a - b);
+  // One timeline for every layer shown (wx_loop.js): with radar and satellite, the hour ending at the newest satellite
+  // frame; radar alone, its last hour; satellite alone, all its frames. Each layer shows its newest frame at or before
+  // the time picked (or its first, never nothing). idx null is now: the live radar and the newest satellite frame,
+  // so the radar's past is only fetched once the loop is played or scrubbed.
+  const loopWin = loopWindow(radarOn ? times.filter((t) => !gone.current.has(t)) : [], satFrames.map((f) => f.t));
+  const timeline = loopWin.times, radarTimes = loopWin.radar;
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
   const t = at >= 0 ? timeline[at] : null;
   const past = radarOn && (playing || idx != null);
-  const radarAt = (when) => (when == null ? null : latestBy(radarTimes, when));
+  const radarAt = (when) => (when == null ? null : latestBy(radarTimes, when) ?? radarTimes[0] ?? null);
   const frameOf = (rt) => (rt == null ? null : kept.current.get(rt) || (live_?.t === rt ? live_ : null));
   const shownRadar = past ? radarAt(t) : null;
   const vector = !radarOn ? null : past ? frameOf(shownRadar) : live_;
@@ -226,7 +228,7 @@ export function WxMap({ show, unitsFor, compass }) {
     if (have.view !== view.key) { have.clear(); have.view = view.key; have.loading = new Set(); setLoaded((n) => n + 1); }
     for (const t of have.keys()) if (!times.includes(t)) have.delete(t);
     for (const t of gone.current) if (!times.includes(t)) gone.current.delete(t);
-    const todo = [...times].reverse().filter((t) => !have.has(t) && !have.loading.has(t) && !gone.current.has(t));
+    const todo = [...radarTimes].reverse().filter((t) => !have.has(t) && !have.loading.has(t));
     const next = () => {
       const t = todo.shift();
       if (t == null || !alive) return;
@@ -239,7 +241,7 @@ export function WxMap({ show, unitsFor, compass }) {
     };
     for (let i = 0; i < LOADING; i++) next();
     return () => { alive = false; };
-  }, [past, view?.key, times]);
+  }, [past, view?.key, times, radarTimes.join(",")]);
 
   // Whether frame k of the loop can be shown yet: its radar frame loaded, its satellite tiles in.
   const readyAt = useRef(() => true);
@@ -366,7 +368,9 @@ export function WxMap({ show, unitsFor, compass }) {
           onInput=${(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} />
         <span class="muted">${[radarOn && vector?.t && `radar ${clock(vector.t)}`, shownSat && `satellite ${clock(shownSat.t)}`,
           showFronts && fronts?.valid && `fronts ${new Date(fronts.valid * 1000).getUTCHours().toString().padStart(2, "0")}Z`,
-          buffered != null && buffered < radarTimes.length && `loading ${buffered}/${radarTimes.length}`]
+          buffered != null && buffered < radarTimes.length && `loading ${buffered}/${radarTimes.length}`,
+          past && sat && loopWin.end && Date.now() / 1000 - loopWin.end > 600
+            && `loop ends ${Math.round((Date.now() / 1000 - loopWin.end) / 60)} min ago (satellite delay)`]
           .filter(Boolean).join(" · ") || "no imagery"}</span>
       </span>
       <label class="muted wxopacity">Opacity <input type="range" min="0.2" max="1" step="0.05" value=${opacity} onInput=${(e) => setOpacity(Number(e.target.value))} /></label>

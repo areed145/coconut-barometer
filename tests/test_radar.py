@@ -275,7 +275,7 @@ class RadarApiTest(unittest.TestCase):
         app = create_app(cfg, FakeFlickr(), scheduler=False)
         svc = app.state.runtime.radar
         svc.cells = [CellsTest.cell(None)]
-        for t in (T - 4000, T - 120, T):
+        for t in (T - R.LOOP_WINDOW - 60, T - 120, T):
             svc._save({**frame_of(blob(20)), "t": t})
         self.assertEqual(svc.history(), [T - 120, T])                       # older than LOOP_WINDOW: deleted
         c = TestClient(app, base_url="https://testserver")

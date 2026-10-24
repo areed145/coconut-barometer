@@ -57,8 +57,10 @@ BAND_STEP, BAND_TOP = 5, 75
 RAIN_DBZ, HERE_KM = 20, 3.0          # rain, and close enough to be raining at the station already
 RAIN_HISTORY, RAIN_WINDOW = 20, 20 * 60
 KM_PER_DEG = 111.2
-STORED_CACHE = 36       # loop frames held in memory once read (about the whole loop: ~1 MB each)
-LOOP_WINDOW = 65 * 60    # the radar loop's frames (and the storm cells with each) are kept on disk this long, then deleted
+STORED_CACHE = 36       # loop frames held in memory once read (about an hour's loop: ~1 MB each)
+LOOP_WINDOW = 135 * 60   # the radar loop's frames (and the storm cells with each) are kept on disk this long, then deleted:
+                         # the map loops an hour, ending at the newest satellite frame when that's on (up to ~60 min
+                         # behind: NASA GIBS publishes late), so the radar keeps that hour plus the delay (#74)
 
 
 # ---- MRMS ----------------------------------------------------------------------------------------------------

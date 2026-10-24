@@ -1,6 +1,7 @@
 """The web frontend: every module parses, the page fits the Content-Security-Policy,
 nothing renders raw HTML, and everything the page loads exists."""
 import glob
+import json
 import os
 import re
 import shutil
@@ -90,9 +91,35 @@ class FrontendTest(unittest.TestCase):
         self.assertIn(">Fronts</button>", m)                                # WPC's fronts and highs and lows (#69)
         self.assertIn('api("/api/wx/fronts")', m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
-        self.assertIn("new Set([...radarTimes, ...satFrames.map((f) => f.t)])", m)
+        self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
         self.assertIn('fetch("/api/wx/map/errors"', m)
         self.assertIn('window.addEventListener("unhandledrejection"', m)
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_the_loop_is_the_hour_both_radar_and_satellite_cover(self):
+        """#74: radar kept from ~2¼ h ago up to now, satellite ending 40 min ago (GIBS is late)."""
+        script = r"""
+          import { loopWindow, LOOP } from "%s";
+          const now = 1_800_000_000, every = (from, to, step) => { const a = []; for (let t = from; t <= to; t += step) a.push(t); return a; };
+          const radar = every(now - 134 * 60, now, 120), sat = every(now - 130 * 60, now - 40 * 60, 600);
+          const latest = (a, t) => a.filter((x) => x <= t).pop();
+          const both = loopWindow(radar, sat);
+          const alone = loopWindow(radar, []);
+          const filling = loopWindow(every(now - 20 * 60, now, 120), sat);       // radar history just after a deploy
+          console.log(JSON.stringify({
+            both: [both.end, both.start, both.times[0], both.times.at(-1), both.times.every((t) => latest(radar, t) && latest(sat, t))],
+            alone: [alone.times[0], alone.times.at(-1), alone.times.length === alone.radar.length],
+            satOnly: loopWindow([], sat).times.length === sat.length,
+            filling: [filling.end, filling.times[0]], now, LOOP,
+          }));
+        """ % os.path.join(STATIC, "js", "wx_loop.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        now, hour = out["now"], out["LOOP"]
+        end = now - 40 * 60
+        self.assertEqual(out["both"], [end, end - hour, end - hour, end, True])   # the hour ending at the newest satellite frame
+        self.assertEqual(out["alone"][1] - out["alone"][0] <= hour and out["alone"][1], now)    # radar only: its last hour
+        self.assertTrue(out["alone"][2] and out["satOnly"])
+        self.assertEqual(out["filling"][0], now)                               # no radar in that hour yet: the radar's own
 
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
