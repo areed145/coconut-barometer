@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timedelta, timezone
 
 from . import push
 from .weather import radar as rd
@@ -25,6 +26,12 @@ from .weather import radar as rd
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
 SENT_META = "alerts_sent"
+
+
+def _history_url(device: int, chart: str, at: int) -> str:
+    day = datetime.fromtimestamp(at, timezone.utc).date()
+    start, end = (day - timedelta(days=1)).isoformat(), (day + timedelta(days=1)).isoformat()
+    return f"/#/weather/history?from={start}&to={end}&station={device}&chart={chart}"
 
 
 def _dist(km: float, units: str) -> str:
@@ -72,7 +79,7 @@ class Alerts:
                     "ts <= ? AND strike_count > 0 AND strike_dist > 0) WHERE d <= ?",
                     (dev, since, now, dev, since, now, a["lightning_km"])).fetchone()
                 if n:
-                    out.append({"key": f"lightning:{dev}", "url": f"/#/weather/history?range=24h&station={dev}&chart=lightning",
+                    out.append({"key": f"lightning:{dev}", "url": _history_url(dev, "lightning", now),
                                 "title": f"Lightning {_dist(nearest, units)} from {name}",
                                 "body": f"Strikes within {_dist(a['lightning_km'], units)} in the last few minutes.",
                                 "evidence": {"device_id": dev, "matching_records": n, "nearest_km": nearest,
@@ -82,7 +89,7 @@ class Alerts:
                                             "ORDER BY wind_gust DESC, ts DESC LIMIT 1", (dev, since, now)).fetchone()
                 gust, observed_at = gust_row if gust_row else (None, None)
                 if gust is not None and gust * 3.6 >= a["gust_kmh"]:
-                    out.append({"key": f"gust:{dev}", "url": f"/#/weather/history?range=24h&station={dev}&chart=wind",
+                    out.append({"key": f"gust:{dev}", "url": _history_url(dev, "wind", now),
                                 "title": f"Gust of {_speed(gust, units)} at {name}",
                                 "body": f"Over the {_speed(a['gust_kmh'] / 3.6, units)} you set.",
                                 "evidence": {"device_id": dev, "gust_ms": gust, "observed_at": observed_at,
@@ -92,7 +99,7 @@ class Alerts:
                 o = (store.wx_latest(dev) or {}).get("obs")
                 change = o and o.get("pressure_change_3h")
                 if change is not None and o["ts"] > now - STALE and change <= -a["pressure_drop_hpa"]:
-                    out.append({"key": f"pressure:{dev}", "url": f"/#/weather/history?range=24h&station={dev}&chart=pressure",
+                    out.append({"key": f"pressure:{dev}", "url": _history_url(dev, "pressure", now),
                                 "title": f"Pressure falling at {name}",
                                 "body": f"Down {_pressure(-change, units)} in 3 hours, now {_pressure(o['pressure_sl'], units)}.",
                                 "evidence": {"device_id": dev, "observed_at": o["ts"], "pressure_hpa": o["pressure_sl"],
@@ -131,7 +138,8 @@ class Alerts:
                                 "evidence": {"device_id": dev, "cell_id": c.get("id"), "dbz": c["dbz"],
                                              "hail_probability": c["posh"], "tornado_vortex_signature": c["tvs"],
                                              "latitude": c["lat"], "longitude": c["lon"], "speed_kmh": c["kmh"],
-                                             "direction_degrees": c["toward"], "eta_seconds": eta}})
+                                             "direction_degrees": c["toward"], "radar_observed_at": c["valid"],
+                                             "eta_seconds": eta}})
             if a["rain_minutes"]:
                 r = self.radar.closing(dev, now)
                 if r and r["km"] > rd.HERE_KM and r["kmh"] >= 5 and now - r["t"] < 15 * 60:

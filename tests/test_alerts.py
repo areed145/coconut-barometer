@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest import mock
 
@@ -87,22 +88,26 @@ class AlertsTest(Base):
         self.assertEqual(self.kinds(), {})
 
     def test_cooldown_and_nothing_checked_without_a_device(self):
-        self.store.wx_save_obs(11, [obs(self.now - 30, gust=20.0)])
-        self.assertEqual(self.alerts.run_once(self.store, self.now), [])     # no device
+        at = self.now - 3 * 86400
+        self.store.wx_save_obs(11, [obs(at - 30, gust=20.0)])
+        self.assertEqual(self.alerts.run_once(self.store, at), [])     # no device
         push.subscribe(self.store, SUB, "owner", "Phone", "https://site.example")
         with mock.patch.object(push, "send") as send:
             send.return_value = {"sent": 1, "failed": [], "removed": 0}
-            self.alerts.since = self.now - 60
-            self.assertEqual(len(self.alerts.run_once(self.store, self.now)), 1)
+            self.alerts.since = at - 60
+            self.assertEqual(len(self.alerts.run_once(self.store, at)), 1)
             audit = self.store.alert_log_recent()
             self.assertEqual(len(audit), 1)
             self.assertEqual((audit[0]["status"], audit[0]["device_label"]), ("sent", "Phone"))
             self.assertEqual(audit[0]["evidence"]["gust_ms"], 20.0)
-            self.assertEqual(audit[0]["url"], "/#/weather/history?range=24h&station=11&chart=wind")
-            self.store.wx_save_obs(11, [obs(self.now + 30, gust=21.0)])
-            self.assertEqual(self.alerts.run_once(self.store, self.now + 60), [])            # cooling down
-            self.store.wx_save_obs(11, [obs(self.now + 3630, gust=21.0)])
-            self.assertEqual(len(self.alerts.run_once(self.store, self.now + 3660)), 1)     # an hour on
+            day = datetime.fromtimestamp(at, timezone.utc).date()
+            self.assertEqual(audit[0]["url"],
+                             f"/#/weather/history?from={(day - timedelta(days=1)).isoformat()}"
+                             f"&to={(day + timedelta(days=1)).isoformat()}&station=11&chart=wind")
+            self.store.wx_save_obs(11, [obs(at + 30, gust=21.0)])
+            self.assertEqual(self.alerts.run_once(self.store, at + 60), [])            # cooling down
+            self.store.wx_save_obs(11, [obs(at + 3630, gust=21.0)])
+            self.assertEqual(len(self.alerts.run_once(self.store, at + 3660)), 1)     # an hour on
         self.assertEqual(send.call_count, 2)
         self.assertEqual(len(self.store.alert_log_recent()), 2)
         self.assertEqual(send.call_args.kwargs["tag"], "gust:11")
@@ -125,6 +130,25 @@ class AlertsTest(Base):
         audit = self.store.alert_log_recent()
         self.assertEqual(audit[0]["status"], "failed")
         self.assertEqual(audit[0]["detail"], "RuntimeError: VAPID key unavailable")
+
+    def test_storm_audit_preserves_the_radar_scan_time(self):
+        cell = {"id": "K-1", "valid": self.now - 120, "lat": 30.27, "lon": -97.74, "dbz": 55,
+                "posh": 20, "tvs": True, "kmh": 36, "toward": 90}
+
+        class Radar:
+            def snapshot(self):
+                return {"cells": [cell]}
+
+            def stations(self, _store):
+                return [{"name": "Backyard", "device_id": 11, "lat": 30.27, "lon": -97.74}]
+
+            def closing(self, _device, _now):
+                return None
+
+        with mock.patch("coconut_barometer.alerts.rd.arrival", return_value=60):
+            alert = next(x for x in Alerts(self.cfg, radar=Radar()).check(self.store, self.now)
+                         if x["key"] == "storm:11")
+        self.assertEqual(alert["evidence"]["radar_observed_at"], cell["valid"])
 
 
 class PushTest(Base):

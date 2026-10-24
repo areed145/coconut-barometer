@@ -290,7 +290,7 @@ function AlertsPanel() {
         <p>${x.body}</p>
         <p class="muted">${new Date(x.at * 1000).toLocaleString()} · ${x.device_label} · ${x.username}</p>
         ${Object.keys(x.evidence || {}).length > 0 && html`<p class="alert-evidence">${Object.entries(x.evidence).map(([k, v]) =>
-          html`<span>${k.replaceAll("_", " ")}: ${v}</span>`)}</p>`}
+          html`<span>${k.replaceAll("_", " ")}: ${String(v)}</span>`)}</p>`}
         ${x.detail && html`<p class="problem">${x.detail}</p>`}
         <a href=${x.url}>View chart or map</a>
       </article>`)}</div>`}

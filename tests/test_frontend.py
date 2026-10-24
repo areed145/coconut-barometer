@@ -91,7 +91,8 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
         self.assertIn('api("/api/push/history")', admin)
         self.assertIn("<h2>Recent notifications</h2>", admin)
-        self.assertIn('href=${x.url}>View chart or map</a>', admin)
+        self.assertIn('<a href=${x.url}>View chart or map</a>', admin)
+        self.assertIn("String(v)", admin)
         self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
 
     def test_home_is_the_front_page(self):
