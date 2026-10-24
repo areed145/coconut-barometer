@@ -89,7 +89,10 @@ export function DropZone({ onFiles, accept, disabled, children }) {
 // ---- the color gradient (Settings → Display → Colors), for anything showing an amount ---
 let gradient = [[0xf7, 0xd1, 0x25], [0x8a, 0xbe, 0x35], [0x1d, 0xab, 0x45]];
 const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-export const loadTheme = () => api("/api/theme").then((t) => { gradient = t.colors.map(rgbOf); }).catch(() => {});
+export const loadTheme = () => api("/api/theme").then((t) => {
+  gradient = t.colors.map(rgbOf);
+  window.dispatchEvent(new Event("cb:gradient"));     // what's drawn with it again (useThemeTick)
+}).catch(() => {});
 // t in 0..1 -> [r, g, b] along the stops (low, medium, high): evenly spaced, mixed between neighbours.
 export const along = (stops, t) => {
   const s = Math.max(0, Math.min(1, t || 0)) * (stops.length - 1), j = Math.min(stops.length - 2, Math.floor(s));
@@ -131,8 +134,12 @@ deviceDark.addEventListener?.("change", () => { if (themeChoice() === "auto") th
 // Re-render when the theme changes (for things drawn from the colors at render time).
 export function useThemeTick() {
   const [tick, setTick] = useState(0);
-  useEffect(() => { const on = () => setTick((n) => n + 1); window.addEventListener("cb:theme", on);
-    return () => window.removeEventListener("cb:theme", on); }, []);
+  useEffect(() => {                       // light/dark, or the color gradient (Settings → Display → Colors)
+    const on = () => setTick((n) => n + 1);
+    window.addEventListener("cb:theme", on);
+    window.addEventListener("cb:gradient", on);
+    return () => { window.removeEventListener("cb:theme", on); window.removeEventListener("cb:gradient", on); };
+  }, []);
   return tick;
 }
 

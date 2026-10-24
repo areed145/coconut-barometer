@@ -152,6 +152,16 @@ class FrontendTest(unittest.TestCase):
         for c in out["firstLevels"]:                                           # the legend: the levels' own colors
             self.assertIn(c, out["legend"])
 
+    def test_analytics_views_are_drawn_in_the_color_gradient(self):
+        """#68: the views lines use Settings -> Display -> Colors; bars and the dashed previous period stay flat."""
+        js = lambda name: open(os.path.join(STATIC, "js", name)).read()
+        self.assertIn("s.gradient ? (u) => upward(u)", js("chart.js"))
+        self.assertIn('color: "--chart-1", gradient: true }];', js("analytics.js"))
+        self.assertIn('color: "--chart-1", gradient: true }]', js("analytics_tags.js"))
+        self.assertNotIn("gradient", js("analytics_more.js"))                  # favers: bars, flat
+        self.assertIn('window.dispatchEvent(new Event("cb:gradient"))', js("lib.js"))   # a changed gradient redraws them
+        self.assertIn('window.addEventListener("cb:gradient", on)', js("lib.js"))
+
     def test_settings_panels_sit_with_their_settings(self):
         admin = open(os.path.join(STATIC, "js", "admin.js")).read()
         self.assertIn('section === "display" && html`<${ThemeSetting} />`', admin)

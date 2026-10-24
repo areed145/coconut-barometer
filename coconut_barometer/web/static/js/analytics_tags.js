@@ -20,7 +20,7 @@ function TagPage({ tag, onPick, onClose }) {
   const [box, open] = usePhotoBox();
   useEffect(() => { setD(null); api(`/api/analytics/tags/${encodeURIComponent(tag)}`).then(setD); }, [tag]);
   const days = useMemo(() => (d?.series || []).map((r) => r.day), [d]);
-  const series = useMemo(() => [{ label: "views", values: (d?.series || []).map((r) => r.views), color: "--chart-1" }], [d]);
+  const series = useMemo(() => [{ label: "views", values: (d?.series || []).map((r) => r.views), color: "--chart-1", gradient: true }], [d]);
   return html`<div class="card tagpage"><h2>#${tag} <span><a class="small" href=${photosLink({ tag })}>All its photos →</a>
       <button class="link" onClick=${onClose} aria-label="Close">✕</button></span></h2>
     ${!d ? html`<p class="muted">Loading…</p>` : html`

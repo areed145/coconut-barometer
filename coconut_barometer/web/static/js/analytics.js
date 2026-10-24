@@ -24,7 +24,7 @@ function Overview({ days, setDays }) {
   // Today's views so far: a dashed line on from yesterday, not part of the solid one.
   const views = useMemo(() => {
     const at = series.findIndex((r) => r.partial);
-    const out = [{ label: "views", values: series.map((r) => (r.partial ? null : r.views)), color: "--chart-1" }];
+    const out = [{ label: "views", values: series.map((r) => (r.partial ? null : r.views)), color: "--chart-1", gradient: true }];
     if (at >= 0 && series[at].views != null)
       out.push({ label: "so far today", values: series.map((r, i) => (i === at || i === at - 1 ? r.views : null)),
                  color: "--chart-1", dash: [5, 4], fill: false });
