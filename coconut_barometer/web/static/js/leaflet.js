@@ -22,8 +22,8 @@ export function leaflet() {
 }
 
 
-// A map on CARTO's tiles. labels: the place names as tiles of their own in a pane over everything but the pins and
-// popups (the Weather map's, so its layers never hide them, the satellite least of all: #95), the base without them.
+// A map on CARTO's tiles. labels: the place names as tiles of their own, in a pane at that z-index (the Weather
+// map's, so the satellite doesn't hide them: #95), the base without them. Else the names are in the base tiles.
 export function baseMap({ L, cfg }, el, { labels = false, ...options } = {}) {
   const map = L.map(el, { worldCopyJump: true, minZoom: 2, ...options });
   const key = cfg.carto_key ? `?key=${encodeURIComponent(cfg.carto_key)}` : "";
@@ -39,7 +39,7 @@ export function baseMap({ L, cfg }, el, { labels = false, ...options } = {}) {
   let names = null;
   if (labels) {
     const pane = map.createPane("cblabels");
-    pane.style.zIndex = 390;                       // over the Weather map's own panes, under the vector overlays (400)
+    pane.style.zIndex = labels;
     pane.style.pointerEvents = "none";
     names = L.tileLayer(url("only_labels"), { pane: "cblabels", maxZoom: 20 }).addTo(map);
   }

@@ -10,9 +10,10 @@
 // (lightning_layer.js, #94): the 15 minutes up to the time the timeline shows, fetched each minute and only what's
 // new. The map's own errors go to the server (#65), which reports them like its own. The stations' own strikes are
 // rings: a Tempest reports how far away a strike was but not which way, so each is a ring at that distance.
-// The place names are the basemap's own, as tiles over every weather layer (leaflet.js baseMap's labels); with the
-// satellite on they turn to light text on a dark halo, and Natural Earth's coastlines and borders are drawn over
-// the imagery (lines_layer.js, #95), which hides the basemap's own.
+// The place names are the basemap's own, as tiles of their own (leaflet.js baseMap's labels) over the satellite and
+// under the radar (which is sparse, and matters more); with the satellite on they turn to light text on a dark halo,
+// and Natural Earth's coastlines and borders are drawn under them over the imagery (lines_layer.js, #95), which hides
+// the basemap's own.
 // Markers and popups are built as elements (no HTML strings with style attributes) to suit the page's CSP.
 // The controls (wx_controls.js, #78) sit on the map: my location and full screen with the zoom buttons, the Layers
 // panel (a bottom sheet on a phone) and the timeline bar along the bottom; the layer choices are remembered.
@@ -34,6 +35,7 @@ const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const FINE_ZOOM = 6;          // radar.py FINE_ZOOM: from here in, the ~2 km shapes for the view
 const SURFACE_ZOOMS = [6, 8]; // rtma.py LEVELS: finer grids for the view from these zooms in
 const LOADING = 4;            // loop frames fetched at once
+const LABELS_Z = 357;         // the place names: over the satellite, warnings and borders, under the radar
 const PENDING_MS = 4000;      // a layer the server is still fetching (pending) is asked for again this soon
 // What a layer with finer detail from each of `zooms` in is asked for: below the first, the whole US; from there, the
 // view padded by half its size and rounded out to whole degrees (so small pans need nothing new), at the zoom tier
@@ -150,13 +152,13 @@ export function WxMap({ show, unitsFor, compass }) {
     window.addEventListener("unhandledrejection", onRejection);
     leaflet().then((lf) => {
       if (!alive || !box.current) return;
-      map.current = baseMap(lf, box.current, { minZoom: 3, labels: true }).setView([39, -96], 4);
+      map.current = baseMap(lf, box.current, { minZoom: 3, labels: LABELS_Z }).setView([39, -96], 4);
       map.current.createPane("wxtemp").style.zIndex = 345;     // the temperature: over the base map, under the rest
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
       map.current.createPane("wxhazards").style.zIndex = 355;  // over the satellite, under the radar: echoes show through
+      map.current.createPane("wxlines").style.zIndex = 356;    // coasts and borders, under the names (LABELS_Z)
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxwind").style.zIndex = 365;     // over the radar, under the fronts
-      map.current.createPane("wxlines").style.zIndex = 367;      // coasts and borders: over the radar, under the fronts
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
       map.current.createPane("wxlightning").style.zIndex = 375;  // over the fronts, under the storm cells and pins
       rings.current = lf.L.layerGroup().addTo(map.current);

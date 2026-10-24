@@ -279,19 +279,19 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["ends"], [0, out["TRAIL"]])                       # the colors span the trail shown
 
     def test_the_weather_maps_names_sit_over_its_layers(self):
-        """#95: the Weather map's base without names, the names as tiles of their own over every layer (and light on
-        dark over the satellite), the other maps as before."""
+        """#95: the Weather map's base without names, the names as tiles of their own over the satellite and under the
+        radar (and light on dark over the satellite), the borders under them, the other maps as before."""
         js = lambda name: open(os.path.join(STATIC, "js", name)).read()
         lf, m = js("leaflet.js"), js("weather_map.js")
         self.assertIn('url(labels ? "nolabels" : "all")', lf)
         self.assertIn('L.tileLayer(url("only_labels"), { pane: "cblabels"', lf)
-        self.assertIn("baseMap(lf, box.current, { minZoom: 3, labels: true })", m)
+        self.assertIn("baseMap(lf, box.current, { minZoom: 3, labels: LABELS_Z })", m)
         self.assertIn('m.setLabels(sat ? "dark" : null);', m)
-        self.assertNotIn("labels: true", js("map.js") + js("aprs.js") + js("igate.js"))
+        self.assertNotIn("labels:", js("map.js") + js("aprs.js") + js("igate.js"))
         panes = {k: int(v) for k, v in re.findall(r'createPane\("(\w+)"\)\.style\.zIndex = (\d+)', m)}
-        names = int(re.search(r"pane\.style\.zIndex = (\d+)", lf).group(1))
-        self.assertGreater(names, max(panes.values()))                     # over every weather layer ...
-        self.assertLess(names, 400)                                        # ... under the storm cells and pins
+        names = int(re.search(r"const LABELS_Z = (\d+);", m).group(1))
+        self.assertLess(max(panes["wxsat"], panes["wxhazards"], panes["wxlines"]), names)   # over the satellite and borders ...
+        self.assertLess(names, panes["wxradar"])                           # ... under the radar
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_borders_over_the_satellite_decode(self):
