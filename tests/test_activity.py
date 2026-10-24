@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from fakes import FakeFlickr, CFG
 from coconut_barometer import activity
@@ -70,21 +71,33 @@ class InstrumentedTest(unittest.TestCase):
     def test_flickr_calls_record_the_wait_for_the_shared_limit(self):
         waiting = []
 
+        class FakeClock:
+            now = 1000.0
+
+            def time(self):
+                return self.now
+
+            def advance_to(self, timestamp):
+                self.now = timestamp
+
+        clock = FakeClock()
+
         class WaitingLimiter:
             def wait(self, on_slot=None):
-                slot = time.time() + 0.2
+                slot = clock.time() + 0.2
                 if on_slot:
                     on_slot(slot)
                 waiting.extend(p["state"] for p in activity.log.snapshot()["pending"]
                                if p["what"] == "flickr.photos.getInfo")
-                time.sleep(max(0, slot - time.time()))
+                clock.advance_to(slot)
 
         limiter = WaitingLimiter()
         client = FlickrClient("k", "s", limiter=limiter)
         client.api = FakeApi()
         seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
-        for pid in ("1", "2", "3"):
-            client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
+        with patch.object(activity, "time", clock):
+            for pid in ("1", "2", "3"):
+                client.call("flickr.photos.getInfo", photo_id=pid, secret="never-logged")
         got = [e for e in activity.log.since(seq) if e["source"] == "flickr"]
         self.assertEqual([e["detail"] for e in got], ["photo_id=1", "photo_id=2", "photo_id=3"])
         self.assertGreater(got[-1]["waited"], 0.1)
