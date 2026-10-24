@@ -15,7 +15,7 @@ import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
 import { loopWindow } from "./wx_loop.js";
-import { toolsControl, useLocate, useFullscreen, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
+import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
 
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -71,7 +71,7 @@ function el(tag, cls, text) {
 }
 
 export function WxMap({ show, unitsFor, compass }) {
-  const wrap = useRef(null), box = useRef(null), map = useRef(null), tools = useRef(null), handlers = useRef({});
+  const wrap = useRef(null), box = useRef(null), map = useRef(null);
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
   const [ready, setReady] = useState(false);
@@ -92,9 +92,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const [idx, setIdx] = useState(null);            // position in the loop; null = the newest frame
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);           // SPEEDS: ½×, 1×, 2×
-  const locate = useLocate(map, ready);
-  const fullscreen = useFullscreen(wrap, map);
-  handlers.current = { locate: locate.tap, full: fullscreen.toggle };
+  const { fullscreen } = useMapTools(map, ready, wrap);
 
   useEffect(() => {
     let alive = true;
@@ -108,8 +106,6 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
-      map.current.createPane("wxme").style.zIndex = 650;         // my location: over the pins, under the popups
-      tools.current = toolsControl(lf.L, handlers).addTo(map.current);
       rings.current = lf.L.layerGroup().addTo(map.current);
       storms.current = lf.L.layerGroup().addTo(map.current);
       canvas.current = radarCanvas(lf.L, "wxradar", 'Radar: <a href="https://mrms.nssl.noaa.gov/">NOAA MRMS</a>').addTo(map.current);
@@ -291,20 +287,8 @@ export function WxMap({ show, unitsFor, compass }) {
     return () => window.removeEventListener("keydown", on);
   }, []);
 
-  // The basemap (Auto follows the theme), and the location and full-screen buttons' state.
+  // The basemap (Auto follows the theme).
   useEffect(() => { if (ready) map.current?.setBasemap(layers.basemap); }, [ready, layers.basemap]);
-  useEffect(() => {
-    const t = tools.current;
-    if (!ready || !t?.locate) return;
-    t.locate.className = "wxlocate " + locate.mode;
-    t.locate.setAttribute("aria-pressed", String(locate.mode === "follow"));
-    const label = { off: "Show my location", finding: "Finding your location…", on: "Follow my location", follow: "Stop following" }[locate.mode];
-    t.locate.title = label;
-    t.locate.setAttribute("aria-label", label);
-    t.full.textContent = fullscreen.full ? "✕" : "⛶";
-    t.full.title = fullscreen.full ? "Leave full screen" : "Full screen";
-    t.full.setAttribute("aria-label", t.full.title);
-  }, [ready, locate.mode, fullscreen.full]);
 
   // The smooth radar: the shown frame's shapes, each level colored at its middle (radar_layer.js draws them).
   useEffect(() => {
@@ -401,7 +385,7 @@ export function WxMap({ show, unitsFor, compass }) {
     ${showFronts ? (fronts?.valid ? ` Fronts, highs and lows: WPC's surface analysis at ${clock(fronts.valid)} (every 3 hours), whatever time the radar shows.`
       : fronts?.error ? " Fronts unavailable right now." : "") : ""}`;
   return html`
-    <div ref=${wrap} class=${"wxmap" + (fullscreen.full ? " full " + fullscreen.full : "")}>
+    <div ref=${wrap} class=${mapboxClass(fullscreen, "wxmap")}>
       <div class="mapwrap" ref=${box}></div>
       <${LayersPanel} layers=${layers} set=${(c) => { if ("sat" in c) setIdx(null); set(c); }} strikes=${total} legend=${legend} notes=${notes} />
       <${LoopBar} timeline=${timeline} at=${at} live=${idx == null && !playing} time=${past ? t : vector?.t ?? shownSat?.t}

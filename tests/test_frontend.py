@@ -104,7 +104,8 @@ class FrontendTest(unittest.TestCase):
         self.assertNotIn("wxmapbar", m)                                     # no toolbar above the map
         self.assertIn('<${LayersPanel} layers=${layers}', m)
         self.assertIn('<${LoopBar} timeline=${timeline}', m)
-        self.assertIn('createPane("wxme").style.zIndex = 650', m)           # my location: over the radar and pins, under popups
+        self.assertIn('createPane("wxme").style.zIndex = 650', c)           # my location: over the radar and pins, under popups
+        self.assertIn("useMapTools(map, ready, wrap)", m)
         # where I am: asked only on a tap, watched with less accuracy unless following, stopped while hidden
         self.assertIn("navigator.geolocation.watchPosition(fix, fail,", c)
         self.assertIn("{ enableHighAccuracy: follow, maximumAge: follow ? 5000 : 30000", c)
@@ -116,7 +117,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("w.requestFullscreen", c)
         self.assertIn('else setFull("pseudo");', c)
         self.assertIn("map.current?.invalidateSize()", c)
-        self.assertIn(".wxmap.pseudo { position: fixed; inset: 0;", css)
+        self.assertIn(".mapbox.pseudo { position: fixed; inset: 0;", css)
         self.assertIn("html.wxfull header.top, html.wxfull .subtabs { display: none; }", css)
         # layers: one button with what's on, its panel a bottom sheet on a phone, the choices remembered
         self.assertIn("aria-expanded=${open}", c)
@@ -193,6 +194,18 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('tab === "alerts"', main)                             # #/alerts/<at>/<key> (#73)
         page = open(os.path.join(STATIC, "js", "alert_page.js")).read()
         self.assertIn('api("/api/push/alert"', page)
+
+    def test_photos_and_aprs_maps_have_location_and_full_screen(self):
+        """#80: the Weather map's ⌖ and ⛶ on the Photos and APRS maps too, from the same hook."""
+        js = lambda name: open(os.path.join(STATIC, "js", name)).read()
+        for name in ("map.js", "aprs.js", "weather_map.js"):
+            self.assertIn("useMapTools(map, ready, wrap)", js(name))
+            self.assertIn("class=${mapboxClass(fullscreen", js(name))
+        photos = js("map.js")                                               # the lightbox opens inside what goes full screen
+        self.assertLess(photos.index("<div ref=${wrap}"), photos.index("<${Lightbox}"))
+        self.assertLess(photos.index("<${Lightbox}"), photos.rindex("</div>`;"))
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn(".mapbox .leaflet-top.leaflet-left { top: auto; left: auto; right: 0;", css)   # thumb reach on a phone
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_radar_colors_are_the_settings_stops_everywhere(self):

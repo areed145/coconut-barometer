@@ -689,15 +689,16 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .wxpin i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 11px solid var(--accent); }
 .wxpop { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); min-width: 180px; }
 .wxpop a { margin-top: var(--s1); }
-/* Weather map controls (#78): the map fills the screen below the header, and its controls sit on it */
-.wxmap { position: relative; }
-.wxmap .mapwrap { height: calc(100dvh - var(--header-h) - 84px); }
-.wxmap.full { background: var(--bg); }
-.wxmap.full .mapwrap { height: 100%; border: 0; border-radius: 0; }
-.wxmap.native { width: 100%; height: 100%; }
-.wxmap.pseudo { position: fixed; inset: 0; z-index: 2000; height: 100dvh; padding: var(--safe-t) var(--safe-r) 0 var(--safe-l); }
+/* A map with ⌖ and ⛶ (#78, #80: Weather, Photos, APRS): full screen is the browser's, or covers the page */
+.mapbox { position: relative; }
+.mapbox.full { background: var(--bg); }
+.mapbox.full .mapwrap { height: 100%; margin: 0; border: 0; border-radius: 0; }
+.mapbox.native { width: 100%; height: 100%; }
+.mapbox.pseudo { position: fixed; inset: 0; z-index: 2000; height: 100dvh; padding: var(--safe-t) var(--safe-r) 0 var(--safe-l); }
 html.wxfull, html.wxfull body { overflow: hidden; }
 html.wxfull header.top, html.wxfull .subtabs { display: none; }
+/* Weather map controls (#78): the map fills the screen below the header, and its controls sit on it */
+.wxmap .mapwrap { height: calc(100dvh - var(--header-h) - 84px); }
 .wxwarn { position: absolute; top: 56px; right: var(--s2); z-index: 999; margin: 0; padding: 2px var(--s2); font-size: var(--text-xs);
   background: var(--surface); color: var(--warn); border-radius: var(--r-sm); box-shadow: var(--shadow-1); }
 /* ⌖ and ⛶ with the zoom buttons */
@@ -761,7 +762,6 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .wxmap.pseudo .wxbar { bottom: calc(24px + var(--safe-b)); }
 @media (max-width: 639px) {
   .wxmap .mapwrap { height: calc(100dvh - var(--header-h) - 60px - var(--safe-b)); }
-  .wxmap.full .mapwrap { height: 100%; }
   .wxbar { flex-wrap: wrap; left: var(--s1); right: var(--s1); bottom: calc(30px + var(--safe-b)); gap: var(--s1); padding: 2px var(--s1); }
   .wxbar button { min-height: 44px; height: 44px; min-width: 44px; padding: 0 var(--s2); }
   .wxbar .extra { display: none; order: 5; }
@@ -776,12 +776,13 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
   .wxtick { top: 22px; }
   .wxtick span { top: -20px; }
   .wxgap { margin-top: 24px; }
-  /* zoom, my location and full screen: bottom right, above the timeline, in thumb reach */
-  .wxmap .leaflet-top.leaflet-left { top: auto; left: auto; right: 0; bottom: calc(94px + var(--safe-b)); }
+  /* zoom, my location and full screen: bottom right, in thumb reach (on the Weather map, above the timeline) */
+  .mapbox .leaflet-top.leaflet-left { top: auto; left: auto; right: 0; bottom: calc(24px + var(--safe-b)); }
+  .wxmap .leaflet-top.leaflet-left { bottom: calc(94px + var(--safe-b)); }
   .wxmap:has(.wxbar.more) .leaflet-top.leaflet-left { bottom: calc(150px + var(--safe-b)); }   /* above the bar's second row */
-  .wxmap .leaflet-top.leaflet-left .leaflet-control { float: none; margin: 0 var(--s2) var(--s2) 0; }
-  .wxmap .leaflet-bar.leaflet-control-zoom a, .wxtools button { width: 44px; height: 44px; line-height: 44px; font-size: 22px; }
-  .wxmap .leaflet-control-attribution { font-size: 9px; line-height: 1.3; }
+  .mapbox .leaflet-top.leaflet-left .leaflet-control { float: none; margin: 0 var(--s2) var(--s2) 0; }
+  .mapbox .leaflet-bar.leaflet-control-zoom a, .wxtools button { width: 44px; height: 44px; line-height: 44px; font-size: 22px; }
+  .mapbox .leaflet-control-attribution { font-size: 9px; line-height: 1.3; }
   .wxlayers { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 50%; z-index: 1002; border-radius: 14px 14px 0 0;
     padding-bottom: var(--safe-b); transition: transform .15s ease-out; }
   .wxhandle { display: flex; justify-content: center; padding: var(--s2) 0 var(--s1); touch-action: none; cursor: grab; position: sticky; top: 0;

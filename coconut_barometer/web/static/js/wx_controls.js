@@ -162,6 +162,38 @@ export function useFullscreen(wrap, map) {
   return { full, toggle };
 }
 
+// ---- ⌖ and ⛶ on any map (#80) -------------------------------------------------------------------------------------
+// The buttons, my location and full screen together, for the Weather, Photos and APRS maps. `wrap` is what goes full
+// screen (class "mapbox", with the map's .mapwrap inside); the map's own `ready` adds the buttons once it exists.
+export function useMapTools(map, ready, wrap) {
+  const locate = useLocate(map, ready);
+  const fullscreen = useFullscreen(wrap, map);
+  const handlers = useRef({}), tools = useRef(null);
+  handlers.current = { locate: locate.tap, full: fullscreen.toggle };
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+    if (!m.getPane("wxme")) m.createPane("wxme").style.zIndex = 650;     // my location: over the pins, under the popups
+    tools.current = toolsControl(window.L, handlers).addTo(m);
+    return () => { tools.current?.remove(); tools.current = null; };
+  }, [ready]);
+  useEffect(() => {
+    const t = tools.current;
+    if (!ready || !t?.locate) return;
+    t.locate.className = "wxlocate " + locate.mode;
+    t.locate.setAttribute("aria-pressed", String(locate.mode === "follow"));
+    const label = { off: "Show my location", finding: "Finding your location…", on: "Follow my location", follow: "Stop following" }[locate.mode];
+    t.locate.title = label;
+    t.locate.setAttribute("aria-label", label);
+    t.full.textContent = fullscreen.full ? "✕" : "⛶";
+    t.full.title = fullscreen.full ? "Leave full screen" : "Full screen";
+    t.full.setAttribute("aria-label", t.full.title);
+  }, [ready, locate.mode, fullscreen.full]);
+  return { locate, fullscreen };
+}
+// The wrapper's classes for useMapTools: "mapbox", and while full screen "full native" or "full pseudo".
+export const mapboxClass = (fullscreen, extra = "") => `${extra ? extra + " " : ""}mapbox${fullscreen.full ? " full " + fullscreen.full : ""}`;
+
 // ---- the Layers panel -------------------------------------------------------------------------------------------
 const SATS = [["", "None"], ["geocolor", "Color"], ["infrared", "Infrared"]];
 const BASEMAPS = [["auto", "Auto (theme)"], ["light", "Light"], ["dark", "Dark"]];

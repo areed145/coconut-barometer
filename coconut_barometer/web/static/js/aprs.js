@@ -4,6 +4,7 @@
 // as on the other maps, to suit the page's CSP.
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, useThemeTick, signedIn } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
+import { useMapTools, mapboxClass } from "./wx_controls.js";
 import { Spark } from "./weather.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -39,8 +40,9 @@ function popup(call, p, units) {
 }
 
 function AprsMap({ calls, tracks, units, gradientBy }) {
-  const box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef(false);
+  const wrap = useRef(null), box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef(false);
   const [ready, setReady] = useState(false);
+  const { fullscreen } = useMapTools(map, ready, wrap);       // ⌖ and ⛶, as on the Weather map (#80)
   const theme = useThemeTick();
   useEffect(() => {
     let alive = true;
@@ -95,7 +97,7 @@ function AprsMap({ calls, tracks, units, gradientBy }) {
       map.current.fitBounds(all, { padding: [60, 60], maxZoom: 13 });
     }
   }, [ready, calls, tracks, units, gradientBy, theme]);
-  return html`<div class="mapwrap aprsmap" ref=${box}></div>`;
+  return html`<div ref=${wrap} class=${mapboxClass(fullscreen)}><div class="mapwrap aprsmap" ref=${box}></div></div>`;
 }
 
 // What a symbol (table + code) is, for the common ones; the rest show as their code.

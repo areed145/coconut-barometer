@@ -2,10 +2,11 @@
 // photo count on a log scale (theme.color_low → color_mid → color_high). Clicking one with map.expand_at
 // photos or fewer opens it into thumbnails; a bigger one zooms straight to where it splits up.
 // A bigger one that never would (its photos all at one spot, even at the closest zoom) opens
-// them in the lightbox at once.
+// them in the lightbox at once. ⌖ and ⛶ are the Weather map's (#80); the lightbox opens inside what goes full screen.
 import { html, useState, useEffect, useRef, api, num, toast, along } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Lightbox } from "./gallery.js";
+import { useMapTools, mapboxClass } from "./wx_controls.js";
 
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const ink = ([r, g, b]) => (0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#1b1b1b" : "#ffffff");
@@ -34,6 +35,7 @@ function parseAt(at) {   // "@lat,lon,zoom" from #/photos/map/@…
 
 export function MapPage({ at }) {
   const el = useRef(null);
+  const wrap = useRef(null);
   const map = useRef(null);
   const layer = useRef(null);
   const [ready, setReady] = useState(false);
@@ -42,6 +44,7 @@ export function MapPage({ at }) {
   const [f, setF] = useState({ album: "", from: "", to: "" });
   const [box, setBox] = useState(null);           // {photos, index}: the lightbox
   const fit = useRef(!parseAt(at));               // fit the photos into view after loading?
+  const { fullscreen } = useMapTools(map, ready, wrap);
 
   useEffect(() => { api("/api/albums").then(setAlbums).catch(() => {}); }, []);
   useEffect(() => {
@@ -122,7 +125,9 @@ export function MapPage({ at }) {
       <span class="spacer"></span>
       <span class="muted small hint-pointer">Click a cluster to zoom in; small ones open into thumbnails, a crowd at one spot opens its photos</span>
     </div>
-    <div class="mapwrap" ref=${el}></div>
-    ${box && html`<${Lightbox} photos=${box.photos} index=${box.index} onIndex=${(i) => setBox({ ...box, index: i })}
-        onClose=${() => setBox(null)} />`}`;
+    <div ref=${wrap} class=${mapboxClass(fullscreen)}>
+      <div class="mapwrap" ref=${el}></div>
+      ${box && html`<${Lightbox} photos=${box.photos} index=${box.index} onIndex=${(i) => setBox({ ...box, index: i })}
+          onClose=${() => setBox(null)} />`}
+    </div>`;
 }
