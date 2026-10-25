@@ -442,6 +442,9 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox aside dl { display: grid; grid-template-columns: auto 1fr; gap: 3px var(--s3); margin: var(--s3) 0; }
 .lightbox aside dt { color: var(--lb-muted); } .lightbox aside dd { margin: 0; overflow-wrap: anywhere; }
 .lightbox aside a { color: var(--lb-link); }
+/* the panel is always dark: its buttons (Share, Send to Review) too, not the page's light surface under light text */
+.lightbox aside button:not(.link) { background: var(--lb-raised); border-color: var(--lb-line); color: var(--lb-fg); }
+.lightbox aside button:not(.link):hover { border-color: var(--accent); }
 .lightbox .chips .chip { border-color: #3a342f; color: var(--lb-text); }
 .lightbox .stats3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: var(--s3) 0; }
 .lightbox .stats3 div { background: var(--lb-raised); border-radius: var(--r-sm); padding: 6px var(--s2); }
