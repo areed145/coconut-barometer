@@ -158,12 +158,10 @@ class FrontendTest(unittest.TestCase):
           const bad = loadLayers();
           store.set("cb-wxmap-layers", '{"lightning": false}');             // the rings' old name (#94)
           const old = loadLayers();
-          store.set("cb-wxmap-layers", '{"glmStyle": "dots"}');             // the style's old name (#101): a choice kept ...
-          const dots = loadLayers().lightningStyle;
-          store.set("cb-wxmap-layers", '{"glmStyle": "blobs"}');            // ... the old default not
-          const blobs = loadLayers().lightningStyle;
+          store.set("cb-wxmap-layers", '{"lightningStyle": "blobs", "glmStyle": "smooth"}');   // no style to choose now (#146)
+          const styles = Object.keys(loadLayers()).filter((k) => /style/i.test(k));
           store.set("cb-wxmap-layers", "{not json");
-          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad, old, dots, blobs,
+          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad, old, styles,
             broken: loadLayers().radar, summary: layersSummary(again), first_hazards: first.hazards, first_minor: first.hazardsMinor }));
         """ % os.path.join(STATIC, "js", "wx_controls.js")
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
@@ -180,7 +178,7 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
         self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Sat")
         self.assertEqual((out["old"]["rings"], out["old"]["glm"], "lightning" in out["old"]), (False, True, False))
-        self.assertEqual((out["first"] and out["again"]["lightningStyle"], out["dots"], out["blobs"]), ("smooth", "dots", "smooth"))
+        self.assertEqual(out["styles"], [])                                  # lightning is dots, whatever was saved (#146)
         self.assertEqual((out["first_hazards"], out["first_minor"]), (True, False))   # warnings on, advisories off
 
     @unittest.skipUnless(NODE, "needs Node")
@@ -372,6 +370,44 @@ class FrontendTest(unittest.TestCase):
         self.assertTrue(out["near"])                                       # ... and the Texas coast where it is
 
     @unittest.skipUnless(NODE, "needs Node")
+    def test_lightning_is_clean_dots_the_newest_on_top(self):
+        """#146: a dot per cell and minute, each minute's filled as one shape and none outlined, the oldest first; small
+        zoomed out, a little bigger where there were more flashes; the default colors are config.py's."""
+        from coconut_barometer.config import DEFAULTS
+        script = r"""
+          import { lightningCanvas, DEFAULT_STOPS } from "%s";
+          const L = { Layer: { extend: (o) => function () { Object.assign(this, o); } },
+                      latLngBounds: () => ({ pad: () => ({ contains: ([lat]) => lat < 40 }) }) };
+          const layer = lightningCanvas(L, "wxlightning", "");
+          layer._map = { unproject: () => [0, 0], project: ([lat, lon]) => ({ subtract: () => ({ x: lon * 10, y: lat * 10 }) }) };
+          layer._draw = () => {};
+          const t = 1_800_000_000, minute = t - t %% 60;
+          // q 10: cells in 1/10 degrees; [lat, lon, n] each, the last one out of view
+          layer.set(new Map([[minute - 600, [330, -970, 1]], [minute, [331, -969, 1, 332, -968, 16, 500, -900, 3]]]), 10, t, DEFAULT_STOPS);
+          const draw = (zoom) => {
+            const log = [];
+            const ctx = { set fillStyle(c) { log.push(["color", c]); }, beginPath: () => log.push(["path"]), moveTo() {},
+              arc: (x, y, r) => log.push(["dot", r]), fill: () => log.push(["fill"]), stroke: () => log.push(["stroke"]) };
+            layer._paint(ctx, { add: () => null }, null, zoom);
+            return log;
+          };
+          console.log(JSON.stringify({ z9: draw(9), z3: draw(3), stops: DEFAULT_STOPS }));
+        """ % os.path.join(STATIC, "js", "lightning_layer.js")
+        r = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        z9 = [e[0] for e in out["z9"]]
+        self.assertNotIn("stroke", z9)                                      # no borders
+        self.assertEqual(z9, ["color", "path", "dot", "fill", "color", "path", "dot", "dot", "fill"])   # a fill a minute, oldest first
+        colors = [e[1] for e in out["z9"] if e[0] == "color"]
+        self.assertEqual(colors[-1], "#ffffff")                             # the newest on top, in the newest color
+        self.assertNotEqual(colors[0], colors[-1])
+        self.assertEqual([e[1] for e in out["z9"] if e[0] == "dot"], [3, 3, 4.5])   # a lone flash, then 16: bigger, not much
+        self.assertEqual([e[1] for e in out["z3"] if e[0] == "dot"], [1.5, 1.5, 2])  # smaller zoomed out
+        self.assertEqual(out["stops"], DEFAULTS["theme"]["lightning_colors"])
+
+    @unittest.skip("the blobs are retired, their code commented out (#146)")
+    @unittest.skipUnless(NODE, "needs Node")
     def test_lightning_blobs_keep_every_flash_and_the_newest_on_top(self):
         """A lone flash still makes a (small) blob; crowded flashes make an opaque core; the newer band covers the
         older; the default colors are config.py's."""
@@ -399,6 +435,7 @@ class FrontendTest(unittest.TestCase):
         self.assertTrue(0 < out["peak"] < 1)
         self.assertEqual(out["stops"], DEFAULTS["theme"]["lightning_colors"])
 
+    @unittest.skip("the smooth lightning is retired, its code commented out (#146)")
     @unittest.skipUnless(NODE, "needs Node")
     def test_smooth_lightning_is_drawn_by_the_radars_canvas(self):
         """#101: the server's lightning shapes decode as radar's do, keeping each level's age (or core), and the radar's
