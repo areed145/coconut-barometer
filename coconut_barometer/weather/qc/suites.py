@@ -9,6 +9,8 @@ and flags.
 
 The checks, added issue by issue (#106-#112, #122-#123):
     temperature, dewpoint, sun, drift                against RTMA at the station's cell (rtma_checks.py, #106)
+    wind_dir, wind_speed                             the same, for wind (#107)
+    pressure                                         the same, for pressure (#110)
     range, steps, stuck, coverage, solar, battery    the station's own readings (internal.py, #112)"""
 from __future__ import annotations
 

@@ -259,8 +259,9 @@ from coconut_barometer.weather.qc import internal  # noqa: E402
 DAY0 = 1_792_800_000 // 86400 * 86400                      # a UTC midnight in late October 2026
 
 
-def minute(ts, temp=15.0, humidity=60.0, pressure=800.0, wind=2.0, gust=3.0, solar=0.0, uv=0.0, rain=0.0, battery=2.6):
-    return [ts, 1.0, wind, gust, 180.0, 3, pressure, temp, humidity, 10000, uv, solar, rain, 0, 0, 0, battery, 1]
+def minute(ts, temp=15.0, humidity=60.0, pressure=800.0, wind=2.0, gust=3.0, solar=0.0, uv=0.0, rain=0.0, battery=2.6,
+           wind_dir=180.0):
+    return [ts, 1.0, wind, gust, wind_dir, 3, pressure, temp, humidity, 10000, uv, solar, rain, 0, 0, 0, battery, 1]
 
 
 class InternalChecksTest(unittest.TestCase):
@@ -426,3 +427,75 @@ class RtmaChecksTest(unittest.TestCase):
         span = self.pairs(days=1, wind_of=lambda ts: 5.0)               # windy all day: no calm sunshine
         self.assertEqual(self.run_check("sun", span)["status"], "insufficient")
         self.assertEqual(self.run_check("drift", span)["status"], "insufficient")
+
+
+# ---- #107 and #110: wind and pressure against RTMA --------------------------------------------------------------
+import math  # noqa: E402
+
+
+class WindPressureChecksTest(unittest.TestCase):
+    """RTMA every hour for `days`, its wind from a different direction each time (every 37°) at 6 m/s, 800 hPa at the
+    station's own height (2000 m); the station as RTMA with what each test changes."""
+
+    def setUp(self):
+        self.store = make_store()
+        self.cfg = from_dict({**CFG, "qc": {"min_pairs": 8}})
+        self.station = self.store.qc_stations()[0]
+
+    def pairs(self, days=10, turn=0.0, speed=lambda d: 4.2, pressure=lambda ts: 800.0, rtma_speed=6.0):
+        for k in range(days * 24):
+            ts, d = DAY0 + k * 3600, (k * 37) % 360
+            self.store.wx_save_obs(11, [minute(ts + s, wind=speed(d), wind_dir=(d + turn) % 360, pressure=pressure(ts))
+                                        for s in (-60, 0, 60)])
+            u, v = -rtma_speed * math.sin(math.radians(d)), -rtma_speed * math.cos(math.radians(d))
+            self.store.qc_save_rtma(11, ts, {"t": 15.0, "td": 5.0, "hgt": 2000.0, "pres": 800.0, "u": u, "v": v})
+        return DAY0, DAY0 + days * 86400
+
+    def run_check(self, name, span):
+        return rtma_checks.SUITES[name][1](self.store, dict(self.station), *span, self.cfg)
+
+    def test_a_station_that_agrees_passes(self):
+        span = self.pairs()
+        for name in ("wind_dir", "wind_speed", "pressure"):
+            self.assertEqual((name, self.run_check(name, span)["status"]), (name, "pass"))
+        r = self.run_check("wind_speed", span)["metrics"]
+        self.assertAlmostEqual(r["ratio"], 0.7, places=3)                  # below 10 m: lower, and that's fine
+        self.assertAlmostEqual(self.run_check("pressure", span)["metrics"]["elevation_m"], 0.0, places=1)
+
+    def test_a_vane_not_aligned_to_north(self):
+        span = self.pairs(turn=-20.0)                                       # across north too: 10° reads as 350°
+        r = self.run_check("wind_dir", span)
+        self.assertEqual(r["status"], "warn")
+        self.assertAlmostEqual(r["metrics"]["offset"], -20.0, places=1)
+        self.assertAlmostEqual(r["metrics"]["agreement"], 1.0, places=3)
+        self.assertEqual(self.run_check("wind_speed", span)["status"], "pass")
+
+    def test_wind_blocked_from_one_side(self):
+        span = self.pairs(speed=lambda d: 1.5 if 247.5 <= d < 292.5 else 4.2)   # half as much from the west
+        r = self.run_check("wind_speed", span)
+        self.assertIn(r["status"], ("warn", "fail"))
+        self.assertEqual(r["metrics"]["low"], ["W"])
+        self.assertEqual(r["metrics"]["show"][1][0], "from the W, against the rest")
+        self.assertEqual(self.run_check("wind_dir", span)["status"], "pass")
+
+    def test_a_wrong_elevation_setting_is_a_pressure_offset(self):
+        # The station is really 16 m lower than its setting says: it reads RTMA's pressure moved down 16 m
+        here = 800.0 * math.exp(9.80665 * 16 / (287.05 * (288.15 + 0.0065 * 16 / 2)))
+        span = self.pairs(pressure=lambda ts: here)
+        r = self.run_check("pressure", span)
+        self.assertEqual(r["status"], "warn")
+        self.assertAlmostEqual(r["metrics"]["bias"], here - 800.0, places=2)
+        self.assertAlmostEqual(r["metrics"]["elevation_m"], 16.0, delta=0.5)   # the setting: 16 m too high
+        self.assertIsNotNone(r["metrics"]["sea_level_bias"])
+
+    def test_pressure_drift_in_the_last_week(self):
+        span = self.pairs(days=14, pressure=lambda ts: 800.8 if ts >= DAY0 + 7 * 86400 else 800.0)
+        r = self.run_check("pressure", span)
+        self.assertEqual(r["status"], "warn")
+        self.assertAlmostEqual(r["metrics"]["drift"], 0.8, places=2)
+
+    def test_light_wind_isnt_judged(self):
+        span = self.pairs(rtma_speed=2.0)
+        self.assertEqual(self.run_check("wind_dir", span)["status"], "insufficient")
+        self.assertEqual(self.run_check("wind_speed", span)["status"], "insufficient")
+        self.assertEqual(self.run_check("pressure", span)["status"], "pass")
