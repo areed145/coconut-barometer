@@ -38,11 +38,21 @@ class LibraryStore(Database):
         ids = [(i,) for i in photo_ids]
         with self.db:
             for table, column in (("photos", "id"), ("memberships", "photo_id"), ("queue", "photo_id"),
+                                  ("photo_fingerprints", "photo_id"),
                                   ("requested_jobs", "photo_id"), ("group_photos", "photo_id")):
                 self.db.executemany(f"DELETE FROM {table} WHERE {column}=?", ids)
 
     def photo_ids(self) -> set[str]:
         return {r[0] for r in self.db.execute("SELECT id FROM photos")}
+
+    def photo_fingerprint(self, photo_id: str) -> str | None:
+        row = self.db.execute("SELECT phash FROM photo_fingerprints WHERE photo_id=?", (photo_id,)).fetchone()
+        return row[0] if row else None
+
+    def set_photo_fingerprint(self, photo_id: str, value: str) -> None:
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO photo_fingerprints VALUES (?, ?, ?)",
+                            (photo_id, value, int(time.time())))
 
     def upsert_albums(self, albums: list[dict]) -> None:
         with self.db:

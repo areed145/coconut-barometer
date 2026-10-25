@@ -43,6 +43,7 @@ class QueueStore(Database):
             "ORDER BY date_upload DESC, id", (uploaded_after,))]
         for pid in ids:
             self.queue_put(pid, "new", [])
+            self.queue_finish(pid, "new", {"new_upload": True})
         return ids
 
     def missing_location_ids(self) -> list[str]:
