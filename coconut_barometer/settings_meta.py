@@ -39,9 +39,9 @@ def _p(part):
     return lambda label, help="", group="", options=None: _m("photos", label, help, group, options, part)
 
 
-_sync, _review, _tags, _writing, _subjects, _location, _cameras, _albums, _groups = (
+_sync, _review, _tags, _writing, _subjects, _location, _cameras, _albums, _groups, _trips = (
     _p("Sync"), _p("Review"), _p("Tags"), _p("Writing"), _p("Subjects"), _p("Location"), _p("Cameras & dates"),
-    _p("Albums"), _p("Groups"))
+    _p("Albums"), _p("Groups"), _p("Trips"))
 
 META = {
     # ---- Connections
@@ -155,6 +155,13 @@ META = {
     "groups.min_match": _groups("Minimum match", "How well a photo must match a group's photos: about 3 suggests "
                                 "2-3 groups for most photos, 5 about one for the closer matches. Group rules and "
                                 "posting limits still apply when it's added."),
+
+    # ---- Photos: Trips
+    "trips.gap_hours": _trips("New trip after (hours)", "Photos → Trips groups photos taken close together. A gap this "
+                              "long without a photo starts a new trip."),
+    "trips.jump_km": _trips("... or a move of (km)", "Or a move this far across most of a day without photos (the flight "
+                            "home, not the next stop on a road trip). A trip also ends after two weeks."),
+    "trips.min_photos": _trips("Fewest photos", "Shorter runs aren't shown as trips."),
 
     # ---- Weather
     "weatherflow.backfill_days": _m("weather", "History to fetch (days)", "How far back the REST sync reaches, one "

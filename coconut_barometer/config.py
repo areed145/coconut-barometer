@@ -63,6 +63,11 @@ DEFAULTS: dict[str, Any] = {
         "always_add": [],             # on every photo's proposed tag list (e.g. your name, your site)
         "always_remove": [],          # never on it: taken off when proposed (* and ? wildcards, e.g. www*)
     },
+    "trips": {                        # photos grouped by themselves into trips (trips.py)
+        "gap_hours": 36,              # a new trip after this long without a photo
+        "jump_km": 50,                # ... or after moving this far across most of a day without photos
+        "min_photos": 5,              # fewer than this: not a trip
+    },
     "geo": {
         "min_accuracy": {"country": 1, "state": 6, "city": 11},
         "countries": {"aliases": {}},
@@ -160,6 +165,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365), ("visitors", "keep_days"): (7, 3650),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
+          ("trips", "gap_hours"): (1, 24 * 14), ("trips", "jump_km"): (1, 20000), ("trips", "min_photos"): (2, 1000),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
           ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60),

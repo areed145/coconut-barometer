@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, title TEXT, description TEXT, tags TEXT, lat DOUBLE, lon DOUBLE, accuracy INTEGER, media TEXT, thumb_url TEXT, secret TEXT, server TEXT, date_taken TEXT, date_upload BIGINT, last_update BIGINT, ispublic INTEGER, date_taken_unknown INTEGER, views INTEGER, faves INTEGER, comments INTEGER, license TEXT, width INTEGER, height INTEGER, url_l TEXT, url_h TEXT, url_k TEXT, geo_public INTEGER);
 CREATE TABLE IF NOT EXISTS albums (id TEXT PRIMARY KEY, title TEXT, count INTEGER, date_update BIGINT, cover_url TEXT, description TEXT);
 CREATE TABLE IF NOT EXISTS memberships (album_id TEXT, photo_id TEXT, PRIMARY KEY (album_id, photo_id));
+CREATE TABLE IF NOT EXISTS trips (id TEXT PRIMARY KEY, place TEXT, place_public TEXT);
+CREATE TABLE IF NOT EXISTS trip_photos (trip_id TEXT, photo_id TEXT, PRIMARY KEY (trip_id, photo_id));
 CREATE TABLE IF NOT EXISTS classifications (photo_id TEXT, fingerprint TEXT, result TEXT, created_at BIGINT, PRIMARY KEY (photo_id, fingerprint));
 CREATE TABLE IF NOT EXISTS cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at BIGINT, lens TEXT, exif TEXT);
 CREATE TABLE IF NOT EXISTS decisions (photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, "at" BIGINT, PRIMARY KEY (photo_id, action, target));

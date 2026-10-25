@@ -186,6 +186,42 @@ class WebTest(unittest.TestCase):
         self.assertEqual({c["name"] for c in g["cameras"]}, {"Nikon D90", "Apple iPhone X"})
         self.assertEqual(next(b for b in g["settings"]["shutter"] if b["label"] == "1 s and longer")["photos"], 1)
 
+    def test_trips(self):
+        """#125: built from the photos (named by the geocoder), newest first; visitors see public photos only and a name
+        from public locations only; the photostream, the map and the lightbox know each photo's trip."""
+        from coconut_barometer import trips
+        x = self.store.db.execute
+        x("UPDATE photos SET date_taken='2001-01-01 00:00:00', lat=NULL, lon=NULL, geo_public=1, ispublic=1")
+        for pid, taken, lat, lon in [("1", "2025-11-01 09:00:00", 35.0, 135.7), ("2", "2025-11-01 12:00:00", 35.0, 135.8),
+                                     ("3", "2025-11-02 10:00:00", 35.0, 135.7),
+                                     ("4", "2024-03-01 09:00:00", 30.27, -97.74), ("5", "2024-03-01 11:00:00", 30.27, -97.74)]:
+            x("UPDATE photos SET date_taken=?, lat=?, lon=?, views=? WHERE id=?", (taken, lat, lon, int(pid) * 10, pid))
+        self.store.db.commit()
+        cfg = self.app.state.runtime.cfg                                                # the app's own: the API's builds agree
+        cfg["trips"]["min_photos"] = 2
+        self.assertTrue(trips.ensure(cfg, self.store, geocoder=fake_geocoder))
+        self.assertFalse(trips.ensure(cfg, self.store, geocoder=fake_geocoder))         # nothing changed: not again
+        got = self.c.get("/api/trips").json()
+        self.assertEqual([(t["id"], t["place"], t["count"], t["first"], t["last"], t["cover"]["id"]) for t in got],
+                         [("1", "Tokyo, Japan", 3, "2025-11-01", "2025-11-02", "3"), ("4", "Austin, Texas", 2, "2024-03-01", "2024-03-01", "5")])
+        self.assertEqual({p["id"] for p in self.c.get("/api/photos", params={"trip": "1"}).json()["photos"]}, {"1", "2", "3"})
+        self.assertEqual({p[0] for p in self.c.get("/api/map/points", params={"trip": "4"}).json()["points"]}, {"4", "5"})
+        self.assertEqual(self.c.get("/api/photos/2").json()["trip"], {"id": "1", "place": "Tokyo, Japan"})
+        x("UPDATE photos SET ispublic=0 WHERE id='3'")                                  # private: not in the visitor's count
+        x("UPDATE photos SET geo_public=0 WHERE id IN ('4', '5')")                      # hidden locations: no name
+        self.store.db.commit()
+        trips.ensure(cfg, self.store, geocoder=fake_geocoder, force=True)
+        got = {t["id"]: t for t in self.c.get("/api/trips").json()}
+        self.assertEqual((got["1"]["count"], got["1"]["cover"]["id"]), (2, "2"))
+        self.assertEqual(got["4"]["place"], "")
+        self.assertEqual(self.c.get("/api/trips/4").json()["count"], 2)
+        self.assertEqual(self.c.get("/api/trips/nope").status_code, 404)
+        x("UPDATE photos SET ispublic=0 WHERE id IN ('4', '5')")                        # no public photos: not theirs to see
+        self.store.db.commit()
+        self.assertEqual(self.c.get("/api/trips/4").status_code, 404)
+        self.login()
+        self.assertEqual(self.c.get("/api/trips/4").json()["place"], "Austin, Texas")
+
     def test_photo_highlights_count_public_photos_for_visitors(self):
         x = self.store.db.execute
         x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")

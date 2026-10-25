@@ -3,7 +3,7 @@ import { html, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallbac
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
-import { MiniMap } from "./leaflet.js";
+import { MiniMap, PointsMap } from "./leaflet.js";
 import { aspect, justify } from "./justify.js";
 
 const PAGE = 60;
@@ -145,9 +145,10 @@ export function PhotoGrid({ paged, slideshow = 0, onAt }) {
         onClose=${() => { setOpen(null); setAutoplay(false); }} onNearEnd=${more} />`}`;
 }
 
-const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
+const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["taken_asc", "Date taken, oldest first"],
+               ["views", "Most viewed"],
                ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
-const FILTERS = ["album", "tag", "year", "on", "day", "near", "camera", "lens", "setting", "media", "q", "sort", "is"];
+const FILTERS = ["album", "trip", "tag", "year", "on", "day", "near", "camera", "lens", "setting", "media", "q", "sort", "is"];
 
 // How a `setting` filter from the Gear page reads: "focal:24-28" is ["Focal length", "24 mm to 28 mm"].
 const shutter = (s) => (s >= 1 ? `${+s.toFixed(1)} s` : `1/${Math.round(1 / s)}`);
@@ -177,12 +178,20 @@ export function Photos({ params = {} }) {
     api("/api/photo-years").then(setYears).catch(() => {});
     api("/api/photo-presets").then(setPresets).catch(() => {});
   }, []);
+  const [trip, setTrip] = useState(null);
+  const [tripPoints, setTripPoints] = useState([]);
+  useEffect(() => {
+    setTrip(null); setTripPoints([]);
+    if (!f.trip) return;
+    api(`/api/trips/${encodeURIComponent(f.trip)}`).then(setTrip).catch(() => set({ trip: "" }));
+    api("/api/map/points", { params: { trip: f.trip } }).then((r) => setTripPoints(r.points)).catch(() => {});
+  }, [f.trip]);
   useEffect(() => {
     setAlbum(null);
     if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
-  const query = { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera, lens: f.lens, setting: f.setting, day: f.day,
+  const query = { album: f.album, trip: f.trip, tag: f.tag, year: f.year, on: f.on, camera: f.camera, lens: f.lens, setting: f.setting, day: f.day,
                   near: f.near, media: f.media, q: f.q, sort: f.sort || "newest", is: f.is };
   const paged = usePaged((offset) => api("/api/photos", { params: { ...query, offset, limit: PAGE } }), [key]);
   // The timeline (#126), for the date sorts: photos per month, and the photo at the top of the screen (told to the
@@ -204,7 +213,7 @@ export function Photos({ params = {} }) {
     if (t) { landing.current = null; toTile(t); }
   });
   const timeline = DATED.includes(query.sort) && paged.total > 2 * PAGE && months.length > 1;
-  const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
+  const chips = [["album", "Album", album?.title || "…"], ["trip", "Trip", trip ? tripName(trip) : "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
                  ["on", "On this day", f.on && dayLabel(f.on)], ["day", "Taken on", f.day],
                  ["near", "Within 500 m of", f.near.replace(",", ", ")], ["camera", "Camera", f.camera], ["lens", "Lens", f.lens],
                  ["setting", ...(f.setting ? setting(f.setting) : [])]]
@@ -216,7 +225,11 @@ export function Photos({ params = {} }) {
       <h1 class="title">${album ? album.title : "…"}
         ${album && html` <button class="link share" onClick=${() => share(`/a/${album.id}`, album.title)}>Share</button>`}</h1>
       ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}`}
-    ${f.tag && !f.album && html`<h1 class="title">#${f.tag}</h1>`}
+    ${f.trip && !f.album && html`<a href="#/photos/trips">← Trips</a>
+      <h1 class="title">${trip ? tripName(trip) : "…"}</h1>
+      ${trip && html`<p class="muted">${tripDates(trip)} · ${num(trip.count)} photos</p>`}
+      <${PointsMap} points=${tripPoints} />`}
+    ${f.tag && !f.album && !f.trip && html`<h1 class="title">#${f.tag}</h1>`}
     <div class="toolbar">
       <input type="search" placeholder="Search titles, descriptions, tags" value=${q}
              onInput=${(e) => setQ(e.target.value)} aria-label="Search" />
@@ -253,7 +266,7 @@ export function Photos({ params = {} }) {
     ${timeline && html`<${Timeline} months=${months} at=${at} onJump=${jump} />`}`;
 }
 
-const DATED = ["newest", "oldest", "taken"];
+const DATED = ["newest", "oldest", "taken", "taken_asc"];
 const monthLabel = (m) => (m ? new Date(`${m}-15T12:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "No date");
 
 // The timeline (#126): a rail down the right edge. Every photo has the same share of its height, so a busy month is a
@@ -306,6 +319,39 @@ function Timeline({ months, at, onJump }) {
     <span class="thumb" style=${{ top: `${y(shown)}px` }}></span>
     <span class="bubble" style=${{ top: `${y(shown)}px` }}>${monthLabel(marks[i]?.month)}</span>
   </div>`;
+}
+
+// Trips (#125): photos grouped by when and where they were taken, as cards like albums', newest first.
+const longDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const tripName = (t) => t.place || `Photos from ${longDay(t.first)}`;
+function tripDates(t) {
+  if (t.first === t.last) return longDay(t.first);
+  const a = new Date(`${t.first}T12:00:00`), b = new Date(`${t.last}T12:00:00`);
+  const sameYear = a.getFullYear() === b.getFullYear();
+  return `${a.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} – ${longDay(t.last)}`;
+}
+
+export function Trips() {
+  const [trips, setTrips] = useState(null);
+  const [err, setErr] = useState(null);
+  const [q, setQ] = useState("");
+  useEffect(() => { api("/api/trips").then(setTrips).catch((e) => setErr(e.message)); }, []);
+  if (err) return html`<div class="empty">Couldn't load the trips: ${err}</div>`;
+  if (!trips) return html`<div class="boot">Finding trips…</div>`;
+  const shown = trips.filter((t) => (tripName(t) + " " + t.first).toLowerCase().includes(q.toLowerCase()));
+  return html`
+    <div class="toolbar">
+      <input type="search" placeholder="Filter by place or year" value=${q} onInput=${(e) => setQ(e.target.value)} aria-label="Filter trips" />
+      <span class="muted">${num(shown.length)} trips</span>
+    </div>
+    ${trips.length === 0 ? html`<div class="empty">No trips yet: they're runs of 5 or more photos taken close together.</div>` : html`
+    <div class="albums">
+      ${shown.map((t) => html`<a class="album" key=${t.id} href=${photosLink({ trip: t.id, sort: "taken_asc" })}>
+        <div class="cover">${t.cover && html`<img loading="lazy" alt="" src=${pick(t.cover.sizes, ["z", "w", "n", "q"])}
+            onError=${fallback(t.cover.sizes, ["z", "w", "n", "q"])} />`}</div>
+        <div class="meta"><b>${tripName(t)}</b><span>${tripDates(t)} · ${num(t.count)} photos</span></div>
+      </a>`)}
+    </div>`}`;
 }
 
 export function Albums() {
@@ -565,6 +611,8 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
         ${d.lens && html`<dt>Lens</dt><dd>${d.lens}</dd>`}
         ${d.exif?.ExposureTime && html`<dt>Exposure</dt><dd>${[d.exif.ExposureTime, d.exif.FNumber, d.exif.ISO && "ISO " + d.exif.ISO, d.exif.FocalLengthIn35mmFormat || d.exif.FocalLength].filter(Boolean).join(" · ")}</dd>`}
         ${d.width && html`<dt>Size</dt><dd>${num(d.width)} × ${num(d.height)}</dd>`}
+        ${d.trip && html`<dt>Part of</dt><dd><a href=${photosLink({ trip: d.trip.id, sort: "taken_asc" })} onClick=${onClose}
+            title="All the photos of this trip">${d.trip.place || "a trip"}</a></dd>`}
         ${d.albums.length > 0 && html`<dt>Albums</dt><dd>${d.albums.map((a, i) => html`${i ? ", " : ""}<a href=${photosLink({ album: a.id })} onClick=${onClose}>${a.title}</a>`)}</dd>`}
         ${e?.groups.length > 0 && html`<dt>Groups</dt><dd>${e.groups.length}</dd>`}
       </dl>`}

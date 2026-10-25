@@ -7,6 +7,7 @@ import math
 from .db import Database
 
 SORTS = {"newest": "p.date_upload DESC", "oldest": "p.date_upload ASC", "taken": "p.date_taken DESC",
+         "taken_asc": "p.date_taken ASC",
          "views": "p.views DESC", "faves": "p.faves DESC", "comments": "p.comments DESC", "title": "p.title COLLATE NOCASE"}
 SORTS = {k: v + ", p.id" for k, v in SORTS.items()}      # ties (a batch uploaded together) must page the same way every time
 PUBLIC = "p.ispublic = 1"   # what visitors who aren't signed in may see (public_only)
@@ -107,7 +108,7 @@ class GalleryStore(Database):
 
     # The month each date sort goes by, as "YYYY-MM" (#126). Grouped in the sort's own order, so the counts add up
     # to each month's offset in it. Uploads by UTC month, the same order as by the second.
-    MONTHS = {"taken": ("substr(p.date_taken, 1, 7)", "DESC"),
+    MONTHS = {"taken": ("substr(p.date_taken, 1, 7)", "DESC"), "taken_asc": ("substr(p.date_taken, 1, 7)", "ASC"),
               "newest": ("strftime(to_timestamp(p.date_upload), '%Y-%m')", "DESC"),
               "oldest": ("strftime(to_timestamp(p.date_upload), '%Y-%m')", "ASC")}
 
@@ -124,11 +125,11 @@ class GalleryStore(Database):
     def filtered(self, album_id: str | None = None, q: str = "", media: str | None = None, tag: str = "",
                  year: int | None = None, camera: str = "", presets: list[str] | None = None, public_only: bool = False,
                  on: str = "", near: tuple[float, float] | None = None, day: str = "", lens: str = "",
-                 setting: tuple[str, float, float | None] | None = None) -> tuple[str, str, list]:
+                 setting: tuple[str, float, float | None] | None = None, trip: str = "") -> tuple[str, str, list]:
         """(joins, WHERE clause, arguments) for any mix of filters: album, search text, tag (Flickr's
         normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), the day taken
         (`day`, "YYYY-MM-DD"), within NEAR_M of a point (`near`, (lat, lon)), camera, lens, an EXIF `setting`
-        in [low, high) ((name, low, high or None), see SETTINGS), photo or video, and presets (all must hold)."""
+        in [low, high) ((name, low, high or None), see SETTINGS), a trip, photo or video, and presets (all must hold)."""
         from ..util import norm_tag
 
         where, args = [PUBLIC] if public_only else [], []
@@ -136,6 +137,9 @@ class GalleryStore(Database):
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
+        if trip:
+            joins += " JOIN trip_photos tp ON tp.photo_id = p.id AND tp.trip_id = ?"
+            args.append(trip)
         if camera or lens or setting:
             joins += " JOIN cameras c ON c.photo_id = p.id"
         if camera:
@@ -211,6 +215,35 @@ class GalleryStore(Database):
         return {"cameras": cameras, "lenses": by("c.lens"), "pairs": pairs, "settings": settings,
                 "photos": sum(c["photos"] for c in cameras)}
 
+    def save_trips(self, trips: list[dict]) -> None:
+        """All the trips, as just built (trips.py): [{id, place, place_public, photo_ids}]."""
+        with self.db:
+            self.db.execute("DELETE FROM trips")
+            self.db.execute("DELETE FROM trip_photos")
+            self.db.executemany("INSERT INTO trips (id, place, place_public) VALUES (?, ?, ?)",
+                                [(t["id"], t["place"], t["place_public"]) for t in trips])
+            self.db.executemany("INSERT INTO trip_photos (trip_id, photo_id) VALUES (?, ?)",
+                                [(t["id"], p) for t in trips for p in t["photo_ids"]])
+
+    def trip_list(self, public_only: bool = False, trip_id: str | None = None) -> list[dict]:
+        """Trips, newest first: name, first and last day taken, how many photos, and a cover (the most viewed). Visitors:
+        public photos only (a trip without any isn't theirs to see), and the name from public locations."""
+        rows = self.db.execute(
+            f"SELECT t.id, {'t.place_public' if public_only else 't.place'}, COUNT(*), MIN(p.date_taken), MAX(p.date_taken), "
+            "first(p.id ORDER BY p.views DESC NULLS LAST, p.id) "
+            "FROM trips t JOIN trip_photos tp ON tp.trip_id = t.id JOIN photos p ON p.id = tp.photo_id "
+            f"WHERE {PUBLIC if public_only else 'TRUE'}{' AND t.id = ?' if trip_id else ''} "
+            "GROUP BY 1, 2 ORDER BY 4 DESC, 1", [trip_id] if trip_id else []).fetchall()
+        covers = self.cards([r[5] for r in rows])
+        return [{"id": r[0], "place": r[1] or "", "count": r[2], "first": r[3][:10], "last": r[4][:10], "cover": covers.get(r[5])}
+                for r in rows]
+
+    def photo_trip(self, photo_id: str, public_only: bool = False) -> dict | None:
+        """The trip a photo is part of, for the lightbox: {id, place}, or None."""
+        r = self.db.execute(f"SELECT t.id, {'t.place_public' if public_only else 't.place'} FROM trips t "
+                            "JOIN trip_photos tp ON tp.trip_id = t.id WHERE tp.photo_id = ?", (photo_id,)).fetchone()
+        return {"id": r[0], "place": r[1] or ""} if r else None
+
     def related(self, photo_id: str, limit: int = 12, public_only: bool = False) -> dict | None:
         """For the lightbox (#124): photos taken within NEAR_M of this one, nearest first, and photos taken the same day,
         nearest in time first (then in the order taken). Visitors: public photos only, and "nearby" only when this
@@ -240,13 +273,16 @@ class GalleryStore(Database):
     GEOTAGGED = "p.lat IS NOT NULL AND p.lon IS NOT NULL AND NOT (p.lat = 0 AND p.lon = 0)"
 
     def map_points(self, album_id: str | None = None, year_from: int | None = None,
-                   year_to: int | None = None, public_only: bool = False) -> list[list]:
+                   year_to: int | None = None, public_only: bool = False, trip: str | None = None) -> list[list]:
         """[id, lat, lon, server, secret] per geotagged photo (Flickr's 0,0 means none),
         compact because the map takes all of them at once."""
         joins, where, args = "", [self.GEOTAGGED, *([PUBLIC, GEO_PUBLIC] if public_only else [])], []
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
+        if trip:
+            joins += " JOIN trip_photos tp ON tp.photo_id = p.id AND tp.trip_id = ?"
+            args.append(trip)
         year = "CAST(substr(p.date_taken, 1, 4) AS INTEGER)"
         if year_from:
             where.append(f"{year} >= ?")

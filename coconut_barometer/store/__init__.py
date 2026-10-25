@@ -19,6 +19,7 @@ Tables
   photos           mirror of your photos (refreshed on every sync)
   albums           mirror of your albums
   memberships      which photo is in which album (refreshed on every sync)
+  trips            runs of photos close in time and place, named (trips.py); trip_photos: which photo is in which
   classifications  cached vision results, keyed by photo + model/prompt fingerprint
   cameras          each photo's camera, lens and full EXIF (JSON), fetched once
   photo_stats      daily snapshot of each photo's views / faves / comments (one per sync day)

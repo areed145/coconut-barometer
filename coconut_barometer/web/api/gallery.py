@@ -10,7 +10,7 @@ from ...store.gallery import PRESETS, SETTINGS
 from ..deps import runtime, store, viewer
 
 router = APIRouter(prefix="/api", tags=["gallery"])
-Sort = Literal["newest", "oldest", "taken", "views", "faves", "comments", "title"]
+Sort = Literal["newest", "oldest", "taken", "taken_asc", "views", "faves", "comments", "title"]
 
 
 def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"] | None = None,
@@ -19,12 +19,12 @@ def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"]
             on: str = Query("", pattern=r"^(|(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
             day: str = Query("", pattern=r"^(|\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
             near: str = Query("", pattern=r"^(|-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?)$"),
-            lens: str = Query("", max_length=200),
+            lens: str = Query("", max_length=200), trip: str = Query("", max_length=40),
             setting: str = Query("", pattern=r"^(|[a-z]+:\d+(\.\d+)?(e-?\d+)?-(\d+(\.\d+)?(e-?\d+)?)?)$", max_length=60),
             is_: str = Query("", alias="is", max_length=300), me=Depends(viewer)) -> dict:
     """The Photos page's filters: album, tag, year, `on` this day of any year ("MM-DD"), the `day` taken
     ("YYYY-MM-DD"), `near` a point ("lat,lon"), camera, lens, an EXIF `setting` from low up to (not including) high
-    ("focal:24-28", "iso:6400-": see SETTINGS), search, and presets (?is=untitled,no_album means both)."""
+    ("focal:24-28", "iso:6400-": see SETTINGS), a trip, search, and presets (?is=untitled,no_album means both)."""
     presets = [p for p in is_.split(",") if p]
     unknown = [p for p in presets if p not in PRESETS or (me is None and PRESETS[p][1] == "Status")]
     if unknown:
@@ -40,7 +40,7 @@ def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"]
             raise HTTPException(422, f"setting: no such setting {name!r}")
         exif = (name, float(low), float(high) if high else None)
     return dict(album_id=album, q=q, media=media, tag=tag, year=year, camera=camera, presets=presets,
-                public_only=me is None, on=on, day=day, near=point, lens=lens, setting=exif)
+                public_only=me is None, on=on, day=day, near=point, lens=lens, setting=exif, trip=trip)
 
 
 @router.get("/photos")
@@ -111,7 +111,8 @@ def photo(photo_id: str, db=Depends(store), me=Depends(viewer)):
     p = db.photo_detail(photo_id, public_only=me is None)
     if not p:
         raise HTTPException(404, "no such photo")
-    return {**p, "url": flickr_url(db.get_meta("nsid", "me"), photo_id), "engagement": db.engagement(photo_id)}
+    return {**p, "url": flickr_url(db.get_meta("nsid", "me"), photo_id), "engagement": db.engagement(photo_id),
+            "trip": db.photo_trip(photo_id, public_only=me is None)}
 
 
 @router.get("/photos/{photo_id}/related")
@@ -121,6 +122,24 @@ def related(photo_id: str, db=Depends(store), me=Depends(viewer)):
     if r is None:
         raise HTTPException(404, "no such photo")
     return r
+
+
+@router.get("/trips")
+def trips(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """Trips (#125): photos grouped by when and where they were taken, newest first. Built here the first time, and
+    again when the photos or the settings have changed (most often it's the sync that does it)."""
+    from ...trips import ensure
+
+    ensure(rt.cfg, db)
+    return db.trip_list(public_only=me is None)
+
+
+@router.get("/trips/{trip_id}")
+def trip(trip_id: str, db=Depends(store), me=Depends(viewer)):
+    t = db.trip_list(public_only=me is None, trip_id=trip_id)
+    if not t:
+        raise HTTPException(404, "no such trip")
+    return t[0]
 
 
 @router.get("/albums")

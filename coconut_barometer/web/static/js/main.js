@@ -21,6 +21,7 @@ function lazy(load, name) {
 }
 const Photos = lazy(() => import("./gallery.js"), "Photos");
 const Albums = lazy(() => import("./gallery.js"), "Albums");
+const Trips = lazy(() => import("./gallery.js"), "Trips");
 const SinglePhoto = lazy(() => import("./gallery.js"), "SinglePhoto");
 const Reviewer = lazy(() => import("./review.js"), "Reviewer");
 const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
@@ -92,8 +93,8 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
   </div>`;
 }
 
-const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["gear", "Gear"], ["analytics", "Analytics"],
-                    ["review", "Review"]];
+const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trips", "Trips"], ["map", "Map"], ["gear", "Gear"],
+                    ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
@@ -134,6 +135,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
+  else if (sub === "trips") page = html`<${Trips} />`;
   else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
   else if (sub === "review" && route[2] === "bulk") page = html`<${BulkReview} />`;
   else if (sub === "review" && route[2] === "applied") page = html`<${AppliedList} />`;
@@ -154,7 +156,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
-  const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photo" ? "photostream" : sub;
+  const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photostream" && route.params.trip ? "trips"
+    : sub === "photo" ? "photostream" : sub;
   const subtabs = inPhotos ? html`
     <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.filter(([t]) => session || !PRIVATE_PHOTO_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/photos/" + t}
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`

@@ -55,6 +55,11 @@ def run_due(cfg: dict, client, store, force: str | None = None, stats: bool | No
             out["stats"] = {"error": str(e)}
             log(f"  ! stats: {e}")
             logger.warning("stats: %s", e)
+    try:                                 # trips (#125), from the photos as they are now
+        from .trips import ensure
+        out["trips"] = ensure(cfg, store)
+    except Exception as e:               # never let them break a sync
+        logger.warning("trips: %s", e)
     out["calls"] = client.call_count - started_calls
     store.set_meta("last_sync", int(time.time()))
     return out

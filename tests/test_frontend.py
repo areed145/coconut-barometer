@@ -545,14 +545,14 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("api(`/api/photos/${id}/related`)", gallery)
         self.assertIn('photosLink({ near: r.near?.join(","), sort: "taken" })', gallery)
         self.assertIn('photosLink({ day: r.day, sort: "oldest" })', gallery)
-        self.assertIn('const FILTERS = ["album", "tag", "year", "on", "day", "near",', gallery)
+        self.assertIn('"on", "day", "near",', gallery[gallery.index("const FILTERS"):])
         self.assertIn("onRelated=${(photos, index, label) => setAlt({ photos, index, label })}", gallery)
 
     def test_photostream_timeline(self):
         """#126: the date sorts get a rail; a jump lands once its page is laid out; photos above load back in with the one on
         screen kept where it was."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
-        self.assertIn('const DATED = ["newest", "oldest", "taken"];', gallery)
+        self.assertIn('const DATED = ["newest", "oldest", "taken", "taken_asc"];', gallery)
         self.assertIn('api("/api/photo-months", { params: query })', gallery)
         self.assertIn("less(before)", gallery)
         self.assertIn("if (t) scrollBy(0, t.getBoundingClientRect().top - a.top);", gallery)
@@ -575,6 +575,16 @@ class FrontendTest(unittest.TestCase):
                                  capture_output=True, text=True, timeout=60).stdout
             self.assertEqual(json.loads(out), [["Focal length", "24 mm to 28 mm"], ["Shutter", "1/500 to 1/250"],
                                                ["ISO", "6400 and over"], ["Aperture", "under f/1.4"]])
+
+    def test_trips_page_and_trip_view(self):
+        """#125: a public Trips tab of cards; a trip is the photostream filtered to it, in the order taken, with a map."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        self.assertIn('["trips", "Trips"]', main)
+        self.assertNotIn('"trips"', main[main.index("const PRIVATE_PHOTO_TABS"):main.index("const PRIVATE_TABS")])
+        self.assertIn('photosLink({ trip: t.id, sort: "taken_asc" })', gallery)
+        self.assertIn("<${PointsMap} points=${tripPoints} />", gallery)
+        self.assertIn("<dt>Part of</dt>", gallery)
 
     def test_lightbox_slideshow(self):
         """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
