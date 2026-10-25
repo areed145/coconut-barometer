@@ -52,8 +52,33 @@ class StatusTest(unittest.TestCase):
         self.assertEqual(set(self.rows(d)), {"weatherflow", "aprs", "imagery", "lightning", "fronts", "hazards"})
         self.assertTrue(all(r["detail"] is None and r["href"] is None for r in d["rows"]))
         self.login()
-        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "radar", "lightning", "fronts", "hazards",
-                                                      "qc", "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+        self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "igate", "imagery", "radar", "lightning", "fronts",
+                                                      "hazards", "qc", "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+
+    def test_the_igate_row(self):
+        """Off (can't tell) until APRS-IS has been connected a while; then the last hour against its usual, red when
+        it's gone quiet. Visitors see it too, once it says something."""
+        now, gate = int(time.time()), "WA5DTR-15"
+        self.assertEqual(self.rows(self.get())["igate"]["level"] if "igate" in self.rows(self.get()) else "off", "off")
+        hub = self.app.state.runtime.aprs.hub
+        hub.update(state="connected", since=now - 6 * 3600)
+        save = lambda ts: self.store.igate_save(gate, {"from": "N5XYZ-9"}, True, ts)
+        for week in range(1, 4):                                   # 20 an hour, the last three weeks
+            for h in range(-26, 2):
+                for i in range(20):
+                    save(now - week * 7 * 86400 + h * 3600 + i * 60)
+        for i in range(3 * 20):                                    # as usual for the last three hours
+            save(now // 3600 * 3600 - 3 * 3600 + i * 180)
+        self.store.db.execute("DELETE FROM aprs_igate WHERE ts > ?", (now - 3600,))
+        for i in range(15):
+            save(now - 3000 + i * 60)
+        r = self.rows(self.get())["igate"]
+        self.assertEqual(r["level"], "ok")
+        self.assertIn("15 gated in the last hour (usually ~20)", r["state"])
+        self.store.db.execute("DELETE FROM aprs_igate WHERE ts > ?", (now - 2 * 3600,))
+        r = self.rows(self.get())["igate"]
+        self.assertEqual(r["level"], "bad")
+        self.assertIn("not gating", r["state"])
 
     def test_the_weather_maps_feeds_each_have_a_dot(self):
         """Lightning, fronts, and watches and warnings: read from what each last fetched (never fetched for the panel);

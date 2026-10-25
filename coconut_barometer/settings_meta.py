@@ -253,6 +253,10 @@ META = {
                                    "2 hPa is about 0.06 inHg.", group="Weather"),
     "alerts.callsign_quiet_hours": _m("alerts", "Callsign heard after quiet (hours)", "A callsign from Settings → APRS "
                                       "heard again after this long without a packet.", group="APRS"),
+    "alerts.igate_quiet_minutes": _m("alerts", "Igate quiet for (minutes)", "The igate gating nothing this long when "
+                                     "it usually gates 10 packets an hour or more, gating well under its usual for 3 "
+                                     "hours, or its own beacon stopping; and a notice when it's back. Not while the "
+                                     "app's own APRS-IS connection is down. 0 turns it off.", group="APRS"),
     "alerts.igate_altitude_km": _m("alerts", "Igate heard a station above (km)", "A packet the igate gated from this "
                                    "high: usually a pico balloon or a high-altitude flight. 5 km is about 16,000 ft. "
                                    "0 turns it off.", group="APRS"),

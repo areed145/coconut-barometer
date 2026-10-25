@@ -238,6 +238,15 @@ class IgateTest(unittest.TestCase):
         self.assertEqual(everything[10]["n"], 1)                     # 221°: the sector centred on 225
         self.assertEqual(sector_of(bearing(30, -97, 29.5, -97.5), 16), 10)
 
+    def test_the_igate_baseline(self):
+        from coconut_barometer.aprs.health import baseline
+        now_h = 500_000
+        counts = {now_h - 168 * w: n for w, n in ((1, 20), (2, 30), (3, 10), (4, 25))}
+        self.assertEqual(baseline(counts, 0, now_h)[now_h], (22.5, 10))
+        new = {now_h - 24 * d: 12 for d in range(1, 4)}            # three days of history only: by hour of day
+        self.assertEqual(baseline(new, now_h - 24 * 3, now_h)[now_h], (12, 12))
+        self.assertNotIn(now_h, baseline(new, now_h - 24 * 2, now_h))   # two days: too little to expect anything
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
