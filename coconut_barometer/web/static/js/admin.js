@@ -2,6 +2,7 @@
 import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice, every } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 import { WxStations } from "./weather.js";
+import { IOS } from "./device.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
 const lines = (v) => (v || []).join("\n");
@@ -212,7 +213,6 @@ function AprsStream() {
 }
 
 // ---- Alerts: Web Push to this device (sw.js shows them; alerts.py decides what) -----------------------------
-const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const INSTALLED = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const PUSH = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const keyBytes = (b64) => Uint8Array.from(atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));

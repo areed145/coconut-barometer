@@ -276,20 +276,8 @@ export function WxMap({ show, unitsFor, compass }) {
     if (pts.length === 1) m.setView(pts[0], 7); else m.fitBounds(pts, { padding: [80, 80], maxZoom: 8 });
   }, [ready, info]);
 
-  // One satellite tile layer per frame, all kept on the map so the loop plays from cache; only the current one shows.
   const radarOn = showRadar || showStorms;
   const satInfo = sat ? info?.satellite[sat] : null, satFrames = satInfo?.frames || [];
-  useEffect(() => {
-    const m = map.current, L = window.L;
-    if (!ready || !m || !info) return;
-    const sync = (store, want, make) => {
-      for (const [k, layer] of store) if (!want.has(k)) { layer.remove(); store.delete(k); }
-      for (const k of want.keys()) if (!store.has(k)) store.set(k, make(want.get(k)).setOpacity(0).addTo(m));
-    };
-    sync(tiles.current.sat, satInfo?.url ? new Map(satFrames.map((f) => [`${sat}:${f.time}`, f])) : new Map(), (f) =>
-      L.tileLayer(satInfo.url.replace("{time}", f.time), { pane: "wxsat", maxZoom: 20, maxNativeZoom: satInfo.max_zoom,
-        attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
-  }, [ready, info, sat]);
 
   // One timeline for every layer shown (wx_loop.js): with radar, its last hour up to its newest frame, however far
   // behind the satellite is (#103); satellite alone, all its frames. Each layer shows its newest frame at or before
@@ -311,6 +299,22 @@ export function WxMap({ show, unitsFor, compass }) {
   const colors = lastColors.current;
   const looping = playing || idx != null;
   const shownSat = !satFrames.length || t == null ? null : looping ? satAt(satFrames, t) : satFrames[satFrames.length - 1];
+
+  // A satellite tile layer per frame, on the map at opacity 0 until it's shown: the newest only, until the loop is
+  // played or scrubbed, then each frame the loop shows, kept while it runs (GIBS's tiles aren't cacheable, so one
+  // dropped would be fetched again every time round). Every frame the server lists, all the time, held more tiles than
+  // an iPhone or iPad could (#102).
+  const satKeep = !looping ? (shownSat ? [shownSat] : []) : [...new Set(timeline.map((x) => satAt(satFrames, x)).filter(Boolean))];
+  const satKeepKey = satKeep.map((f) => f.time).join(",");
+  useEffect(() => {
+    const m = map.current, L = window.L, store = tiles.current.sat;
+    if (!ready || !m || !info) return;
+    const want = new Map(satInfo?.url ? satKeep.map((f) => [`${sat}:${f.time}`, f]) : []);
+    for (const [k, layer] of store) if (!want.has(k)) { layer.remove(); store.delete(k); }
+    for (const [k, f] of want) if (!store.has(k)) store.set(k, L.tileLayer(satInfo.url.replace("{time}", f.time), {
+      pane: "wxsat", maxZoom: 20, maxNativeZoom: satInfo.max_zoom,
+      attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }).setOpacity(0).addTo(m));
+  }, [ready, info, sat, satKeepKey]);
 
   // Lightning for the view, every minute while it's shown: from the TRAIL before the timeline's start (or now), then
   // only the last two minutes on (their files may have come in since), all of it again while the server is still
@@ -422,7 +426,7 @@ export function WxMap({ show, unitsFor, compass }) {
     if (rt != null && !frameOf(rt)) return false;
     const s = satAt(satFrames, when);
     const layer = s && tiles.current.sat.get(`${sat}:${s.time}`);
-    return !layer?.isLoading?.();
+    return !s || (!!layer && !layer.isLoading());       // not on the map yet: it will be once the loop's started
   };
 
   useEffect(() => {

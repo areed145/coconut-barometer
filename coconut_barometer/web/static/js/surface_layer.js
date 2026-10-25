@@ -89,7 +89,7 @@ export function temperatureCanvas(L, pane, attribution) {
           px[o] = colors[k]; px[o + 1] = colors[k + 1]; px[o + 2] = colors[k + 2]; px[o + 3] = 255;
         }
       }
-      const off = document.createElement("canvas");
+      const off = this._buffer || (this._buffer = document.createElement("canvas"));   // one, not one a draw (#102)
       off.width = cols; off.height = rows;
       off.getContext("2d").putImageData(img, 0, 0);
       ctx.imageSmoothingEnabled = true;
