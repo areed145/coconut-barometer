@@ -7,7 +7,7 @@ import json
 
 import numpy as np
 
-from coconut_barometer.weather.glm import (CORES, FRESH, KEEP, LEVELS, TRAIL, Lightning, hour_prefix, listed, parse_ascii,
+from coconut_barometer.weather.glm import (FRESH, KEEP, LEVELS, TRAIL, Lightning, hour_prefix, listed, parse_ascii,
                                             shapes_text, start_time)
 
 NOW = 1_792_884_000          # 2026-10-24 23:20:00 UTC (day 297)
@@ -166,13 +166,12 @@ class ShapesTest(unittest.TestCase):
                      flashes((TRAIL + 60, 33.0, -97.0)),          # older than the trail
                      flashes((10, 45.0, -60.0))):                 # nowhere near the view
             out = self.shapes(data)
-            self.assertEqual((out["bands"], out["cores"]), ([], []))
+            self.assertEqual(out["bands"], [])
 
     def test_a_lone_strike_still_shows_and_says_how_recent(self):
         new = self.shapes(flashes((20, 33.0, -97.0)))
         self.assertEqual([b["age"] for b in new["bands"]], [round((1 - k / FRESH) * TRAIL) for k in range(FRESH)])
         self.assertEqual([len(b["polys"]) for b in new["bands"]], [1] * FRESH)       # one place, every level of recent
-        self.assertEqual(new["cores"], [])                                            # one flash isn't a crowd
         w, s_, e, n = new["bands"][0]["polys"][0][:4]
         q = new["q"]
         self.assertTrue(w / q < -97.0 < e / q and s_ / q < 33.0 < n / q)
@@ -180,10 +179,11 @@ class ShapesTest(unittest.TestCase):
         old = self.shapes(flashes((TRAIL - 60, 33.0, -97.0)))
         self.assertEqual([b["age"] for b in old["bands"]], [TRAIL])                   # there, but only as long ago
 
-    def test_crowded_flashes_make_cores(self):
+    def test_no_contour_lines_only_the_recency_levels(self):
         crowd = flashes(*[(30 + i, 33.0 + (i % 5) * 0.01, -97.0 + (i // 5) * 0.01) for i in range(40)])
-        cores = self.shapes(crowd)["cores"]
-        self.assertEqual([c["core"] for c in cores], list(range(1, len(CORES) + 1)))
+        out = self.shapes(crowd)
+        self.assertEqual(set(out), {"t", "level", "q", "bands"})                    # nothing traced for lines
+        self.assertTrue(all(set(b) == {"age", "polys"} for b in out["bands"]))
 
     def test_a_strike_just_outside_the_view_still_reaches_in(self):
         edge = self.shapes(flashes((20, 33.0, self.BOX[2] + 0.03)))                  # ~3 km east of the view

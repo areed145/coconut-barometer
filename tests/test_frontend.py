@@ -353,7 +353,7 @@ class FrontendTest(unittest.TestCase):
     @unittest.skipUnless(NODE, "needs Node")
     def test_smooth_lightning_is_drawn_by_the_radars_canvas(self):
         """#101: the server's lightning shapes decode as radar's do, keeping each level's age (or core), and the radar's
-        canvas colors a level by the key it's given and can draw outlines."""
+        canvas colors a level by the key it's given, filled (no contour lines)."""
         script = r"""
           import { decode } from "%s";
           const sq = [-9700, 3300, -9690, 3310, [-9700, 3300, 10, 0, 0, 10, -10, 0]];
@@ -365,9 +365,9 @@ class FrontendTest(unittest.TestCase):
         radar = open(os.path.join(STATIC, "js", "radar_layer.js")).read()
         m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
         self.assertIn("this._colorOf(band[key])", radar)
-        self.assertIn("if (outline) { ctx.lineWidth = outline(band[key]); ctx.stroke(); }", radar)
+        self.assertNotIn("stroke()", radar)
+        self.assertNotIn('"core"', m)
         self.assertIn('radarCanvas(lf.L, "wxglmshapes", glmLink, "age")', m)
-        self.assertIn('radarCanvas(lf.L, "wxglmshapes", glmLink, "core",', m)
         panes = {k: int(v) for k, v in re.findall(r'createPane\("(\w+)"\)\.style\.zIndex = (\d+)', m)}
         self.assertLess(panes["wxglmshapes"], panes["wxlightning"])          # the newest flashes over the shapes
 

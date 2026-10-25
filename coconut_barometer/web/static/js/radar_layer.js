@@ -57,9 +57,8 @@ export function decode(shapes) {
 
 // A Leaflet layer in `pane`: set(shapes, colorOf) shows a decoded frame (colorOf(band[key]) -> CSS color: its dBZ, or
 // the lightning's age), setOpacity() fades it as a whole (the levels are stacked, so they're drawn opaque and the
-// canvas is faded). outline(level) > 0: each level's outline that many px wide, unblurred, instead of filled (the
-// lightning's crowding, as contour lines).
-export function radarCanvas(L, pane, attribution, key = "dbz", outline = null) {
+// canvas is faded).
+export function radarCanvas(L, pane, attribution, key = "dbz") {
   const Layer = L.Layer.extend({
     options: { pane, attribution },
     ...mapCanvas(L, "wxradar-canvas"),
@@ -79,10 +78,9 @@ export function radarCanvas(L, pane, attribution, key = "dbz", outline = null) {
       const world = 256 * 2 ** zoom;
       const x0 = corner.x / world, y0 = corner.y / world, x1 = x0 + size.x / world, y1 = y0 + size.y / world;
       // Blurred about half a ~2 km pixel (1-8 screen pixels), so the levels blend into each other instead of stepping.
-      ctx.filter = outline ? "none" : `blur(${Math.min(8, Math.max(1, (0.01 / 360) * world)) * this._ratio}px)`;
-      ctx.lineJoin = "round";
+      ctx.filter = `blur(${Math.min(8, Math.max(1, (0.01 / 360) * world)) * this._ratio}px)`;
       for (const band of this._shapes.bands) {               // lowest first: each level drawn over the one below
-        ctx.fillStyle = ctx.strokeStyle = this._colorOf(band[key]);
+        ctx.fillStyle = this._colorOf(band[key]);
         ctx.beginPath();
         for (const p of band.polys) {
           if (p.box[2] < x0 || p.box[0] > x1 || p.box[3] < y0 || p.box[1] > y1) continue;
@@ -92,8 +90,7 @@ export function radarCanvas(L, pane, attribution, key = "dbz", outline = null) {
             ctx.closePath();
           }
         }
-        if (outline) { ctx.lineWidth = outline(band[key]); ctx.stroke(); }
-        else ctx.fill("evenodd");                            // a polygon's holes, and only its own
+        ctx.fill("evenodd");                                 // a polygon's holes, and only its own
       }
     },
   });
