@@ -83,15 +83,18 @@ class QcStore(Database):
     def qc_rtma_pairs(self, device_id: int, start: int, end: int, within: int = 150) -> list[dict]:
         """Each RTMA sample in [start, end] with the station's means within `within` seconds of it: {ts, the sample's
         fields (hgt, pres, t, td, u, v, gust, tcdc), and the station's temp, dew (from its humidity), humidity,
-        pressure, wind, gust, solar}. Only samples the station has readings around."""
+        pressure, wind, gust, solar, and wind_e, wind_n: its wind averaged as a vector (the direction it's from, east
+        and north, m/s), since an average of directions goes wrong across north}. Only samples the station has
+        readings around."""
         from .weather import DEW_SQL
 
         rows = self.db.execute(
             f"SELECT r.ts, {', '.join('r.' + k for k in RTMA)}, avg(o.temp), avg({DEW_SQL}), avg(o.humidity), avg(o.pressure), "
-            "avg(o.wind_avg), max(o.wind_gust), avg(o.solar) FROM qc_rtma r JOIN wx_obs o ON o.device_id = r.device_id "
+            "avg(o.wind_avg), max(o.wind_gust), avg(o.solar), avg(o.wind_avg * sin(radians(o.wind_dir))), "
+            "avg(o.wind_avg * cos(radians(o.wind_dir))) FROM qc_rtma r JOIN wx_obs o ON o.device_id = r.device_id "
             "AND o.ts BETWEEN r.ts - ? AND r.ts + ? WHERE r.device_id = ? AND r.ts BETWEEN ? AND ? "
             f"GROUP BY r.ts, {', '.join('r.' + k for k in RTMA)} ORDER BY r.ts", (within, within, device_id, start, end)).fetchall()
-        names = ("ts", *RTMA, "s_temp", "s_dew", "s_humidity", "s_pressure", "s_wind", "s_gust", "s_solar")
+        names = ("ts", *RTMA, "s_temp", "s_dew", "s_humidity", "s_pressure", "s_wind", "s_gust", "s_solar", "s_wind_e", "s_wind_n")
         return [dict(zip(names, r)) for r in rows]
 
     # ---- results ----------------------------------------------------------------------------------------------

@@ -44,6 +44,14 @@ DEFAULTS: dict[str, Any] = {
         "coverage_fail": 90.0,        # ... and fail
         "solar_warn": 0.8,            # clear days' solar peak over the clear-sky model's, below which: warn (dirty or shaded) ...
         "solar_fail": 0.6,            # ... and fail
+        "wind_dir_warn": 15.0,        # degrees the station's wind direction is off RTMA's on average (aligned to north?)
+        "wind_dir_fail": 30.0,
+        "wind_sector_warn": 0.6,      # a direction's speed ratio (vs RTMA) over the station's overall one, below which:
+        "wind_sector_fail": 0.4,      # warn, and fail (something blocking the wind from that side)
+        "pressure_warn": 1.0,         # hPa either way vs RTMA at the station's elevation setting (~8 m of elevation per hPa)
+        "pressure_fail": 2.5,
+        "pressure_drift_warn": 0.5,   # hPa the last week's pressure offset has moved from the rest of the window's
+        "pressure_drift_fail": 1.0,
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {
@@ -195,7 +203,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("qc", "dew_bias_warn"): (0.1, 20), ("qc", "dew_bias_fail"): (0.1, 30), ("qc", "sun_warn"): (0.1, 10),
           ("qc", "sun_fail"): (0.1, 20), ("qc", "drift_warn"): (0.1, 10), ("qc", "drift_fail"): (0.1, 20),
           ("qc", "coverage_warn"): (0, 100), ("qc", "coverage_fail"): (0, 100), ("qc", "solar_warn"): (0, 1.5),
-          ("qc", "solar_fail"): (0, 1.5)}
+          ("qc", "solar_fail"): (0, 1.5), ("qc", "wind_dir_warn"): (1, 180), ("qc", "wind_dir_fail"): (1, 180),
+          ("qc", "wind_sector_warn"): (0, 1), ("qc", "wind_sector_fail"): (0, 1), ("qc", "pressure_warn"): (0.1, 20),
+          ("qc", "pressure_fail"): (0.1, 50), ("qc", "pressure_drift_warn"): (0.1, 10), ("qc", "pressure_drift_fail"): (0.1, 20)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).

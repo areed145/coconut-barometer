@@ -198,6 +198,21 @@ META = {
     "qc.solar_warn": _m("weather", "Solar: warn under (share of clear sky)", "On clear days, the station's solar peak "
                         "over the clear-sky model's. A dirty or shaded sensor reads low.", group="Station QC"),
     "qc.solar_fail": _m("weather", "Solar: fail under (share of clear sky)", group="Station QC"),
+    "qc.wind_dir_warn": _m("weather", "Wind direction: warn at (°)", "The station's average wind direction against "
+                           "RTMA's, in wind of 3 m/s or more. The same offset from every direction is a station not "
+                           "aligned to north.", group="Station QC"),
+    "qc.wind_dir_fail": _m("weather", "Wind direction: fail at (°)", group="Station QC"),
+    "qc.wind_sector_warn": _m("weather", "Wind from one side: warn under (share)", "The station's speed against RTMA's "
+                              "for wind from each direction, over its speed against RTMA overall. Low from one side is "
+                              "something blocking the wind there.", group="Station QC"),
+    "qc.wind_sector_fail": _m("weather", "Wind from one side: fail under (share)", group="Station QC"),
+    "qc.pressure_warn": _m("weather", "Pressure: warn at (hPa)", "The station's average pressure against RTMA's, moved "
+                           "to the station's elevation. A steady offset is usually the elevation setting (1 hPa is "
+                           "about 8 m).", group="Station QC"),
+    "qc.pressure_fail": _m("weather", "Pressure: fail at (hPa)", group="Station QC"),
+    "qc.pressure_drift_warn": _m("weather", "Pressure drift: warn at (hPa)", "How far the last week's pressure "
+                                 "difference from RTMA has moved from the rest of the window's.", group="Station QC"),
+    "qc.pressure_drift_fail": _m("weather", "Pressure drift: fail at (hPa)", group="Station QC"),
 
     # ---- APRS
     "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "
