@@ -859,6 +859,7 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .rose svg { flex: 1 1 180px; min-width: 0; width: min(100%, 300px); }
 .rose-key { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--text-sm); color: var(--muted); }
 .rose-key i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--s2); vertical-align: -1px; }
+.rose-key i.rose-calm { background: var(--surface-2); border: 1px solid var(--line); border-radius: 50%; }
 .heatkey { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); margin: var(--s2) 0 0; }
 .heatkey i { display: inline-block; width: 90px; height: 10px; border-radius: 3px; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }

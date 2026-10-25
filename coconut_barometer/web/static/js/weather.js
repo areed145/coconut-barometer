@@ -462,31 +462,47 @@ const SECTIONS = [["temperature", "Temperature"], ["pressure", "Pressure"], ["wi
 
 // Parts of the station's local day, for the rose: the breeze often turns between day and night.
 const PARTS = [["", "All day"], ["night", "Night 0–6"], ["morning", "Morning 6–12"], ["afternoon", "Afternoon 12–18"], ["evening", "Evening 18–24"]];
+// The rose's speed bands (#90), round numbers in each unit system that fit light winds: under the first is calm (drawn
+// apart in the middle: a still vane mostly reads North), then a band from each to the next, the last open-ended.
+// Sent to the server in m/s, so the legend reads these exactly.
+const ROSE_EDGES = { metric: [0.5, 1, 1.5, 2, 3, 5], imperial: [1, 2, 3, 5, 8, 12] };
+const OF = [["avg", "Mean"], ["gust", "Gust"]];
 function Rose({ device, start, end, unit }) {
   const [part, setPart] = useState("");
+  const [of, setOf] = useState("avg");
   const [r, setR] = useState(null);
+  const [name, toShown] = unitsFor(unit).speed, edges = ROSE_EDGES[unit] || ROSE_EDGES.metric;
+  const perMs = toShown(1), query = edges.map((e) => +(e / perMs).toFixed(4)).join(",");
   useEffect(() => {
-    api(`/api/wx/rose?device=${device}&start=${start}&end=${end}${part ? "&part=" + part : ""}`).then(setR).catch(() => setR(null));
-  }, [device, start, end, part]);
-  const parts = html`<div class="seg">${PARTS.map(([k, l]) => html`<button key=${k} class=${k === part ? "primary" : ""} onClick=${() => setPart(k)}>${l}</button>`)}</div>`;
-  if (!r || !r.total) return html`${parts}<p class="muted">No wind data for this range${part ? " at this time of day" : ""}.</p>`;
-  const max = Math.max(...r.counts.map((c) => c.reduce((a, b) => a + b, 0)));
-  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Display → Colors gradient, calm to strong
-  const R = 44, step = 22.5, gap = 1.5;
+    api(`/api/wx/rose?device=${device}&start=${start}&end=${end}&edges=${query}&of=${of}${part ? "&part=" + part : ""}`).then(setR).catch(() => setR(null));
+  }, [device, start, end, part, of, query]);
+  const seg = (opts, cur, set) => html`<div class="seg">${opts.map(([k, l]) => html`<button key=${k} class=${k === cur ? "primary" : ""} onClick=${() => set(k)}>${l}</button>`)}</div>`;
+  const controls = html`<div class="toolbar">${seg(PARTS, part, setPart)}${seg(OF, of, setOf)}</div>`;
+  if (!r || !r.total) return html`${controls}<p class="muted">No ${of === "gust" ? "gust" : "wind"} data for this range${part ? " at this time of day" : ""}.</p>`;
+  const max = Math.max(1, ...r.counts.map((c) => c.reduce((a, b) => a + b, 0)));
+  const tone = (j) => shade(r.bands.length > 1 ? j / (r.bands.length - 1) : 1);   // the Settings → Display → Colors gradient, light to strong
+  const pct = (n) => `${Math.round((n / r.total) * 100)}%`;
+  // Calm in the middle; the petals grow from its edge.
+  const R = 44, R0 = r.calm ? 9 : 0, step = 22.5, gap = 1.5, at = (n) => R0 + (n / max) * (R - R0);
   const arc = (i, r0, r1) => {
     const a0 = ((i * step - step / 2 + gap) - 90) * Math.PI / 180, a1 = ((i * step + step / 2 - gap) - 90) * Math.PI / 180;
     const p = (rad, a) => `${(rad * Math.cos(a)).toFixed(2)},${(rad * Math.sin(a)).toFixed(2)}`;
     return `M${p(r0, a0)} L${p(r1, a0)} A${r1},${r1} 0 0 1 ${p(r1, a1)} L${p(r0, a1)} A${r0},${r0} 0 0 0 ${p(r0, a0)} Z`;
   };
-  const bandLabel = (j) => `${fmt(unitsFor(unit).speed[1](r.bands[j]), 0)}${j + 1 < r.bands.length ? "–" + fmt(unitsFor(unit).speed[1](r.bands[j + 1]), 0) : "+"} ${unitsFor(unit).speed[0]}`;
-  return html`${parts}<div class="rose"><svg viewBox="-56 -56 112 112" role="img" aria-label="Wind rose">
-    <circle r=${R} fill="none" stroke="var(--line)" /><circle r=${R / 2} fill="none" stroke="var(--line)" stroke-dasharray="2 3" />
+  const bandLabel = (j) => `${edges[j]}${j + 1 < edges.length ? "–" + edges[j + 1] : "+"} ${name}`;
+  return html`${controls}<div class="rose"><svg viewBox="-56 -56 112 112" role="img"
+      aria-label=${`Wind rose of the ${of === "gust" ? "gusts" : "mean wind"}: calm ${pct(r.calm)}`}>
+    <circle r=${R} fill="none" stroke="var(--line)" /><circle r=${at(max / 2)} fill="none" stroke="var(--line)" stroke-dasharray="2 3" />
     ${[["N", 0, -52], ["E", 52, 0], ["S", 0, 52], ["W", -52, 0]].map(([l, x, y]) =>
       html`<text x=${x} y=${y} text-anchor="middle" dominant-baseline="central" font-size="6" fill="var(--muted)">${l}</text>`)}
-    ${r.counts.map((c, i) => { let cum = 0; return c.map((n, j) => { const r0 = (cum / max) * R; cum += n;
-      return n ? html`<path key=${i + "-" + j} d=${arc(i, r0, (cum / max) * R)} fill=${tone(j)} />` : ""; }); })}
+    ${r.counts.map((c, i) => { let cum = 0; return c.map((n, j) => { const r0 = at(cum); cum += n;
+      return n ? html`<path key=${i + "-" + j} d=${arc(i, r0, at(cum))} fill=${tone(j)} />` : ""; }); })}
+    ${r.calm > 0 && html`<circle r=${R0} fill="var(--surface-2)" stroke="var(--line)" />
+      <text text-anchor="middle" dominant-baseline="central" font-size="5" fill="var(--fg)">${pct(r.calm)}</text>`}
   </svg>
-  <div class="rose-key">${r.bands.map((_, j) => html`<span key=${j}><i style=${`background: ${tone(j)}`}></i>${bandLabel(j)}</span>`)}</div></div>`;
+  <div class="rose-key">
+    <span><i class="rose-calm"></i>Calm (under ${edges[0]} ${name}) ${pct(r.calm)}</span>
+    ${r.bands.map((_, j) => html`<span key=${j}><i style=${`background: ${tone(j)}`}></i>${bandLabel(j)}</span>`)}</div></div>`;
 }
 
 // The view is in the address, so it can be linked: #/weather/history?range=30d&station=123 or ?from=2026-10-01&to=2026-10-07.

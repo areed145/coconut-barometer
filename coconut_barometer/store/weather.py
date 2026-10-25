@@ -5,6 +5,7 @@
   wx_events     lightning strikes and rain starting, from the live stream"""
 from __future__ import annotations
 
+import bisect
 import math
 import time
 from datetime import datetime
@@ -41,6 +42,9 @@ HOT_C = (100 - 32) / 1.8          # a "hot day": a high of 100 °F or more
 MEASURABLE_MM = 0.254             # rain that counts: 0.01 in, the usual "measurable"
 NEAR_KM = 16.0934                 # lightning "near": within 10 miles
 PARTS = {"night": (0, 6), "morning": (6, 12), "afternoon": (12, 18), "evening": (18, 24)}
+# The wind rose's edges (m/s, #90): calm under the first (about 1 kt), then bands that fit light winds; the browser sends
+# round numbers in its own units instead.
+ROSE_EDGES = (0.5, 1, 1.5, 2, 3, 5)
 
 
 class WeatherStore(Database):
@@ -362,12 +366,15 @@ class WeatherStore(Database):
         return {"step": step, "cells": [[r[0], max(0, r[1]), int(r[2])] for r in rows],
                 "total": sum(int(r[2]) for r in rows)}
 
-    def wx_wind_rose(self, device_id: int, start: int, end: int, part: str | None = None) -> dict:
-        """Share of observations by 16 compass directions and wind-speed band (m/s). `part` keeps only one
-        quarter of the station's local day (see PARTS)."""
-        bands = (0, 2, 5, 8, 12, 999)
-        rows = self.db.execute("SELECT ts, wind_dir, wind_avg FROM wx_obs WHERE device_id=? AND ts>=? AND ts<=? "
-                               "AND wind_dir IS NOT NULL AND wind_avg IS NOT NULL", (device_id, start, end)).fetchall()
+    def wx_wind_rose(self, device_id: int, start: int, end: int, part: str | None = None,
+                     edges: tuple = ROSE_EDGES, of: str = "avg") -> dict:
+        """Observations by 16 compass directions and speed band (#90): {calm, bands, counts, total}. Speeds (m/s) under
+        edges[0] are calm, counted apart (a still vane mostly reads 0°, North, so they'd make a north wind that isn't
+        there); the bands are edges[0]-edges[1], ..., and edges[-1] and up. `of` is the mean wind ("avg") or the
+        gusts ("gust"); `part` keeps only one quarter of the station's local day (see PARTS)."""
+        column = {"avg": "wind_avg", "gust": "wind_gust"}[of]
+        rows = self.db.execute(f"SELECT ts, wind_dir, {column} FROM wx_obs WHERE device_id=? AND ts>=? AND ts<=? "
+                               f"AND wind_dir IS NOT NULL AND {column} IS NOT NULL", (device_id, start, end)).fetchall()
         if part:
             zone, (h0, h1), offsets = self._place(device_id)[0], PARTS[part], {}
             def hour(ts):                         # local hour, with the UTC offset looked up once per hour
@@ -376,12 +383,14 @@ class WeatherStore(Database):
                     offsets[k] = int(datetime.fromtimestamp(k * 3600, zone).utcoffset().total_seconds())
                 return (ts + offsets[k]) // 3600 % 24
             rows = [r for r in rows if h0 <= hour(r[0]) < h1]
-        grid = [[0] * (len(bands) - 1) for _ in range(16)]
+        grid, calm = [[0] * len(edges) for _ in range(16)], 0
         for _, d, v in rows:
+            if v < edges[0]:
+                calm += 1
+                continue
             i = int(((d % 360) + 11.25) // 22.5) % 16
-            j = next(k for k in range(len(bands) - 1) if v < bands[k + 1])
-            grid[i][j] += 1
-        return {"bands": bands[:-1], "counts": grid, "total": len(rows)}
+            grid[i][bisect.bisect_right(edges, v) - 1] += 1
+        return {"bands": list(edges), "counts": grid, "calm": calm, "total": len(rows)}
 
 
 def _num(v) -> str:
