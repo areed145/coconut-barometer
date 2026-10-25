@@ -539,6 +539,15 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded
         self.assertIn("img.src = pick(n.sizes, SHOWN);", gallery)           # never the zoom sizes (Flickr throttles them)
 
+    def test_lightbox_related_strips(self):
+        """#124: nearby and same-day strips; a pick browses that strip until Back; See all is the photostream filtered."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn("api(`/api/photos/${id}/related`)", gallery)
+        self.assertIn('photosLink({ near: r.near?.join(","), sort: "taken" })', gallery)
+        self.assertIn('photosLink({ day: r.day, sort: "oldest" })', gallery)
+        self.assertIn('const FILTERS = ["album", "tag", "year", "on", "day", "near",', gallery)
+        self.assertIn("onRelated=${(photos, index, label) => setAlt({ photos, index, label })}", gallery)
+
     def test_lightbox_slideshow(self):
         """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()

@@ -95,7 +95,7 @@ export function PhotoGrid({ paged, slideshow = 0 }) {
 
 const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
                ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
-const FILTERS = ["album", "tag", "year", "on", "camera", "media", "q", "sort", "is"];
+const FILTERS = ["album", "tag", "year", "on", "day", "near", "camera", "media", "q", "sort", "is"];
 
 // The Photos page, and every filtered view of it: the filters live in the address
 // (#/photos/photostream?album=…&tag=…&year=…&on=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
@@ -122,9 +122,10 @@ export function Photos({ params = {} }) {
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
   const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera,
-    media: f.media, q: f.q, sort: f.sort || "newest", is: f.is, offset, limit: PAGE } }), [key]);
+    day: f.day, near: f.near, media: f.media, q: f.q, sort: f.sort || "newest", is: f.is, offset, limit: PAGE } }), [key]);
   const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
-                 ["on", "On this day", f.on && dayLabel(f.on)], ["camera", "Camera", f.camera]]
+                 ["on", "On this day", f.on && dayLabel(f.on)], ["day", "Taken on", f.day],
+                 ["near", "Within 500 m of", f.near.replace(",", ", ")], ["camera", "Camera", f.camera]]
     .filter(([k]) => f[k]);
   const label = Object.fromEntries(presets.map((p) => [p.id, p.label]));
   const groups = [...new Set(presets.map((p) => p.group))];
@@ -274,7 +275,29 @@ const PACES = [3, 5, 10];
 const PACE_KEY = "cb-slideshow-secs";
 const savedPace = () => { try { return PACES.find((n) => n === +localStorage.getItem(PACE_KEY)) || 5; } catch { return 5; } };
 
-export function Lightbox({ photos, index, onIndex, onClose, onNearEnd, autoplay = false }) {
+// The lightbox. A photo picked from a related strip (#124) is browsed with the rest of that strip, until "Back".
+export function Lightbox(props) {
+  const [alt, setAlt] = useState(null);             // { photos, index, label }
+  const view = alt ? { ...props, photos: alt.photos, index: alt.index, onIndex: (i) => setAlt({ ...alt, index: i }), onNearEnd: null } : props;
+  return html`<${LightboxView} ...${view} browsing=${alt?.label} onBack=${() => setAlt(null)}
+    onRelated=${(photos, index, label) => setAlt({ photos, index, label })} />`;
+}
+
+// Photos taken nearby and on the same day, as two strips of thumbnails (#124).
+function Related({ id, onPick, onClose }) {
+  const [r, setR] = useState(null);
+  useEffect(() => { setR(null); api(`/api/photos/${id}/related`).then(setR).catch(() => {}); }, [id]);
+  if (!r) return null;
+  const strip = (label, list, link) => list.length > 0 && html`<div class="related">
+    <h3>${label} <a href=${link} onClick=${onClose}>See all</a></h3>
+    <div class="strip">${list.map((q, i) => html`<button key=${q.id} onClick=${() => onPick(list, i, label)} aria-label=${q.title || "Untitled photo"}
+        title=${q.title || "Untitled"}><img loading="lazy" alt="" src=${pick(q.sizes, ["q", "n", "m"])} onError=${fallback(q.sizes, ["q", "n", "m"])} /></button>`)}</div>
+  </div>`;
+  return html`${strip("Nearby", r.nearby, photosLink({ near: r.near?.join(","), sort: "taken" }))}
+    ${strip("Same day", r.same_day, photosLink({ day: r.day, sort: "oldest" }))}`;
+}
+
+function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = false, browsing, onBack, onRelated }) {
   const p = photos[index];
   const root = useRef(null);
   const [playing, setPlaying] = useState(false);
@@ -409,6 +432,8 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd, autoplay 
         <p class="maplink"><a href=${`#/photos/map/@${d.lat},${d.lon},14`} onClick=${onClose}>Show on the map</a></p>`}
       ${d?.tags.length > 0 && html`<div class="chips">${d.tags.map((t) => html`<a class="chip" href=${photosLink({ tag: t })}
           onClick=${onClose} title=${`All photos tagged ${t}`}>${t}</a>`)}</div>`}
+      ${browsing && html`<p><button class="link" onClick=${onBack}>← Back</button> <span class="muted">browsing ${browsing.toLowerCase()}</span></p>`}
+      <${Related} id=${p.id} onPick=${onRelated} onClose=${onClose} />
       ${e?.recent_comments.length > 0 && html`<h3>Latest comments</h3>${e.recent_comments.map((c) => html`<div class="comment">
         <div class="who">${c.real_name || c.author_name} · ${day(c.date_created)}</div>${plain(c.text)}</div>`)}`}
       ${d && html`<p>${p.ispublic === 1 && html`<button onClick=${() => share(`/p/${p.id}`, p.title || "Photo")}>Share</button> `}

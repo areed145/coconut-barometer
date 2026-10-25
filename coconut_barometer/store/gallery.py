@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from .db import Database
 
@@ -36,6 +37,20 @@ PRESETS = {
 }
 
 
+NEAR_M = 500                # "nearby": within this many meters (#124)
+
+
+def near_sql(lat: float, lon: float, meters: float = NEAR_M) -> tuple[str, list, str, list]:
+    """Photos within `meters` of a point: a WHERE clause (a box first, for speed, then the circle) and the distance
+    to order by, each with its arguments. Equirectangular, in degrees of latitude: exact enough at these distances."""
+    dlat = meters / 111_320
+    cos2 = max(0.01, math.cos(math.radians(lat))) ** 2
+    dlon = dlat / math.sqrt(cos2)
+    dist = "((p.lat - ?) * (p.lat - ?) + (p.lon - ?) * (p.lon - ?) * ?)"
+    return (f"p.lat BETWEEN ? AND ? AND p.lon BETWEEN ? AND ? AND {dist} <= ?",
+            [lat - dlat, lat + dlat, lon - dlon, lon + dlon, lat, lat, lon, lon, cos2, dlat ** 2], dist, [lat, lat, lon, lon, cos2])
+
+
 def sizes(p) -> dict:
     """Image URLs by Flickr size suffix. q n w z c b share the photo's secret; l h k need their own."""
     base = f"https://live.staticflickr.com/{p['server']}/{p['id']}_{p['secret']}" if p["server"] and p["secret"] else None
@@ -55,10 +70,12 @@ def photo_card(p) -> dict:
 class GalleryStore(Database):
     def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
                    limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "",
-                   presets: list[str] | None = None, public_only: bool = False, on: str = "") -> dict:
+                   presets: list[str] | None = None, public_only: bool = False, on: str = "",
+                   near: tuple[float, float] | None = None, day: str = "") -> dict:
         """One page of photos, by any mix of filters: album, search text, tag (Flickr's
-        normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), camera,
-        photo or video, and presets (all must hold)."""
+        normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), the day taken
+        (`day`, "YYYY-MM-DD"), within NEAR_M of a point (`near`, (lat, lon)), camera, photo or video,
+        and presets (all must hold)."""
         from ..util import norm_tag
 
         where, args = [PUBLIC] if public_only else [], []
@@ -78,6 +95,13 @@ class GalleryStore(Database):
         if on:
             where.append("substr(p.date_taken, 6, 5) = ? AND COALESCE(p.date_taken_unknown, 0) = 0")
             args.append(on)
+        if day:
+            where.append("substr(p.date_taken, 1, 10) = ? AND COALESCE(p.date_taken_unknown, 0) = 0")
+            args.append(day)
+        if near:
+            sql, near_args, _, _ = near_sql(*near)
+            where.append(sql + (f" AND {GEO_PUBLIC}" if public_only else ""))
+            args += near_args
         for name in presets or []:
             where.append(PRESETS[name][2])          # KeyError for an unknown one: the API checks first
         if q:
@@ -100,6 +124,32 @@ class GalleryStore(Database):
         top = self.db.execute(f"SELECT p.* FROM photos p WHERE p.date_upload >= ?{public} ORDER BY p.views DESC, p.id LIMIT 1",
                               (month_start,)).fetchone()
         return {"year": year, "taken": taken, "top_upload": photo_card(top) if top else None}
+
+    def related(self, photo_id: str, limit: int = 12, public_only: bool = False) -> dict | None:
+        """For the lightbox (#124): photos taken within NEAR_M of this one, nearest first, and photos taken the same day,
+        nearest in time first (then in the order taken). Visitors: public photos only, and "nearby" only when this
+        photo's location is theirs to see, from photos whose locations are too."""
+        public = f" AND {PUBLIC}" if public_only else ""
+        p = self.db.execute(f"SELECT lat, lon, geo_public, date_taken, date_taken_unknown FROM photos p WHERE id=?{public}",
+                            (photo_id,)).fetchone()
+        if not p:
+            return None
+        nearby, same_day = [], []
+        if p["lat"] is not None and p["lon"] is not None and not (p["lat"] == 0 and p["lon"] == 0) \
+                and not (public_only and p["geo_public"] != 1):
+            where, args, dist, dist_args = near_sql(p["lat"], p["lon"])
+            nearby = [photo_card(r) for r in self.db.execute(
+                f"SELECT p.* FROM photos p WHERE p.id <> ? AND {where}{public}{f' AND {GEO_PUBLIC}' if public_only else ''} "
+                f"ORDER BY {dist}, p.date_taken DESC, p.id LIMIT ?", [photo_id, *args, *dist_args, limit])]
+        if p["date_taken"] and not p["date_taken_unknown"]:
+            same_day = [photo_card(r) for r in self.db.execute(
+                f"SELECT * FROM (SELECT p.* FROM photos p WHERE p.id <> ? AND substr(p.date_taken, 1, 10) = ? "
+                f"AND COALESCE(p.date_taken_unknown, 0) = 0{public} "
+                "ORDER BY abs(epoch(TRY_CAST(p.date_taken AS TIMESTAMP)) - epoch(TRY_CAST(? AS TIMESTAMP))), p.id LIMIT ?) p "
+                "ORDER BY p.date_taken, p.id", [photo_id, p["date_taken"][:10], p["date_taken"], limit])]
+        day = p["date_taken"][:10] if same_day else None
+        return {"nearby": nearby, "same_day": same_day, "day": day,
+                "near": [round(p["lat"], 5), round(p["lon"], 5)] if nearby else None}
 
     GEOTAGGED = "p.lat IS NOT NULL AND p.lon IS NOT NULL AND NOT (p.lat = 0 AND p.lon = 0)"
 

@@ -96,6 +96,39 @@ class WebTest(unittest.TestCase):
         for bad in ("13-01", "10-32", "1023", "10-2"):
             self.assertEqual(self.c.get("/api/photos", params={"on": bad}).status_code, 422, bad)
 
+    def test_related_photos_nearby_and_same_day(self):
+        """#124: nearby is within 500 m, nearest first; same day is the calendar day taken, in time order; visitors
+        get neither private photos nor hidden locations; and the photostream filters to both (`near`, `day`)."""
+        x = self.store.db.execute
+        x("UPDATE photos SET lat=NULL, lon=NULL, date_taken='2001-01-01 00:00:00', geo_public=1, ispublic=1")
+        for pid, lat, lon, taken in [("1", 47.6097, -122.3422, "2026-09-19 09:00:00"),
+                                     ("2", 47.6098, -122.3420, "2026-09-19 18:00:00"),   # ~20 m away, that evening
+                                     ("3", 47.6120, -122.3422, "2026-09-19 08:00:00"),   # ~260 m north
+                                     ("4", 47.6150, -122.3422, "2026-09-20 09:00:00"),   # ~590 m: not nearby; next day
+                                     ("5", 47.6097, -122.3482, "2019-07-17 10:00:00")]:  # ~450 m west (longitude shrinks)
+            x("UPDATE photos SET lat=?, lon=?, date_taken=? WHERE id=?", (lat, lon, taken, pid))
+        self.store.db.commit()
+        r = self.c.get("/api/photos/1/related").json()
+        self.assertEqual([p["id"] for p in r["nearby"]], ["2", "3", "5"])
+        self.assertEqual([p["id"] for p in r["same_day"]], ["3", "2"])                  # in the order taken
+        self.assertEqual((r["day"], r["near"]), ("2026-09-19", [47.6097, -122.3422]))
+        ids = lambda **p: {ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]}
+        self.assertEqual(ids(near="47.6097,-122.3422"), {"1", "2", "3", "5"})
+        self.assertEqual(ids(day="2026-09-19"), {"1", "2", "3"})
+        for bad in ({"near": "91,0"}, {"near": "x"}, {"day": "2026-13-01"}):
+            self.assertEqual(self.c.get("/api/photos", params=bad).status_code, 422, bad)
+        x("UPDATE photos SET ispublic=0 WHERE id='2'")
+        x("UPDATE photos SET geo_public=0 WHERE id='3'")
+        self.store.db.commit()
+        r = self.c.get("/api/photos/1/related").json()                                  # a visitor
+        self.assertEqual([p["id"] for p in r["nearby"]], ["5"])                         # not private, not a hidden location
+        self.assertEqual([p["id"] for p in r["same_day"]], ["3"])                       # a hidden location still has a day
+        self.assertEqual(ids(near="47.6097,-122.3422"), {"1", "5"})
+        self.assertEqual(self.c.get("/api/photos/2/related").status_code, 404)
+        self.assertEqual(self.c.get("/api/photos/3/related").json()["nearby"], [])      # its own location is hidden
+        self.login()
+        self.assertEqual([p["id"] for p in self.c.get("/api/photos/1/related").json()["nearby"]], ["2", "3", "5"])
+
     def test_photo_highlights_count_public_photos_for_visitors(self):
         x = self.store.db.execute
         x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")
