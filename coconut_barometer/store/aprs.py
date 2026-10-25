@@ -3,15 +3,20 @@
                    course, the symbol (table + code), the comment, the path and the raw packet
   aprs_igate       one row per packet the igate gated: the sender, where it said it was (objects and items,
                    which place something else, and packets with no position have none), whether it was heard
-                   direct, the path and the raw packet. The igate's own last position is meta aprs_igate_at."""
+                   direct, the path and the raw packet; and its altitude (m), symbol, comment and tocall (#118).
+                   The igate's own last position is meta aprs_igate_at."""
 from __future__ import annotations
 
 import json
 import time
 
+from ..aprs.igate import TYPES, details, station_type
 from .db import Database
 
 TRACK_COLS = "ts, lat, lon, altitude, speed, course"
+KM = ("2 * 6371 * asin(sqrt(pow(sin(radians(lat - ?) / 2), 2) + cos(radians(?)) * cos(radians(lat)) "
+      "* pow(sin(radians(lon - ?) / 2), 2)))")     # from (?, ?, ? = lat, lat, lon)
+REGULAR_DAYS, REGULAR_OF = 7, 14                    # a regular: heard on at least 7 of the last 14 days
 PACKET_COLS = "callsign, ts, lat, lon, altitude, speed, course, symbol, comment, path, raw"
 
 
@@ -54,10 +59,13 @@ class AprsStore(Database):
     def igate_save(self, igate: str, packet: dict, direct: bool, ts: int | None = None) -> None:
         placed = packet.get("latitude") is not None and packet.get("format") not in ("object", "item") \
             and (packet["latitude"], packet["longitude"]) != (0, 0)
-        self.db.execute("INSERT INTO aprs_igate VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        d = details(packet)
+        self.db.execute("INSERT INTO aprs_igate (igate, callsign, ts, lat, lon, direct, format, path, raw, altitude, "
+                        "symbol, comment, tocall) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (igate, packet.get("from"), int(ts or time.time()), packet["latitude"] if placed else None,
                          packet["longitude"] if placed else None, direct, packet.get("format"),
-                         ",".join(packet.get("path") or []), packet.get("raw")))
+                         ",".join(packet.get("path") or []), packet.get("raw"),
+                         d["altitude"], d["symbol"], d["comment"], d["tocall"]))
 
     def igate_place(self, igate: str, lat: float, lon: float, ts: int | None = None) -> None:
         """Where the igate's own beacon says it is."""
@@ -85,9 +93,7 @@ class AprsStore(Database):
     def _igate_distances(self, per_station: bool) -> str:
         """The distances (km) from the igate (?, ?, ? = lat, lat, lon) of the window's packets, or with
         per_station, each station's farthest. Takes igate, start, end, direct after the three."""
-        km = ("2 * 6371 * asin(sqrt(pow(sin(radians(lat - ?) / 2), 2) + cos(radians(?)) * cos(radians(lat)) "
-              "* pow(sin(radians(lon - ?) / 2), 2)))")
-        rows = (f"SELECT callsign, ts, lat, lon, direct, {km} AS km FROM aprs_igate "
+        rows = (f"SELECT callsign, ts, lat, lon, direct, {KM} AS km FROM aprs_igate "
                 "WHERE igate=? AND ts BETWEEN ? AND ? AND lat IS NOT NULL AND (direct OR NOT ?)")
         return f"SELECT max(km) AS km FROM ({rows}) GROUP BY callsign" if per_station else rows
 
@@ -115,3 +121,47 @@ class AprsStore(Database):
             f"SELECT callsign, arg_max(ts, km) AS ts, arg_max(lat, km) AS lat, arg_max(lon, km) AS lon, "
             f"arg_max(direct, km) AS direct, max(km) AS km, COUNT(*) AS packets FROM ({self._igate_distances(False)}) "
             f"GROUP BY callsign ORDER BY km DESC LIMIT ?", (lat, lat, lon, igate, start, end, direct, limit))]
+
+    def igate_stations(self, at: tuple[float, float] | None, igate: str, start: int, end: int, offset: int = 0,
+                       limit: int = 1000) -> dict:
+        """Who the igate heard in the window (#118), busiest first: first and last heard in it, packets, the median
+        distance of its positions (with `at`), its type (igate.station_type), whether it's new (never heard before
+        the window) and a regular (heard on REGULAR_DAYS of the REGULAR_OF days to `end`). Also `days`: per local
+        day (UTC + `offset` seconds), ["YYYY-MM-DD", stations, new stations]; per week (from Monday) past 90 days."""
+        km, args = (KM, (at[0], at[0], at[1])) if at else ("NULL", ())
+        rows = self.db.execute(
+            f"WITH w AS (SELECT callsign, ts, format, symbol, {km} AS km FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ?), "
+            "ever AS (SELECT callsign, MIN(ts) AS first_ever FROM aprs_igate WHERE igate=? GROUP BY 1), "
+            "recent AS (SELECT callsign, COUNT(DISTINCT (ts + ?) // 86400) AS days FROM aprs_igate "
+            "WHERE igate=? AND ts > ? AND ts <= ? GROUP BY 1) "
+            "SELECT callsign, MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS packets, median(km) AS km, "
+            "arg_max(symbol, ts) FILTER (WHERE symbol IS NOT NULL AND coalesce(format, '') NOT IN ('object', 'item')) AS symbol, "
+            "bool_or(format = 'wx') AS wx, bool_and(coalesce(format, '') IN ('object', 'item')) AS objects_only, "
+            "any_value(first_ever) AS first_ever, coalesce(any_value(recent.days), 0) AS recent_days "
+            "FROM w JOIN ever USING (callsign) LEFT JOIN recent USING (callsign) GROUP BY callsign ORDER BY packets DESC, callsign",
+            (*args, igate, start, end, igate, offset, igate, end - REGULAR_OF * 86400, end)).fetchall()
+        stations = [{"callsign": r["callsign"], "first_ts": r["first_ts"], "last_ts": r["last_ts"], "packets": r["packets"],
+                     "km": r["km"], "symbol": r["symbol"], "type": station_type(r["symbol"], r["wx"], r["objects_only"]),
+                     "first_ever": r["first_ever"], "new": r["first_ever"] >= start, "regular": r["recent_days"] >= REGULAR_DAYS}
+                    for r in rows]
+        step, shift = (86400, 0) if end - start <= 90 * 86400 else (7 * 86400, 4 * 86400)   # day 4 of 1970: a Monday
+        bucket = lambda col: f"(({col} + {int(offset) - shift}) // {step}) * {step} - {int(offset) - shift}"
+        heard = dict(self.db.execute(f"SELECT {bucket('ts')} AS b, COUNT(DISTINCT callsign) FROM aprs_igate "
+                                     "WHERE igate=? AND ts BETWEEN ? AND ? GROUP BY 1", (igate, start, end)).fetchall())
+        new = dict(self.db.execute(f"SELECT {bucket('first_ts')} AS b, COUNT(*) FROM (SELECT MIN(ts) AS first_ts "
+                                   "FROM aprs_igate WHERE igate=? GROUP BY callsign) WHERE first_ts BETWEEN ? AND ? GROUP BY 1",
+                                   (igate, start, end)).fetchall())
+        types = {t: 0 for t in TYPES}
+        for s in stations:
+            types[s["type"]] += 1
+        return {"stations": stations[:limit], "count": len(stations), "new": sum(s["new"] for s in stations),
+                "regular": sum(s["regular"] for s in stations), "types": types, "bucket": step,
+                "days": [[time.strftime("%Y-%m-%d", time.gmtime(b + offset)), heard[b], new.get(b, 0)] for b in sorted(heard)]}
+
+    def igate_high(self, igate: str, since: int, until: int, metres: float) -> list[dict]:
+        """Senders placed above `metres` between since (exclusive) and until, each at its highest (#118)."""
+        return [dict(r) for r in self.db.execute(
+            "SELECT callsign, max(altitude) AS altitude, arg_max(ts, altitude) AS ts, arg_max(lat, altitude) AS lat, "
+            "arg_max(lon, altitude) AS lon, arg_max(direct, altitude) AS direct FROM aprs_igate "
+            "WHERE igate=? AND ts > ? AND ts <= ? AND lat IS NOT NULL AND altitude >= ? GROUP BY callsign ORDER BY callsign",
+            (igate, since, until, metres))]

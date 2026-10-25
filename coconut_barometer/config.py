@@ -72,6 +72,7 @@ DEFAULTS: dict[str, Any] = {
         "gust_kmh": 60,               # a gust this strong
         "pressure_drop_hpa": 2.0,     # pressure down this much in 3 hours (a storm sign)
         "callsign_quiet_hours": 6,    # a tracked callsign heard after this long without a packet
+        "igate_altitude_km": 0,       # a packet the igate gated from this high up: a balloon or a flight (0: off)
         "storm_km": 10,               # a storm cell (NWS radar tracking) whose path comes this close to a station ...
         "storm_minutes": 60,          # ... within this long
         "storm_dbz": 50,              # ... and at least this strong
@@ -200,7 +201,8 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("trips", "gap_hours"): (1, 24 * 14), ("trips", "jump_km"): (1, 20000), ("trips", "min_photos"): (2, 1000),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
-          ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60),
+          ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "igate_altitude_km"): (0, 50),
+          ("alerts", "cooldown_minutes"): (5, 24 * 60),
           ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
           ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30),
           ("qc", "backfill_days"): (0, 365), ("qc", "keep_days"): (30, 3650), ("qc", "window_days"): (1, 365),

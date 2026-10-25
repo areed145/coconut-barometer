@@ -44,7 +44,7 @@ class Runtime:
         self.radar = RadarService(cfg, self.db_path)
         self.snapshots = Snapshots(self.radar, self.db_path)   # Home's Radar card (#77)
         self.qc = QcService(cfg, self.radar)          # station QC's reference samples and checks (#105)
-        self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar)
+        self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar, self.aprs.igate)
         self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)

@@ -253,6 +253,9 @@ META = {
                                    "2 hPa is about 0.06 inHg.", group="Weather"),
     "alerts.callsign_quiet_hours": _m("alerts", "Callsign heard after quiet (hours)", "A callsign from Settings → APRS "
                                       "heard again after this long without a packet.", group="APRS"),
+    "alerts.igate_altitude_km": _m("alerts", "Igate heard a station above (km)", "A packet the igate gated from this "
+                                   "high: usually a pico balloon or a high-altitude flight. 5 km is about 16,000 ft. "
+                                   "0 turns it off.", group="APRS"),
     "alerts.storm_km": _m("alerts", "Storm passing within (km)", "A storm cell the NWS radars are tracking whose path "
                           "comes this close to a station. 0 turns storm alerts off.", group="Radar"),
     "alerts.storm_minutes": _m("alerts", "Storm warning ahead (minutes)", "How far ahead to look along its path.", group="Radar"),

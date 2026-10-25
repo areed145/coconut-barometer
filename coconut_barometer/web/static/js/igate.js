@@ -2,11 +2,14 @@
 // lat/lon grid (color on a log scale, as on the photo map), with the igate and its effective range; a chart counts
 // them by distance from the igate, with the Weibull fit whose 90% distance is that effective range (igate.py).
 // Distance is from direct packets by default: a digipeated one says where the sender was, not how far the igate hears.
+// Below, who it heard (#118): stations per day, new and regular, and what kind each one is (from its symbol).
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { grid } from "./aprs.js";
 import { useMapTools, mapboxClass } from "./wx_controls.js";
+import { Bars, Table } from "./viz.js";
+import { Chart } from "./chart.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const WINDOWS = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365], ["All", 24 * 3650]];
@@ -148,6 +151,60 @@ function RangeChart({ dist, units, count }) {
   return html`<div class="chart" ref=${box}></div>`;
 }
 
+const TYPES = { mobile: "Mobiles", home: "Home stations", weather: "Weather stations", digi: "Digipeaters", igate: "Igates",
+  balloon: "Balloons and rockets", object: "Objects and items only", other: "Other" };
+const TYPE = { mobile: "Mobile", home: "Home", weather: "Weather", digi: "Digipeater", igate: "Igate", balloon: "Balloon or rocket",
+  object: "Objects only", other: "Other" };
+const SHOWN = 50;
+const aprsfi = (call) => html`<a href=${`https://aprs.fi/info/a/${encodeURIComponent(call)}`} target="_blank" rel="noopener">${call}</a>`;
+
+// Who the igate heard over the window: its own request, so the map and range draw first.
+function Stations({ hours, units }) {
+  const [s, setS] = useState(null);
+  const [only, setOnly] = useState("all");        // all, new, regular
+  const [type, setType] = useState("");
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api("/api/aprs/igate/stations", { params: { hours } }).then((x) => alive && setS(x)).catch(() => {});
+    const stop = every(load, 60000);
+    return () => { alive = false; stop(); };
+  }, [hours]);
+  if (!s?.stations) return null;
+  const rows = s.stations.filter((x) => (only === "all" || x[only]) && (!type || x.type === type));
+  const bars = Object.entries(s.types).filter(([, n]) => n).map(([t, n]) => ({ label: TYPES[t], key: t, n }));
+  const cols = [
+    { key: "callsign", label: "Station", fmt: (c, r) => html`${aprsfi(c)}${r.new ? html` <span class="badge">new</span>` : ""}${
+      r.regular ? html` <span class="badge">regular</span>` : ""}` },
+    { key: "type", label: "Type", fmt: (t) => TYPE[t] },
+    { key: "packets", label: "Packets", num: true },
+    { key: "km", label: "Typically", num: true, fmt: (km) => len(units, km) },
+    { key: "first_ever", label: "First heard", num: true, fmt: (t) => when(t) },
+    { key: "last_ts", label: "Last heard", num: true, fmt: (t) => ago(t) },
+  ];
+  const per = s.bucket > 86400 ? "week" : "day";
+  return html`<div class="card">
+    <h2>Stations heard</h2>
+    <p class="muted small">${num(s.count)} station${s.count === 1 ? "" : "s"} · ${num(s.new)} new (never heard before) ·
+      ${num(s.regular)} regular${s.regular === 1 ? "" : "s"} (heard on 7 of the last 14 days)</p>
+    ${s.days.length > 2 && html`<${Chart} height=${180} days=${s.days.map((d) => d[0])} series=${[
+      { label: `Stations per ${per}`, values: s.days.map((d) => d[1]), color: "--chart-1", bars: true },
+      { label: "New", values: s.days.map((d) => d[2]), color: "--chart-2", fill: false }]} />`}
+    <h3>By type</h3>
+    <${Bars} rows=${bars} value="n" sorted onPick=${(r) => setType(type === r.key ? "" : r.key)}
+      title=${(r) => `Show only ${r.label.toLowerCase()} (again: all)`} />
+    <div class="toolbar">
+      <span class="seg" aria-label="Which stations">${[["all", "All"], ["new", "New"], ["regular", "Regulars"]].map(([v, label]) => html`<button
+        key=${v} class=${only === v ? "primary" : ""} onClick=${() => setOnly(v)}>${label}</button>`)}</span>
+      ${type && html`<button onClick=${() => setType("")}>${TYPES[type]} ✕</button>`}
+    </div>
+    ${rows.length ? html`<${Table} rows=${all ? rows : rows.slice(0, SHOWN)} cols=${cols} initial="packets" />`
+      : html`<p class="muted">No stations like that in this window.</p>`}
+    ${!all && rows.length > SHOWN && html`<button onClick=${() => setAll(true)}>Show all ${num(rows.length)}</button>`}
+    ${s.count > s.stations.length && html`<p class="muted small">The busiest ${num(s.stations.length)} are listed.</p>`}
+  </div>`;
+}
+
 const Tile = ({ label, value, note }) => html`<div class="kpi"><span>${label}</span><b>${value}</b>${note && html`<small> ${note}</small>`}</div>`;
 
 export function Igate() {
@@ -211,6 +268,7 @@ export function Igate() {
           <td class="muted">${when(f.ts)}${f.direct ? "" : " · digipeated"}</td></tr>`)}
       </tbody></table></div>
     </div>`}
+    <${Stations} hours=${hours} units=${d.units} />
     <p class="muted small">Counted from when the app started listening${t.first_ts ? ` (${when(t.first_ts)})` : ""}: APRS-IS keeps no history.
       ${d.stream?.state !== "connected" ? ` APRS-IS: ${d.stream?.state || "off"}.` : ""}</p>`;
 }
