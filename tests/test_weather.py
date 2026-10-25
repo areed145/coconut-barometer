@@ -198,7 +198,26 @@ class StoreTest(unittest.TestCase):
     def test_wind_rose_counts_by_direction(self):
         self.store.wx_save_obs(11, [arr(NOW, wind=1.0, direction=0.0), arr(NOW + 60, wind=6.0, direction=90.0)])
         r = self.store.wx_wind_rose(11, NOW - 1, NOW + 100)
-        self.assertEqual((r["total"], r["counts"][0][0], r["counts"][4][2]), (2, 1, 1))
+        self.assertEqual(r["bands"], [0.5, 1, 1.5, 2, 3, 5])                  # light winds' bands (#90)
+        self.assertEqual((r["total"], r["calm"], r["counts"][0][1], r["counts"][4][5]), (2, 0, 1, 1))   # 1-1.5 N, 5+ E
+
+    def test_calm_is_counted_apart_not_as_a_north_wind(self):
+        """#90: a still vane reads 0°; calm readings are left out of the petals and counted on their own."""
+        self.store.wx_save_obs(11, [arr(NOW + i * 60, wind=0.0, direction=0.0) for i in range(5)]
+                               + [arr(NOW + 600, wind=0.4, direction=0.0), arr(NOW + 660, wind=2.5, direction=180.0)])
+        r = self.store.wx_wind_rose(11, NOW - 1, NOW + DAY)
+        self.assertEqual((r["total"], r["calm"]), (7, 6))
+        self.assertEqual(sum(map(sum, r["counts"])), 1)
+        self.assertEqual(r["counts"][8][3], 1)                                # S, 2-3 m/s
+        self.assertEqual(sum(r["counts"][0]), 0)                              # nothing left in the N petal
+
+    def test_wind_rose_edges_and_gusts(self):
+        mph = tuple(round(e / 2.23694, 4) for e in (1, 2, 3, 5, 8, 12))      # what the browser sends in imperial
+        self.store.wx_save_obs(11, [arr(NOW, wind=0.3), arr(NOW + 60, wind=1.0), arr(NOW + 120, wind=20.0)])
+        r = self.store.wx_wind_rose(11, NOW - 1, NOW + DAY, edges=mph)
+        self.assertEqual((r["calm"], r["counts"][4][1], r["counts"][4][5]), (1, 1, 1))   # 2.2 mph: 2-3; 45 mph: 12+
+        g = self.store.wx_wind_rose(11, NOW - 1, NOW + DAY, of="gust")      # arr()'s gusts are all 5 m/s
+        self.assertEqual((g["calm"], g["counts"][4][5]), (0, 3))
 
 
 class SyncTest(unittest.TestCase):
@@ -330,6 +349,11 @@ class WeatherApiTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11}).json()["total"], 30)
         self.assertEqual(len(self.c.get("/api/wx/days", params={"device": 11, "hours": 2}).json()["days"]), 1)
         self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "part": "noon"}).status_code, 422)
+        rose = self.c.get("/api/wx/rose", params={"device": 11, "edges": "0.45,0.9,1.3", "of": "gust"}).json()
+        self.assertEqual((rose["bands"], rose["total"]), ([0.45, 0.9, 1.3], 30))
+        for bad in ("1", "2,1", "0,1", "1,1", "a,b", ",".join(["1"] * 9), "1,101"):
+            self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "edges": bad}).status_code, 422, bad)
+        self.assertEqual(self.c.get("/api/wx/rose", params={"device": 11, "of": "lull"}).status_code, 422)
 
     def test_live_is_cached_until_something_new_is_stored(self):
         from coconut_barometer.store import weather as wx_store

@@ -394,11 +394,29 @@ def radar_frame(t: int, bbox: str | None = Query(None, max_length=100), zoom: fl
     return _with_shapes({"t": frame["t"], "cells": _cells(frame["cells"], t, box)}, view(frame, box, zoom))
 
 
+def _edges(edges: str | None) -> tuple:
+    """`edges`: the rose's band edges in m/s, ascending, comma separated, the first the calm threshold; none: the
+    defaults (store/weather.py ROSE_EDGES)."""
+    from ...store.weather import ROSE_EDGES
+
+    if not edges:
+        return ROSE_EDGES
+    try:
+        out = tuple(float(x) for x in edges.split(","))
+    except ValueError:
+        raise HTTPException(422, "edges: numbers (m/s), comma separated")
+    if not 2 <= len(out) <= 8 or any(not 0 < x <= 100 for x in out) or any(b <= a for a, b in zip(out, out[1:])):
+        raise HTTPException(422, "edges: 2 to 8 speeds (m/s), each more than the last, over 0 and at most 100")
+    return out
+
+
 @router.get("/rose")
 def rose(device: int, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 3650),
-         part: str | None = Query(None, pattern="^(night|morning|afternoon|evening)$"), db=Depends(store)):
-    """Wind by direction and speed band; `part` keeps one quarter of the station's local day."""
+         part: str | None = Query(None, pattern="^(night|morning|afternoon|evening)$"),
+         edges: str | None = Query(None, max_length=100), of: str = Query("avg", pattern="^(avg|gust)$"), db=Depends(store)):
+    """Wind by direction and speed band, calm apart (#90): `edges` in m/s (the first, calm's threshold), `of` the mean
+    wind or the gusts; `part` keeps one quarter of the station's local day."""
     start, end = _window(start, end, hours)
     if device not in {d["device_id"] for d in db.wx_devices()}:
         raise HTTPException(404, "unknown device")
-    return db.wx_wind_rose(device, start, end, part)
+    return db.wx_wind_rose(device, start, end, part, _edges(edges), of)
