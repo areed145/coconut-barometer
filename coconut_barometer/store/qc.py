@@ -77,6 +77,7 @@ class QcStore(Database):
                 self.db.execute(f"DELETE FROM {table} WHERE {'last_seen' if name == 'alerts' else 'ts'} < ?", (before,))
             self.db.execute("DELETE FROM qc_fronts WHERE valid < ?", (before,))
             self.db.execute("DELETE FROM qc_runs WHERE run_at < ?", (before,))
+            self.db.execute('DELETE FROM qc_flags WHERE "end" < ?', (before,))
 
     # ---- what the checks read ---------------------------------------------------------------------------------
     def qc_temperature_pairs(self, device_id: int, start: int, end: int, within: int = 150) -> list[tuple]:
@@ -91,9 +92,26 @@ class QcStore(Database):
     # ---- results ----------------------------------------------------------------------------------------------
     def qc_save_run(self, device_id: int, suite: str, run_at: int, start: int, end: int, result: dict) -> None:
         with self.db:
-            self.db.execute("INSERT INTO qc_runs VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            self.db.execute('INSERT INTO qc_runs VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO UPDATE SET start = excluded.start, '
+                            '"end" = excluded."end", status = excluded.status, metrics = excluded.metrics',   # a rerun: what it says now
                             (device_id, suite, run_at, start, end, result["status"],
                              json.dumps(result.get("metrics") or {}, separators=(",", ":"))))
+
+    def qc_save_flags(self, device_id: int, suite: str, start: int, end: int, flags: list[tuple]) -> None:
+        """A check's flagged periods in [start, end], in place of what it flagged there before."""
+        with self.db:
+            self.db.execute('DELETE FROM qc_flags WHERE device_id = ? AND suite = ? AND "end" >= ? AND start <= ?',
+                            (device_id, suite, start, end))
+            for a, b, what in flags:
+                self.db.execute("INSERT INTO qc_flags VALUES (?, ?, ?, ?, ?)", (device_id, suite, int(a), int(b), what))
+
+    def qc_flags(self, device_id: int, since: int, per_suite: int = 3) -> dict[str, list[dict]]:
+        """Each check's newest flags since `since` (its most recent per_suite), and how many there are in all."""
+        out: dict[str, list[dict]] = {}
+        for r in self.db.execute('SELECT suite, start, "end", what FROM qc_flags WHERE device_id = ? AND "end" >= ? '
+                                 'ORDER BY suite, "end" DESC', (device_id, since)).fetchall():
+            out.setdefault(r["suite"], []).append({"start": r["start"], "end": r["end"], "what": r["what"]})
+        return {k: {"count": len(v), "newest": v[:per_suite]} for k, v in out.items()}
 
     def qc_latest(self, device_id: int) -> dict[str, dict]:
         """Each check's newest run for the device, with `since`: when the unbroken run of that status began."""

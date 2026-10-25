@@ -34,6 +34,10 @@ DEFAULTS: dict[str, Any] = {
         "min_pairs": 96,              # fewer readings to compare than this: "not enough data" (a day of RTMA)
         "temp_bias_warn": 1.5,        # temperature vs RTMA, °C either way (after the height difference)
         "temp_bias_fail": 3.0,
+        "coverage_warn": 98.0,        # % of the minutes reported over the window, below which: warn ...
+        "coverage_fail": 90.0,        # ... and fail
+        "solar_warn": 0.8,            # clear days' solar peak over the clear-sky model's, below which: warn (dirty or shaded) ...
+        "solar_fail": 0.6,            # ... and fail
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {
@@ -181,7 +185,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
           ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30),
           ("qc", "backfill_days"): (0, 365), ("qc", "keep_days"): (30, 3650), ("qc", "window_days"): (1, 365),
-          ("qc", "min_pairs"): (1, 10000), ("qc", "temp_bias_warn"): (0.1, 20), ("qc", "temp_bias_fail"): (0.1, 30)}
+          ("qc", "min_pairs"): (1, 10000), ("qc", "temp_bias_warn"): (0.1, 20), ("qc", "temp_bias_fail"): (0.1, 30),
+          ("qc", "coverage_warn"): (0, 100), ("qc", "coverage_fail"): (0, 100), ("qc", "solar_warn"): (0, 1.5),
+          ("qc", "solar_fail"): (0, 1.5)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).

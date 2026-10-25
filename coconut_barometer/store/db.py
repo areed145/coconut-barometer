@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS qc_radar (device_id BIGINT, ts BIGINT, dbz DOUBLE, db
 CREATE TABLE IF NOT EXISTS qc_glm (device_id BIGINT, ts BIGINT, lat DOUBLE, lon DOUBLE, km DOUBLE, bearing DOUBLE, PRIMARY KEY (device_id, ts, lat, lon));
 CREATE TABLE IF NOT EXISTS qc_alerts (device_id BIGINT, id TEXT, event TEXT, onset BIGINT, ends BIGINT, first_seen BIGINT, last_seen BIGINT, PRIMARY KEY (device_id, id));
 CREATE TABLE IF NOT EXISTS qc_fronts (valid BIGINT PRIMARY KEY, analysis TEXT);
+CREATE TABLE IF NOT EXISTS qc_flags (device_id BIGINT, suite TEXT, start BIGINT, "end" BIGINT, what TEXT);
 CREATE TABLE IF NOT EXISTS qc_runs (device_id BIGINT, suite TEXT, run_at BIGINT, start BIGINT, "end" BIGINT, status TEXT, metrics TEXT, PRIMARY KEY (device_id, suite, run_at));
 CREATE TABLE IF NOT EXISTS aprs_positions (callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, altitude DOUBLE, speed DOUBLE, course DOUBLE, symbol TEXT, comment TEXT, path TEXT, raw TEXT, PRIMARY KEY (callsign, ts));
 CREATE TABLE IF NOT EXISTS aprs_igate (igate TEXT, callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, direct BOOLEAN, format TEXT, path TEXT, raw TEXT);
