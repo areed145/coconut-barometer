@@ -53,7 +53,7 @@ class StatusTest(unittest.TestCase):
         self.assertTrue(all(r["detail"] is None and r["href"] is None for r in d["rows"]))
         self.login()
         self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "imagery", "radar", "lightning", "fronts", "hazards",
-                                                      "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+                                                      "qc", "cwop", "flickr", "vision", "backups", "visitors", "errors"})
 
     def test_the_weather_maps_feeds_each_have_a_dot(self):
         """Lightning, fronts, and watches and warnings: read from what each last fetched (never fetched for the panel);

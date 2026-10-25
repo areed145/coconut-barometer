@@ -16,6 +16,7 @@ from ..alerts import CHECK_EVERY, Alerts
 from ..errors import caught
 from ..review import ReviewApp
 from ..schedule import due
+from ..weather.qc.sampler import QcService
 from ..weather.radar import RadarService
 from ..weather.service import WeatherService
 from ..weather.snapshot import Snapshots
@@ -42,6 +43,7 @@ class Runtime:
         self.aprs = AprsService(cfg, self.db_path)
         self.radar = RadarService(cfg, self.db_path)
         self.snapshots = Snapshots(self.radar, self.db_path)   # Home's Radar card (#77)
+        self.qc = QcService(cfg, self.radar)          # station QC's reference samples and checks (#105)
         self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar)
         self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
@@ -112,6 +114,7 @@ class Runtime:
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
         self.radar.start(self._stop, self.store)     # MRMS and nationwide storm cells (weather/radar.py)
+        self.qc.start(self._stop, self.store)        # station QC (weather/qc/): only reads, so local mode too
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
         threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 

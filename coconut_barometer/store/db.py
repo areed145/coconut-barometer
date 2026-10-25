@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS wx_stations (station_id BIGINT PRIMARY KEY, name TEXT
 CREATE TABLE IF NOT EXISTS wx_devices (device_id BIGINT PRIMARY KEY, station_id BIGINT, serial TEXT, device_type TEXT, name TEXT);
 CREATE TABLE IF NOT EXISTS wx_obs (device_id BIGINT, ts BIGINT, wind_lull DOUBLE, wind_avg DOUBLE, wind_gust DOUBLE, wind_dir DOUBLE, wind_interval DOUBLE, pressure DOUBLE, temp DOUBLE, humidity DOUBLE, illuminance DOUBLE, uv DOUBLE, solar DOUBLE, rain DOUBLE, precip_type INTEGER, strike_dist DOUBLE, strike_count INTEGER, battery DOUBLE, report_interval INTEGER, PRIMARY KEY (device_id, ts));
 CREATE TABLE IF NOT EXISTS wx_events (device_id BIGINT, ts BIGINT, kind TEXT, value DOUBLE, energy DOUBLE, PRIMARY KEY (device_id, ts, kind));
+CREATE TABLE IF NOT EXISTS qc_rtma (device_id BIGINT, ts BIGINT, hgt DOUBLE, pres DOUBLE, t DOUBLE, td DOUBLE, u DOUBLE, v DOUBLE, gust DOUBLE, tcdc DOUBLE, PRIMARY KEY (device_id, ts));
+CREATE TABLE IF NOT EXISTS qc_radar (device_id BIGINT, ts BIGINT, dbz DOUBLE, dbz_near DOUBLE, PRIMARY KEY (device_id, ts));
+CREATE TABLE IF NOT EXISTS qc_glm (device_id BIGINT, ts BIGINT, lat DOUBLE, lon DOUBLE, km DOUBLE, bearing DOUBLE, PRIMARY KEY (device_id, ts, lat, lon));
+CREATE TABLE IF NOT EXISTS qc_alerts (device_id BIGINT, id TEXT, event TEXT, onset BIGINT, ends BIGINT, first_seen BIGINT, last_seen BIGINT, PRIMARY KEY (device_id, id));
+CREATE TABLE IF NOT EXISTS qc_fronts (valid BIGINT PRIMARY KEY, analysis TEXT);
+CREATE TABLE IF NOT EXISTS qc_runs (device_id BIGINT, suite TEXT, run_at BIGINT, start BIGINT, "end" BIGINT, status TEXT, metrics TEXT, PRIMARY KEY (device_id, suite, run_at));
 CREATE TABLE IF NOT EXISTS aprs_positions (callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, altitude DOUBLE, speed DOUBLE, course DOUBLE, symbol TEXT, comment TEXT, path TEXT, raw TEXT, PRIMARY KEY (callsign, ts));
 CREATE TABLE IF NOT EXISTS aprs_igate (igate TEXT, callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, direct BOOLEAN, format TEXT, path TEXT, raw TEXT);
 CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT, created_at BIGINT, updated_at BIGINT);

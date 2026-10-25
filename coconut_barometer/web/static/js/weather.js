@@ -4,6 +4,7 @@
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, useMemo, api, num, ago, toast, useThemeTick, shade, ramp, logShare, every, signedIn } from "./lib.js";
 import { WxMap } from "./weather_map.js";
+import { StationQc } from "./weather_qc.js";
 import { unitsFor, fmt, show, compass } from "./units.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -698,5 +699,6 @@ export function WxStations() {
 
 export function Weather({ tab = "live", params = {} }) {
   return tab === "history" ? html`<${History} params=${params} />` : tab === "records" ? html`<${Records} />`
-    : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />` : html`<${Live} />`;
+    : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />`
+    : tab === "qc" ? html`<${StationQc} />` : html`<${Live} />`;
 }

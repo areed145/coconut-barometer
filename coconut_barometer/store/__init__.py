@@ -41,6 +41,9 @@ Tables
   secrets          API keys, AES-GCM encrypted with a key kept outside the database
   settings_log     who changed which setting when (secrets masked)
   wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
+  qc_rtma, qc_radar, qc_glm, qc_alerts  station QC's reference samples at each station (RTMA every 15 minutes,
+                   radar every frame, GLM flashes within reach, NWS alerts covering it); qc_fronts: WPC's analyses
+                   near the stations; qc_runs: each check's results (weather/qc/)
   aprs_positions   each position packet heard from a tracked callsign
   aprs_igate       each packet APRS-IS credits the igate with gating: who, where (if it said), heard direct or not
   site_hits        each page view of this site (no IPs: a visitor is a hash salted per day), for visitors.keep_days
@@ -58,6 +61,7 @@ from .db import SCHEMA_VERSION, Database, SchemaTooNew
 from .engagement import EngagementStore
 from .gallery import GalleryStore
 from .library import LibraryStore
+from .qc import QcStore
 from .queue import QueueStore
 from .settings import SettingsStore
 from .stats import StatsStore
@@ -68,7 +72,7 @@ __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore, AlertsStore,
-            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, AprsStore, VisitorsStore):
+            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, QcStore, AprsStore, VisitorsStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

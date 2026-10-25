@@ -179,6 +179,22 @@ def _hazards(now) -> dict:
     return _feed("hazards", "Watches & warnings", hazards, now, describe=describe)
 
 
+def _qc(rt, db, now) -> dict:
+    """Station QC's sampling (#105): signed in only, like the stations' details."""
+    if not rt.cfg["qc"]["enabled"]:
+        return row("qc", "Station QC", "off", "turned off", href="#/settings/weather")
+    newest = db.qc_sampled()["rtma"]["newest"]
+    down = {k: e for k, e in rt.qc.errors.items() if e}
+    late = newest is None or now - newest > 2 * 3600
+    fill = rt.qc.backfill
+    state = (f"RTMA sampled {_ago(now, newest)}" if newest else "no RTMA samples yet") + (
+        f" · filling in the past, at {time.strftime('%b %d', time.gmtime(fill['to']))}" if fill.get("to") and not fill.get("done") else "")
+    if down:
+        state += f" · {', '.join(down)} failing"
+    return row("qc", "Station QC", "warn" if down or (late and db.qc_stations()) else "ok", state,
+               "; ".join(f"{k}: {e}" for k, e in down.items()) or None, "#/weather/qc", newest)
+
+
 def _radar(rt, now) -> dict:
     snap = rt.radar.snapshot()
     if rt.radar.checked_at is None:
@@ -245,7 +261,8 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
         return hit[1]
     rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
     if me is not None:
-        rows += [_cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now), _visitors(rt, now), _error_reports(now)]
+        rows += [_qc(rt, db, now), _cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now),
+                 _visitors(rt, now), _error_reports(now)]
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]

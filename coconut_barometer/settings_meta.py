@@ -160,6 +160,21 @@ META = {
     "weatherflow.backfill_days": _m("weather", "History to fetch (days)", "How far back the REST sync reaches, one "
                                     "request per day per station. Raise it later to fill in older days; it only "
                                     "fetches what's missing."),
+    "qc.enabled": _m("weather", "Check the stations", "Compare each station with independent data around it "
+                     "(NOAA's RTMA analysis, radar, satellite lightning, NWS alerts) every few minutes, and run the "
+                     "checks on Weather → QC. Reading only: nothing is sent.", group="Station QC"),
+    "qc.backfill_days": _m("weather", "Fill in the past (days)", "On first run, the RTMA analysis for this many days "
+                           "back is read from NOAA's archive (hourly), so the checks have something to go on at once.",
+                           group="Station QC"),
+    "qc.keep_days": _m("weather", "Keep samples (days)", "The reference samples and check results are kept this "
+                       "long.", group="Station QC"),
+    "qc.window_days": _m("weather", "Check over (days)", "How far back each check looks.", group="Station QC"),
+    "qc.min_pairs": _m("weather", "Readings needed", "A check with fewer readings to compare than this says \"not "
+                       "enough data\" rather than pass or fail. RTMA is every 15 minutes: 96 is a day.", group="Station QC"),
+    "qc.temp_bias_warn": _m("weather", "Temperature: warn at (°C)", "The station's average difference from RTMA, "
+                            "after allowing for the height difference between the station and the analysis.",
+                            group="Station QC"),
+    "qc.temp_bias_fail": _m("weather", "Temperature: fail at (°C)", group="Station QC"),
 
     # ---- APRS
     "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "
