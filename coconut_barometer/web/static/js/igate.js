@@ -248,6 +248,7 @@ function Polar({ s, units }) {
   const top = Math.max(...s.rows.map((r) => r.fit?.effective_km || 0), 1) * k;
   const step = [1, 2, 5].flatMap((m) => [1, 10, 100, 1000].map((p) => m * p)).sort((a, b) => a - b).find((x) => top / x <= 4);
   const max = Math.ceil(top / step) * step, scale = (km) => (km * k * R) / max;
+  const rings = s.rows.some((r) => r.fit) ? Array.from({ length: max / step }, (_, i) => (i + 1) * step) : [];   // no fit: no scale
   const xy = (deg, r) => [c + r * Math.sin((deg * Math.PI) / 180), c - r * Math.cos((deg * Math.PI) / 180)];
   const wedge = (from, r) => {
     const [x1, y1] = xy(from, r), [x2, y2] = xy(from + w, r);
@@ -257,14 +258,14 @@ function Polar({ s, units }) {
   const line = (run) => run.map(([deg, km], i) => `${i ? "L" : "M"}${xy(deg, scale(km)).map((v) => v.toFixed(1)).join(",")}`).join(" ")
     + (half.closed ? " Z" : "");
   return html`<svg class="igatepolar" viewBox=${`0 0 ${size} ${size}`} role="img" aria-label="Effective range by direction">
-    ${Array.from({ length: max / step }, (_, i) => (i + 1) * step).map((v) => html`<g key=${v}>
+    ${rings.map((v) => html`<g key=${v}>
       <circle cx=${c} cy=${c} r=${(v * R) / max} class="ring" />
 </g>`)}
     ${s.rows.map((r) => html`<path key=${r.sector} d=${wedge((r.sector - 0.5) * w, r.fit ? scale(r.fit.effective_km) : R)}
       class=${r.fit ? "wedge" : "wedge thin"}><title>${direction(r.sector, n)}: ${r.fit
         ? `effective range ${len(units, r.fit.effective_km)}, ${num(r.n)} packets` : `not enough data (${num(r.n)} packets)`}</title></path>`)}
     ${half.runs.map((run, i) => html`<path key=${i} d=${line(run)} class="half" />`)}
-    ${Array.from({ length: max / step }, (_, i) => (i + 1) * step).map((v) => html`<text key=${v} x=${c + 3}
+    ${rings.map((v) => html`<text key=${v} x=${c + 3}
       y=${c - (v * R) / max + 11} class="tick">${v} ${unit}</text>`)}
     ${[["N", 0], ["E", 90], ["S", 180], ["W", 270]].map(([t, deg]) => {
       const [x, y] = xy(deg, R + 12);
