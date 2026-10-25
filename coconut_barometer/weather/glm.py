@@ -208,18 +208,15 @@ class Lightning(Feed):
 # spread over SIGMA_KM (a Gaussian), giving how much lightning there was around each point (its density) and how long
 # ago, each flash's age weighted toward the newest (HALF_LIFE), so a storm still going is "now" even if it began 15
 # minutes ago. Where there was lightning is where the density is at least EDGE of a lone flash's peak, so a lone strike
-# still shows. That's traced (contourpy) as radar's levels are (shapes.py's format):
-#   bands  FRESH levels of how recent, oldest first, each where there was lightning at least that recent, every one
-#          cut by the same edge; colored in the browser from Settings → Display → Lightning colors at its `age`
-#   cores  where flashes crowd: CORES times a lone flash's peak, drawn lighter over the bands
-# Both fields are smooth, so each level is traced on min(one, the other) rather than one masked by the other: no edge
-# steps along the grid. Zoomed out the grid is coarser and the spread wider, as radar's coarse level is.
+# still shows. That's traced (contourpy) as radar's levels are (shapes.py's format): FRESH levels of how recent, oldest
+# first, each where there was lightning at least that recent, every one cut by the same edge, colored in the browser
+# from Settings → Display → Lightning colors at its `age`. Both fields are smooth, so each level is traced on
+# min(one, the other) rather than one masked by the other: no edge steps along the grid. Zoomed out the grid is coarser and the spread wider, as radar's coarse level is.
 TRAIL = 15 * 60                         # the map's: seconds of lightning shown up to its time
 GRID = {"fine": 0.01, "coarse": 0.04}   # degrees per density cell: ~1 km zoomed in, ~4 km out
 SHAPE_Q = {"fine": 1000, "coarse": 200}
 SIGMA_KM = {"fine": 8, "coarse": 20}    # a flash's spread: about a GLM pixel; wider zoomed out, where that's under a pixel
 EDGE = 0.4                              # where there was lightning: this much of a lone flash's peak density
-CORES = (3, 10)                         # ... and where it crowds, in lone flashes' peaks
 FRESH = 8                               # freshness levels, oldest to newest
 HALF_LIFE = 60                          # an older flash counts half as much toward a place's age every minute
 SHAPES_KEPT = 120
@@ -253,12 +250,12 @@ def _traced(field: np.ndarray, xs: np.ndarray, ys: np.ndarray, bbox: tuple, q: i
 
 def shapes_text(data: dict | None, t: float, bbox: tuple, level: str) -> str:
     """The lightning of the TRAIL up to `t` in `bbox` (west, south, east, north) at `level`, as JSON text:
-    {t, level, q, bands: [{age, polys}] (oldest first), cores: [{core, polys}] (the lightest first)}."""
+    {t, level, q, bands: [{age, polys}] (oldest first)}."""
     from scipy import ndimage
 
     q, res = SHAPE_Q[level], GRID[level]
     head = f'{{"t":{int(t)},"level":"{level}","q":{q},'
-    empty = head + '"bands":[],"cores":[]}'
+    empty = head + '"bands":[]}'
     if not data or not len(data["t"]):
         return empty
     w, s, e, n = bbox
@@ -295,12 +292,7 @@ def shapes_text(data: dict | None, t: float, bbox: tuple, level: str) -> str:
         polys = _traced(np.minimum(there, (fresh - r) * 4) if k else there, xs, ys, bbox, q, min_area)
         if polys:
             bands.append(f'{{"age":{round((1 - r) * TRAIL)},"polys":[{",".join(polys)}]}}')
-    cores = []
-    for i, c in enumerate(CORES):
-        polys = _traced(density / (c * lone) - 1, xs, ys, bbox, q, min_area)
-        if polys:
-            cores.append(f'{{"core":{i + 1},"polys":[{",".join(polys)}]}}')
-    return head + f'"bands":[{",".join(bands)}],"cores":[{",".join(cores)}]}}'
+    return head + f'"bands":[{",".join(bands)}]}}'
 
 
 def _area(ring: np.ndarray) -> float:
