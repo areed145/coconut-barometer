@@ -28,7 +28,7 @@ import { decodeGrid, temperatureCanvas, windCanvas, tempScale, windScale, TEMP_R
 import { lightningCanvas, lightningScale, mergeMinutes, ageStops, TRAIL } from "./lightning_layer.js";
 import { rampColor } from "./ramp.js";
 import { linesCanvas, loadLines } from "./lines_layer.js";
-import { loopWindow } from "./wx_loop.js";
+import { loopWindow, satAt } from "./wx_loop.js";
 import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
 
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -106,9 +106,6 @@ function reportError(source, error) {
         stack: stack.slice(0, 6000) }) }).catch(() => {});
   } catch { /* reporting must never be the next error */ }
 }
-
-// The newest frame at or before `t` (or the oldest, when all are later).
-const frameAt = (frames, t) => frames.reduce((best, f) => (f.t <= t + 150 ? f : best), frames[0]);
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -294,10 +291,11 @@ export function WxMap({ show, unitsFor, compass }) {
         attribution: 'Satellite: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a> · NOAA GOES-East' }));
   }, [ready, info, sat]);
 
-  // One timeline for every layer shown (wx_loop.js): with radar and satellite, the hour ending at the newest satellite
-  // frame; radar alone, its last hour; satellite alone, all its frames. Each layer shows its newest frame at or before
-  // the time picked (or its first, never nothing). idx null is now: the live radar and the newest satellite frame,
-  // so the radar's past is only fetched once the loop is played or scrubbed.
+  // One timeline for every layer shown (wx_loop.js): with radar, its last hour up to its newest frame, however far
+  // behind the satellite is (#103); satellite alone, all its frames. Each layer shows its newest frame at or before
+  // the time picked: the radar's first if none is, the satellite's none if it's over SAT_STALE behind. idx null is
+  // now: the live radar and the newest satellite frame, so the radar's past is only fetched once the loop is played
+  // or scrubbed.
   const loopWin = loopWindow(radarOn ? times.filter((t) => !gone.current.has(t)) : [], satFrames.map((f) => f.t));
   const timeline = loopWin.times, radarTimes = loopWin.radar;
   const at = timeline.length ? Math.min(idx ?? timeline.length - 1, timeline.length - 1) : -1;
@@ -311,7 +309,8 @@ export function WxMap({ show, unitsFor, compass }) {
   const lastColors = useRef(DEFAULT_STOPS);
   if (live_?.colors?.length) lastColors.current = live_.colors;
   const colors = lastColors.current;
-  const shownSat = satFrames.length && t != null ? frameAt(satFrames, t) : null;
+  const looping = playing || idx != null;
+  const shownSat = !satFrames.length || t == null ? null : looping ? satAt(satFrames, t) : satFrames[satFrames.length - 1];
 
   // Lightning for the view, every minute while it's shown: from the TRAIL before the timeline's start (or now), then
   // only the last two minutes on (their files may have come in since), all of it again while the server is still
@@ -421,7 +420,7 @@ export function WxMap({ show, unitsFor, compass }) {
     if (when == null) return false;
     const rt = radarAt(when);
     if (rt != null && !frameOf(rt)) return false;
-    const s = satFrames.length ? frameAt(satFrames, when) : null;
+    const s = satAt(satFrames, when);
     const layer = s && tiles.current.sat.get(`${sat}:${s.time}`);
     return !layer?.isLoading?.();
   };
@@ -576,7 +575,11 @@ export function WxMap({ show, unitsFor, compass }) {
   const frontsAt = showFronts && fronts?.valid && `fronts ${new Date(fronts.valid * 1000).getUTCHours().toString().padStart(2, "0")}Z`;
   const surfaceAt = (showTemp || showWind) && (tempGrid || windGrid)?.valid;
   const glmState = showGlm ? glmHeld.current.state : null;
-  const detail = [radarOn && vector?.t && `radar ${clock(vector.t)}`, shownSat && `satellite ${clock(shownSat.t)}`, frontsAt,
+  // The satellite's time, or how far behind the time shown it is when that's more than a frame or two (#103).
+  const satBehind = shownSat && Math.round(((looping ? t : Date.now() / 1000) - shownSat.t) / 60);
+  const satLabel = satFrames.length && (!shownSat ? "satellite over an hour behind"
+    : satBehind > 15 ? `satellite ${satBehind} min old` : `satellite ${clock(shownSat.t)}`);
+  const detail = [radarOn && vector?.t && `radar ${clock(vector.t)}`, satLabel, frontsAt,
     surfaceAt && `surface ${clock(surfaceAt)}`, glmState?.newest && `lightning ${clock(Math.min(glmAt ?? Infinity, glmState.newest + 20))}`]
     .filter(Boolean).join(" · ") || "no imagery";
   const gap = sat && loopWin.end ? Date.now() / 1000 - loopWin.end : 0;
