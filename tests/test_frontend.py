@@ -243,30 +243,46 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["freezing"], "#4fc3f7")                        # 32 °F is a stop of its own
 
     @unittest.skipUnless(NODE, "needs Node")
-    def test_the_loop_is_the_hour_both_radar_and_satellite_cover(self):
-        """#74: radar kept from ~2¼ h ago up to now, satellite ending 40 min ago (GIBS is late)."""
+    def test_the_loop_runs_to_the_newest_radar_however_late_the_satellite(self):
+        """#103 (was #74): radar kept from ~2¼ h ago up to now; the satellite 40 minutes behind (GIBS is late), or
+        3 hours behind. The loop is the radar's last hour either way, and a satellite frame is shown only while it's
+        within SAT_STALE of the step."""
         script = r"""
-          import { loopWindow, LOOP } from "%s";
+          import { loopWindow, satAt, LOOP, SAT_STALE } from "%s";
           const now = 1_800_000_000, every = (from, to, step) => { const a = []; for (let t = from; t <= to; t += step) a.push(t); return a; };
-          const radar = every(now - 134 * 60, now, 120), sat = every(now - 130 * 60, now - 40 * 60, 600);
-          const latest = (a, t) => a.filter((x) => x <= t).pop();
-          const both = loopWindow(radar, sat);
-          const alone = loopWindow(radar, []);
-          const filling = loopWindow(every(now - 20 * 60, now, 120), sat);       // radar history just after a deploy
+          const radar = every(now - 134 * 60, now, 120);
+          const late = every(now - 130 * 60, now - 40 * 60, 600), stale = every(now - 5 * 3600, now - 3 * 3600, 600);
+          const frames = (ts) => ts.map((t) => ({ t }));
+          const shown = (sat, w) => w.times.map((t) => satAt(frames(sat), t)?.t ?? null);
+          const lagging = loopWindow(radar, late), behind = loopWindow(radar, stale), alone = loopWindow(radar, []);
+          const filling = loopWindow(every(now - 20 * 60, now, 120), late);      // radar history just after a deploy
           console.log(JSON.stringify({
-            both: [both.end, both.start, both.times[0], both.times.at(-1), both.times.every((t) => latest(radar, t) && latest(sat, t))],
-            alone: [alone.times[0], alone.times.at(-1), alone.times.length === alone.radar.length],
-            satOnly: loopWindow([], sat).times.length === sat.length,
-            filling: [filling.end, filling.times[0]], now, LOOP,
+            lagging: [lagging.start, lagging.end, lagging.times.at(-1), lagging.times.filter((t) => late.includes(t)).length,
+                      shown(late, lagging).at(-1), shown(late, lagging).every((s) => s != null)],
+            behind: [behind.end, behind.times.length === behind.radar.length, shown(stale, behind).every((s) => s == null)],
+            alone: [alone.start, alone.end, alone.times.length === alone.radar.length],
+            satOnly: [loopWindow([], late).times.length === late.length, loopWindow([], late).end],
+            filling: [filling.start, filling.times[0], filling.end],
+            satAt: [satAt(frames(late), now - 40 * 60 - 100)?.t, satAt(frames(late), now - 200 * 60) ?? null, satAt([], now) ?? null],
+            now, LOOP, SAT_STALE,
           }));
         """ % os.path.join(STATIC, "js", "wx_loop.js")
-        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        r = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
         now, hour = out["now"], out["LOOP"]
-        end = now - 40 * 60
-        self.assertEqual(out["both"], [end, end - hour, end - hour, end, True])   # the hour ending at the newest satellite frame
-        self.assertEqual(out["alone"][1] - out["alone"][0] <= hour and out["alone"][1], now)    # radar only: its last hour
-        self.assertTrue(out["alone"][2] and out["satOnly"])
-        self.assertEqual(out["filling"][0], now)                               # no radar in that hour yet: the radar's own
+        self.assertEqual(out["SAT_STALE"], 3600)
+        # 40 minutes behind: the radar's hour, up to now, with the satellite's frames in it as steps (now-60 .. now-40);
+        # its newest is held to the end of the loop, 40 minutes on, and there's one at every step
+        self.assertEqual(out["lagging"], [now - hour, now, now, 3, now - 40 * 60, True])
+        # 3 hours behind: still the radar's hour, nothing of the satellite's in it, and none of it shown
+        self.assertEqual(out["behind"], [now, True, True])
+        self.assertEqual(out["alone"], [now - hour, now, True])                 # radar only: its last hour
+        self.assertEqual(out["satOnly"], [True, now - 40 * 60])                  # satellite only: all of its frames
+        # the radar's history still filling: from its oldest frame, not the satellite's older ones
+        self.assertEqual(out["filling"], [now - 20 * 60, now - 20 * 60, now])
+        # a frame up to 2½ minutes after the step counts as at it; none before the first frame, none from nothing
+        self.assertEqual(out["satAt"], [now - 40 * 60, None, None])
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_lightning_merges_only_whats_new(self):

@@ -285,7 +285,8 @@ export const SPEEDS = [["½×", 1200], ["1×", 600], ["2×", 300]];
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 // timeline: the frame times; at: the index shown (-1: none); live: showing now; loaded(k): frame k ready to show;
-// gap: seconds between the loop's end and now that the satellite hasn't published yet (#74); detail: the small line.
+// gap: seconds between the loop's end and now that the satellite hasn't published yet (#74; satellite only, as with the radar
+// the loop runs to now, #103); detail: the small line.
 export function LoopBar({ timeline, at, live, time, detail, playing, speed, loaded, gap, onPlay, onStep, onSeek, onNow, onSpeed }) {
   const [more, setMore] = useState(false);
   const n = timeline.length, can = n > 1;
