@@ -7,7 +7,11 @@ KJ4TFD-3*), so distance counts direct packets only unless asked otherwise.
 
 Effective range comes from a Weibull fit to the distances' cumulative share: ln(-ln(1 - F)) against ln(r)
 is a straight line for a Weibull, so a least-squares line gives the shape k and the scale λ, and the
-distance holding a share q of the packets is λ·(-ln(1 - q))^(1/k). Effective range is the fitted 90%."""
+distance holding a share q of the packets is λ·(-ln(1 - q))^(1/k). Effective range is the fitted 90%.
+
+What kind of station a sender is comes from its symbol (table + code): the code alone for the ones any table
+draws the same (# a digi, & an igate, _ weather), the primary table's vehicles and houses, and the alternate
+table's few vehicles. Overlays (a letter or digit in place of "\\") count as the alternate table."""
 from __future__ import annotations
 
 import math
@@ -17,6 +21,46 @@ GATED = {"qAR", "qAr", "qAO", "qAo"}         # gated from RF (verified or not); 
 LOCATION = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 GRID = re.compile(r"^[A-R]{2}[0-9]{2}([A-X]{2})?$", re.I)
 EFFECTIVE = 0.9
+HIGHEST_M = 60_000      # an altitude above this is a typo or a broken encoder, not a balloon
+
+# Station types, in the order the page lists them.
+TYPES = ("mobile", "home", "weather", "digi", "igate", "balloon", "object", "other")
+MOBILE = set(">kuvj<bRUafPsYC'^X=[")       # primary table: cars, trucks, bikes, boats, aircraft, a person…
+MOBILE_ALT = set(">kuvs^")                   # alternate table: the vehicles (with an overlay)
+HOME = set("-y")                             # primary: a house, a house with a yagi
+BY_CODE = {"#": "digi", "&": "igate", "_": "weather", "O": "balloon"}   # O: a balloon, or (alternate) a rocket
+
+
+def details(packet: dict) -> dict:
+    """What aprs_igate keeps beyond where and how: altitude (m, if believable), symbol, comment and tocall.
+    Mic-E hides its tocall in the destination's latitude, so it has none."""
+    alt = packet.get("altitude")
+    return {"altitude": alt if alt is not None and -500 < alt < HIGHEST_M else None,
+            "symbol": ((packet.get("symbol_table") or "") + (packet.get("symbol") or "")) or None,
+            "comment": ((packet.get("comment") or packet.get("status") or "").strip()[:200]) or None,
+            "tocall": None if packet.get("format") == "mic-e" else (packet.get("to") or header_tocall(packet.get("raw") or "")) or None}
+
+
+def header_tocall(line: str) -> str:
+    head = line.split(":", 1)[0]
+    return head.split(">", 1)[1].split(",")[0] if ">" in head else ""
+
+
+def station_type(symbol: str | None, weather: bool = False, objects_only: bool = False) -> str:
+    """One of TYPES, from a station's newest symbol (its objects' and items' aside). `weather`: it sent a
+    positionless weather report; `objects_only`: all it sent were objects and items."""
+    if objects_only:
+        return "object"
+    if not symbol or len(symbol) != 2:
+        return "weather" if weather else "other"
+    table, code = symbol
+    if code in BY_CODE:
+        return BY_CODE[code]
+    if code in (MOBILE if table == "/" else MOBILE_ALT):
+        return "mobile"
+    if (code in HOME and table == "/") or code == "-":      # an alternate-table house carries an overlay
+        return "home"
+    return "weather" if weather else "other"
 
 
 def gated_by(path: list[str]) -> tuple[str, bool] | None:

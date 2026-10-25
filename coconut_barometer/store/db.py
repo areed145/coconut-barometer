@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS qc_fronts (valid BIGINT PRIMARY KEY, analysis TEXT);
 CREATE TABLE IF NOT EXISTS qc_flags (device_id BIGINT, suite TEXT, start BIGINT, "end" BIGINT, what TEXT);
 CREATE TABLE IF NOT EXISTS qc_runs (device_id BIGINT, suite TEXT, run_at BIGINT, start BIGINT, "end" BIGINT, status TEXT, metrics TEXT, PRIMARY KEY (device_id, suite, run_at));
 CREATE TABLE IF NOT EXISTS aprs_positions (callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, altitude DOUBLE, speed DOUBLE, course DOUBLE, symbol TEXT, comment TEXT, path TEXT, raw TEXT, PRIMARY KEY (callsign, ts));
-CREATE TABLE IF NOT EXISTS aprs_igate (igate TEXT, callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, direct BOOLEAN, format TEXT, path TEXT, raw TEXT);
+CREATE TABLE IF NOT EXISTS aprs_igate (igate TEXT, callsign TEXT, ts BIGINT, lat DOUBLE, lon DOUBLE, direct BOOLEAN, format TEXT, path TEXT, raw TEXT, altitude DOUBLE, symbol TEXT, comment TEXT, tocall TEXT);
 CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password_hash TEXT, created_at BIGINT, updated_at BIGINT);
 CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, username TEXT, csrf TEXT, created_at BIGINT, expires_at BIGINT, last_seen BIGINT, ip TEXT, user_agent TEXT);
 CREATE TABLE IF NOT EXISTS settings (path TEXT PRIMARY KEY, value TEXT, updated_at BIGINT, updated_by TEXT);
@@ -179,7 +179,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def is_sqlite_file(path) -> bool:
@@ -243,8 +243,37 @@ class Database:
             self.db.execute("ALTER TABLE photos ADD COLUMN IF NOT EXISTS geo_public INTEGER")
         if 0 < version < 11:                    # v11: tags are proposed as one list: the "add these" proposals in review
             self._whole_tag_lists()             # become the photo's whole list (its tags plus those)
+        if 0 < version < 15:                    # v15: the igate's packets keep altitude, symbol, comment and tocall
+            self._igate_details()               # (#118), read again from each one's raw packet
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
+
+    def _igate_details(self) -> None:
+        import warnings
+
+        from ..aprs.igate import details
+
+        with warnings.catch_warnings():     # aprslib's invalid escapes, as in aprs/stream.py
+            warnings.simplefilter("ignore", SyntaxWarning)
+            import aprslib
+        for col, kind in (("altitude", "DOUBLE"), ("symbol", "TEXT"), ("comment", "TEXT"), ("tocall", "TEXT")):
+            self.db.execute(f"ALTER TABLE aprs_igate ADD COLUMN IF NOT EXISTS {col} {kind}")
+        rows = []
+        for rowid, raw in self.db.execute("SELECT rowid, raw FROM aprs_igate WHERE raw IS NOT NULL").fetchall():
+            try:
+                p = aprslib.parse(raw)
+            except Exception:
+                p = {"raw": raw}            # unreadable when it came: its tocall from the header, nothing else
+            d = details(p)
+            rows.append((rowid, d["altitude"], d["symbol"], d["comment"], d["tocall"]))
+        if not rows:
+            return
+        with self.db:
+            self.db.execute("CREATE TEMP TABLE igate_details (rid BIGINT, altitude DOUBLE, symbol TEXT, comment TEXT, tocall TEXT)")
+            self.db.executemany("INSERT INTO igate_details VALUES (?, ?, ?, ?, ?)", rows)
+            self.db.execute("UPDATE aprs_igate SET altitude = d.altitude, symbol = d.symbol, comment = d.comment, "
+                            "tocall = d.tocall FROM igate_details d WHERE aprs_igate.rowid = d.rid")
+            self.db.execute("DROP TABLE igate_details")
 
     def _whole_tag_lists(self) -> None:
         """Each add_tags proposal of a photo waiting in review, as a set_tags of its tags plus the ones it added

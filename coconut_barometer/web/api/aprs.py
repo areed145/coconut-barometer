@@ -1,10 +1,12 @@
 """The APRS page: the tracked callsigns' newest positions, their tracks, and their recent packets; and the
-igate's analytics. Public."""
+igate's analytics, each section its own request so the page loads them as it draws them. Public."""
 from __future__ import annotations
 
 import math
 import re
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -99,3 +101,23 @@ def igate(start: int | None = None, end: int | None = None, hours: float = Query
                  "fit": weibull_fit(width, counts, q["n"])}
     out |= {"distance": dist, "farthest": db.igate_farthest(at, gate, start, end, direct)}
     return out
+
+
+def _utc_offset(db, at: int) -> int:
+    """Seconds east of UTC at `at`, in the first weather station's zone (as Home's month), for local days."""
+    zone = next((s["timezone"] for s in db.wx_stations() if s.get("timezone")), None)
+    return int(datetime.fromtimestamp(at, ZoneInfo(zone or "UTC")).utcoffset().total_seconds())
+
+
+@router.get("/igate/stations")
+def igate_stations(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
+                   rt=Depends(runtime), db=Depends(store)):
+    """Who the igate heard over the window (#118): each station with its type, whether it's new or a regular, and
+    how far it usually is; the count of each type; and stations and new stations per day (or week)."""
+    gate = rt.aprs.igate()
+    start, end = _window(start, end, hours)
+    out = {"igate": gate, "units": rt.cfg["display"]["units"], "start": start, "end": end}
+    if not gate:
+        return out
+    home = igate_home(rt, db, gate)
+    return out | db.igate_stations((home["lat"], home["lon"]) if home else None, gate, start, end, _utc_offset(db, end))

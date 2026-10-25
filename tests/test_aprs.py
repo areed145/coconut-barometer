@@ -10,10 +10,10 @@ from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer.aprs.service import AprsService
-from coconut_barometer.aprs.igate import bin_width, gated_by, grid_center, parse_location, weibull_fit
+from coconut_barometer.aprs.igate import bin_width, details, gated_by, grid_center, parse_location, station_type, weibull_fit
 from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle, server_filter
 from coconut_barometer.config import from_dict, validate
-from coconut_barometer.store import Store
+from coconut_barometer.store import SCHEMA_VERSION, Store
 from coconut_barometer.web.app import create_app
 from coconut_barometer.web.security import hash_password
 
@@ -168,6 +168,53 @@ class IgateTest(unittest.TestCase):
                              from_dict({**CFG, "aprs": {"igate": "no good", "igate_location": "nowhere"}}))
         self.assertEqual(len([e for e in errors if e.startswith("aprs.igate")]), 2)
 
+    def test_station_types_from_the_symbol(self):
+        cases = {"/>": "mobile", "/k": "mobile", "\\>": "mobile", "/-": "home", "\\-": "home", "/y": "home",
+                 "/_": "weather", "/#": "digi", "S#": "digi", "/&": "igate", "I&": "igate", "/O": "balloon",
+                 "\\O": "balloon", "/r": "other", "\\a": "other", None: "other"}
+        self.assertEqual({s: station_type(s) for s in cases}, cases)
+        self.assertEqual((station_type(None, weather=True), station_type("/>", objects_only=True)), ("weather", "object"))
+
+    def test_details_kept_for_each_gated_packet(self):
+        self.handle(gated(info="!3016.20N/09744.40WO/A=040000 pico"))
+        self.handle(f"N5XYZ-9>T2SP0W,WIDE1-1,qAR,{GATE}:`|aEl!Pk/`\"4V}}_%", now=NOW + 1)     # Mic-E: no tocall
+        self.handle(gated(info=">just a status"), now=NOW + 2)
+        rows = self.store.db.execute("SELECT altitude, symbol, comment, tocall FROM aprs_igate ORDER BY ts").fetchall()
+        self.assertEqual([tuple(r) for r in rows], [(12192.0, "/O", "pico", "APRS"), (63.0, "/k", "`_%", None),
+                                                    (None, None, "just a status", "APRS")])
+        self.assertIsNone(details({"altitude": 999_999})["altitude"])
+
+    def test_the_v15_migration_reads_old_rows_again(self):
+        self.handle(gated(info="!3016.20N/09744.40W>/A=000500 car"))
+        self.store.db.execute("UPDATE aprs_igate SET altitude = NULL, symbol = NULL, comment = NULL, tocall = NULL")
+        self.store.set_meta("schema_version", 14)
+        again = Store(self.store.path)
+        row = again.db.execute("SELECT altitude, symbol, comment, tocall FROM aprs_igate").fetchone()
+        self.assertEqual((round(row[0]), row[1], row[2], row[3]), (152, "/>", "car", "APRS"))
+        self.assertEqual(int(again.get_meta("schema_version")), SCHEMA_VERSION)
+
+    def test_stations_heard_new_regular_and_by_type(self):
+        day = 86400
+        for d in range(10):                                          # a regular, heard every day for ten days
+            self.handle(gated(call="N5REG-9"), now=NOW - d * day)
+        self.handle(gated(call="N5OLD-1", info="!3016.20N/09744.40W-home"), now=NOW - 20 * day)   # heard before the window
+        self.handle(gated(call="N5OLD-1", info="!3016.20N/09744.40W-home"), now=NOW)
+        self.handle(gated(call="N5WX", info="_10090556c220s004g005t077r000p000P000h50b09900wRSW"), now=NOW)
+        self.handle(gated(call="N5OBJ", info=";OBJ      *111111z3016.20N/09744.40W>obj"), now=NOW)
+        s = self.store.igate_stations((30.0, -97.0), GATE, NOW - 2 * day, NOW)
+        by = {x["callsign"]: x for x in s["stations"]}
+        self.assertEqual(list(by), ["N5REG-9", "N5OBJ", "N5OLD-1", "N5WX"])
+        self.assertEqual({c: (x["type"], x["new"], x["regular"]) for c, x in by.items()},
+                         {"N5REG-9": ("mobile", False, True), "N5OLD-1": ("home", False, False),
+                          "N5WX": ("weather", True, False), "N5OBJ": ("object", True, False)})
+        self.assertEqual((s["count"], s["new"], s["regular"], s["types"]["mobile"], s["types"]["other"]), (4, 2, 1, 1, 0))
+        self.assertAlmostEqual(by["N5REG-9"]["km"], 77, delta=1)      # 30.27N 97.74W from 30N 97W
+        self.assertIsNone(by["N5WX"]["km"])                            # no position, no distance
+        self.assertEqual(s["bucket"], day)
+        self.assertEqual(sum(n for _, n, _new in s["days"]), 2 + 4)     # NOW - 2 days: N5REG; NOW - 1: N5REG; NOW: all 4
+        self.assertEqual(sum(new for *_, new in s["days"]), 2)
+        self.assertIsNone(self.store.igate_stations(None, GATE, NOW - day, NOW)["stations"][0]["km"])
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
@@ -227,6 +274,11 @@ class AprsApiTest(unittest.TestCase):
         everything = self.c.get("/api/aprs/igate", params={"hours": 24, "direct": "false", "count": "stations"}).json()
         self.assertEqual((everything["distance"]["n"], round(everything["distance"]["max_km"])), (4, 111))
         self.assertEqual(self.c.get("/api/aprs/igate", params={"cell": "bogus"}).status_code, 422)
+
+    def test_igate_stations(self):
+        s = self.c.get("/api/aprs/igate/stations", params={"hours": 24}).json()
+        self.assertEqual((s["igate"], s["count"], s["new"]), (GATE, 4, 4))
+        self.assertEqual({x["type"] for x in s["stations"]}, {"mobile"})
 
 
 if __name__ == "__main__":

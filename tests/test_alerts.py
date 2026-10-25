@@ -84,6 +84,21 @@ class AlertsTest(Base):
         self.store.aprs_save(packet, self.now + 30)
         self.assertEqual(self.alerts.check(self.store, self.now + 60), [])
 
+    def test_the_igate_hears_a_balloon(self):
+        self.alerts.igate = lambda: "WA5DTR-15"
+        self.cfg["alerts"]["igate_altitude_km"] = 5
+        save = lambda alt, ts, call="KD5BAL-11": self.store.igate_save(
+            "WA5DTR-15", {"from": call, "latitude": 30.5, "longitude": -97.2, "altitude": alt, "symbol_table": "/", "symbol": "O"}, True, ts)
+        save(4000, self.now - 40, "N5LOW-9")                 # an airliner's height it isn't: under the line
+        save(9000, self.now - 30)
+        save(12000, self.now - 20)
+        a = self.kinds()["altitude"]
+        self.assertEqual((a["key"], a["title"], a["evidence"]["altitude_m"]), ("altitude:KD5BAL-11", "KD5BAL-11 heard at 12.0 km", 12000))
+        self.alerts.since = self.now
+        self.cfg["alerts"]["igate_altitude_km"] = 0
+        save(13000, self.now + 30)
+        self.assertEqual(self.alerts.check(self.store, self.now + 60), [])
+
     def test_zero_turns_one_off(self):
         self.cfg["alerts"]["gust_kmh"] = 0
         self.store.wx_save_obs(11, [obs(self.now - 30, gust=40.0)])

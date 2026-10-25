@@ -112,7 +112,7 @@ export function AlertPage({ at, alertKey }) {
     <div class="card"><h2>Evidence</h2>
       <div class="alert-evidence">${rows.map(([k, v]) => html`<span key=${k}>${label(k)}: ${
         typeof v === "number" ? (k.endsWith("_at") || k.startsWith("window_") ? when(v) : Number.isInteger(v) ? v : v.toFixed(2)) : String(v)}</span>`)}</div>
-      ${e.link && html`<p><a href=${e.link}>${kind === "callsign" ? "Open APRS" : kind === "storm" || kind === "rain" ? "Open the weather map"
+      ${e.link && html`<p><a href=${e.link}>${kind === "callsign" ? "Open APRS" : kind === "altitude" ? "Open the igate" : kind === "storm" || kind === "rain" ? "Open the weather map"
         : "Open the full chart"} →</a></p>`}
     </div>`;
 }

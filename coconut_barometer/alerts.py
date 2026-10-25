@@ -7,6 +7,7 @@ streams have already stored, and sent with push.py to the devices turned on.
     pressure    sea-level pressure down alerts.pressure_drop_hpa or more over 3 hours (the newest observation
                 against the one 3 hours before it, as the Live card shows)
     callsign    a callsign from Settings → APRS heard after alerts.callsign_quiet_hours without a packet
+    altitude    a packet the igate gated from alerts.igate_altitude_km up or higher (a balloon, a flight), per callsign
     storm       a storm cell the NWS radars track (weather/radar.py) of at least alerts.storm_dbz whose path comes
                 within alerts.storm_km of a station in the next alerts.storm_minutes
     rain        rain on radar closing in on a station, due within alerts.rain_minutes
@@ -62,8 +63,8 @@ def _minutes(s: float) -> str:
 
 
 class Alerts:
-    def __init__(self, cfg: dict, callsigns=lambda: [], radar=None):
-        self.cfg, self.callsigns, self.radar = cfg, callsigns, radar
+    def __init__(self, cfg: dict, callsigns=lambda: [], radar=None, igate=lambda: ""):
+        self.cfg, self.callsigns, self.radar, self.igate = cfg, callsigns, radar, igate
         self.since: int | None = None
 
     def check(self, store, now: float | None = None) -> list[dict]:
@@ -121,6 +122,16 @@ class Alerts:
                                 "body": f"Its first packet in {_hours(first - before)}.",
                                 "evidence": {"callsign": call, "first_packet_at": first, "previous_packet_at": before,
                                              "quiet_seconds": first - before}})
+        gate = self.igate()
+        if a["igate_altitude_km"] and gate:
+            for h in store.igate_high(gate, since, now, a["igate_altitude_km"] * 1000):
+                up = f"{h['altitude'] * 3.28084:,.0f} ft" if units == "imperial" else f"{h['altitude'] / 1000:.1f} km"
+                out.append({"key": f"altitude:{h['callsign']}", "url": "/#/aprs/igate",
+                            "title": f"{h['callsign']} heard at {up}",
+                            "body": f"{gate} gated it{'' if h['direct'] else ' through a digipeater'}: a balloon or a flight.",
+                            "evidence": {"callsign": h["callsign"], "igate": gate, "altitude_m": h["altitude"], "observed_at": h["ts"],
+                                         "latitude": h["lat"], "longitude": h["lon"], "direct": h["direct"],
+                                         "threshold_km": a["igate_altitude_km"], "window_start": since, "window_end": now}})
         return out
 
     def _radar(self, store, now: int, units: str) -> list[dict]:
