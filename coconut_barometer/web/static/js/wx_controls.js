@@ -5,15 +5,14 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 
 // ---- remembered per device ------------------------------------------------------------------------------------
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
+// The lightning's style (smooth, blobs or dots) is gone with the choice (#146): it's dots, and a saved one is ignored.
 export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, glm: true,
-  lightningStyle: "smooth", rings: true, temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
+  rings: true, temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
     // The stations' strike rings were "lightning" until GOES lightning came (#94): their choice carries over.
     if (saved.rings === undefined && typeof saved.lightning === "boolean") saved.rings = saved.lightning;
-    // The lightning's style was glmStyle while blobs were the default; smooth shapes are now (#101), dots kept if chosen.
-    if (saved.lightningStyle === undefined && saved.glmStyle === "dots") saved.lightningStyle = "dots";
     return Object.fromEntries(Object.entries(DEFAULT_LAYERS).map(([k, v]) => [k, typeof saved[k] === typeof v ? saved[k] : v]));
   } catch { return { ...DEFAULT_LAYERS }; }
 }
@@ -201,7 +200,6 @@ export const mapboxClass = (fullscreen, extra = "") => `${extra ? extra + " " : 
 // ---- the Layers panel -------------------------------------------------------------------------------------------
 const SATS = [["", "None"], ["geocolor", "Color"], ["infrared", "Infrared"]];
 const BASEMAPS = [["auto", "Auto (theme)"], ["light", "Light"], ["dark", "Dark"]];
-const GLM_STYLES = [["smooth", "Smooth"], ["blobs", "Blobs"], ["dots", "Dots"]];
 const FOCUSABLE = "button, input, a[href]";
 
 // What's on, for the closed button.
@@ -261,9 +259,6 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         ${check("hazardsMinor", "with advisories & marine", !layers.hazards, "wxlayer wxsub")}
         ${check("fronts", "Fronts")}
         ${check("glm", "Lightning")}
-        <span class="wxradios wxsub" role="radiogroup" aria-label="Lightning style">${GLM_STYLES.map(([k, l]) => html`<label key=${k}>
-          <input type="radio" name="wxglm" checked=${layers.lightningStyle === k} disabled=${!layers.glm} onChange=${() => set({ lightningStyle: k })} />
-          <span>${l}</span></label>`)}</span>
         ${check("rings", `Station strikes${strikes ? ` (${strikes})` : ""}`)}
         <h3>Surface</h3>
         <div class="wxrow">${check("temp", "Temperature")}${slider("tempOpacity", "Temperature opacity", !layers.temp)}</div>

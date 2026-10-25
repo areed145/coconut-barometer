@@ -330,16 +330,17 @@ def glm_lightning(bbox: str | None = Query(None, max_length=100), zoom: float | 
     return {**glm.view(_bbox(bbox), zoom, since), "colors": rt.cfg["theme"]["lightning_colors"]}
 
 
-@router.get("/glm/shapes")
-def glm_shapes(bbox: str = Query(..., max_length=100), zoom: float | None = Query(None, ge=0, le=24),
-               t: int | None = Query(None, ge=0), rt=Depends(runtime)):
-    """The Map tab's lightning as smooth shapes, the way the radar's are (weather/glm.py shapes()): where there was
-    lightning in the 15 minutes up to `t` (default now), in levels of how recent, oldest first."""
-    from ...weather.glm import glm
-
-    box = _bbox(bbox)
-    glm.current()
-    return _with_shapes({"colors": rt.cfg["theme"]["lightning_colors"]}, glm.shapes(t or time.time(), box, zoom))
+# The lightning as smooth shapes (#101), retired with the map's Smooth style (#146).
+# @router.get("/glm/shapes")
+# def glm_shapes(bbox: str = Query(..., max_length=100), zoom: float | None = Query(None, ge=0, le=24),
+#                t: int | None = Query(None, ge=0), rt=Depends(runtime)):
+#     """The Map tab's lightning as smooth shapes, the way the radar's are (weather/glm.py shapes()): where there was
+#     lightning in the 15 minutes up to `t` (default now), in levels of how recent, oldest first."""
+#     from ...weather.glm import glm
+#
+#     box = _bbox(bbox)
+#     glm.current()
+#     return _with_shapes({"colors": rt.cfg["theme"]["lightning_colors"]}, glm.shapes(t or time.time(), box, zoom))
 
 
 @router.get("/qc")
