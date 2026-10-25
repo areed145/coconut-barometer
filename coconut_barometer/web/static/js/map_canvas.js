@@ -5,8 +5,14 @@
 // world pixels at `zoom` (map.project's), its size in CSS pixels, and ctx already scaled to CSS pixels. Both are as the
 // canvas was laid out, not the map now, so whatever is drawn mid-zoom still lines up.
 
+import { IOS } from "./device.js";
+
 export const PAD = 0.3;
-const MAX_PIXELS = 8e6;    // a big screen's padded canvas at 2x would be tens of megapixels: drawn coarser instead
+// A big screen's padded canvas at 2x would be tens of megapixels: drawn coarser instead. iOS and iPadOS close a tab
+// that holds too much (#102), and the map has up to eight of these at once, so there they're half that and drawn at
+// no more than 2x (a 3x phone's radar, blurred anyway, looks the same).
+const MAX_PIXELS = IOS ? 4e6 : 8e6;
+const MAX_RATIO = IOS ? 2 : Infinity;
 
 export function mapCanvas(L, className) {
   return {
@@ -16,6 +22,7 @@ export function mapCanvas(L, className) {
       this._reset();
     },
     onRemove() {
+      this._canvas.width = this._canvas.height = 0;   // its memory back now: WebKit holds a dropped canvas's until GC
       L.DomUtil.remove(this._canvas);
       this._canvas = null;
     },
@@ -42,7 +49,7 @@ export function mapCanvas(L, className) {
       this._size = size;
       this._origin = map.containerPointToLayerPoint(view.subtract(size).divideBy(2)).round();
       this._corner = this._origin.add(map.getPixelOrigin());
-      this._ratio = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (size.x * size.y)));
+      this._ratio = Math.min(window.devicePixelRatio || 1, MAX_RATIO, Math.sqrt(MAX_PIXELS / (size.x * size.y)));
       L.DomUtil.setPosition(c, this._origin);                  // also drops the zoom's scale
       c.width = Math.round(size.x * this._ratio);
       c.height = Math.round(size.y * this._ratio);

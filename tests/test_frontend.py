@@ -285,6 +285,39 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["satAt"], [now - 40 * 60, None, None])
 
     @unittest.skipUnless(NODE, "needs Node")
+    def test_an_ipad_counts_as_ios_though_it_says_its_a_mac(self):
+        """#102: the map's memory limits are for iPhones and iPads, and iPadOS's Safari reports a Mac."""
+        script = r"""
+          const url = "file://%s";
+          const as = async (n, userAgent, platform, maxTouchPoints) => {
+            Object.defineProperty(globalThis, "navigator", { configurable: true, value: { userAgent, platform, maxTouchPoints } });
+            return (await import(`${url}?${n}`)).IOS;
+          };
+          console.log(JSON.stringify([
+            await as(1, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", "iPhone", 5),
+            await as(2, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "MacIntel", 5),      // an iPad
+            await as(3, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "MacIntel", 0),      // a Mac
+            await as(4, "Mozilla/5.0 (Linux; Android 15)", "Linux armv8l", 5),
+          ]));
+        """ % os.path.join(STATIC, "js", "device.js")
+        r = subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [True, True, False, False])
+
+    def test_the_weather_map_holds_less_on_ios(self):
+        """#102: smaller canvases on iOS, their memory freed when a layer's off, and the satellite's frames on the map
+        only as the loop needs them."""
+        canvas = open(os.path.join(STATIC, "js", "map_canvas.js")).read()
+        m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
+        surface = open(os.path.join(STATIC, "js", "surface_layer.js")).read()
+        self.assertIn("const MAX_PIXELS = IOS ? 4e6 : 8e6;", canvas)
+        self.assertIn("Math.min(window.devicePixelRatio || 1, MAX_RATIO,", canvas)
+        self.assertIn("this._canvas.width = this._canvas.height = 0;", canvas)
+        self.assertIn("this._buffer || (this._buffer = document.createElement(\"canvas\"))", surface)
+        self.assertIn("const satKeep = !looping ? (shownSat ? [shownSat] : []) : [...new Set(timeline.map((x) => satAt(satFrames, x))", m)
+        self.assertNotIn("new Map(satFrames.map(", m)                       # not every frame listed
+
+    @unittest.skipUnless(NODE, "needs Node")
     def test_lightning_merges_only_whats_new(self):
         """#94: each answer's minutes replace the ones held, and what's older than wanted is dropped."""
         script = r"""
