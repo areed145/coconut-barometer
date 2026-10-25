@@ -9,8 +9,9 @@ anyone has the map open. One thread (QcService.start), a round every TICK second
     alerts   the NWS alerts in effect at each station's point, every ALERTS_EVERY
     fronts   each WPC surface analysis (fronts.py), its fronts and highs and lows within FRONT_KM of a station
 
-Then the checks (suites.py) every RUN_EVERY, and anything older than qc.keep_days dropped once a day. Only reads:
-nothing is sent anywhere, so it runs in local mode too. Each source's last problem is kept for the Status page."""
+Then the checks (suites.py) every RUN_EVERY, and anything older than qc.keep_days dropped once a day. Only reads, but
+it's the server's job, so it isn't started in local mode (local.py). Each source's last problem is kept for the Status
+page."""
 from __future__ import annotations
 
 import math

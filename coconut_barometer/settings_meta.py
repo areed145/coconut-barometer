@@ -182,6 +182,16 @@ META = {
                             "after allowing for the height difference between the station and the analysis.",
                             group="Station QC"),
     "qc.temp_bias_fail": _m("weather", "Temperature: fail at (°C)", group="Station QC"),
+    "qc.dew_bias_warn": _m("weather", "Dewpoint: warn at (°C)", "The station's average dewpoint (from its humidity) "
+                           "against RTMA's.", group="Station QC"),
+    "qc.dew_bias_fail": _m("weather", "Dewpoint: fail at (°C)", group="Station QC"),
+    "qc.sun_warn": _m("weather", "Sun on the sensor: warn at (°C)", "How much warmer than RTMA the station reads in strong "
+                      "sun with little wind than it does at night. Sunlight heating the sensor (a radiation shield that "
+                      "needs cleaning or a better spot) shows here.", group="Station QC"),
+    "qc.sun_fail": _m("weather", "Sun on the sensor: fail at (°C)", group="Station QC"),
+    "qc.drift_warn": _m("weather", "Drift: warn at (°C)", "How far the last week's temperature difference from RTMA has "
+                        "moved from the rest of the window's.", group="Station QC"),
+    "qc.drift_fail": _m("weather", "Drift: fail at (°C)", group="Station QC"),
     "qc.coverage_warn": _m("weather", "Reporting: warn under (%)", "The share of minutes the station reported over "
                            "the window, from its first reading in it.", group="Station QC"),
     "qc.coverage_fail": _m("weather", "Reporting: fail under (%)", group="Station QC"),

@@ -348,7 +348,9 @@ def station_qc(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
     the reference sampling is going."""
     from ...weather.qc.suites import SUITES
 
-    return {"units": _units(rt), "enabled": rt.cfg["qc"]["enabled"], "window_days": rt.cfg["qc"]["window_days"],
+    from ... import local
+
+    return {"units": _units(rt), "enabled": rt.cfg["qc"]["enabled"], "local": local.on(), "window_days": rt.cfg["qc"]["window_days"],
             "suites": [{"id": k, "title": title} for k, (title, _) in SUITES.items()],
             "stations": [{**{k: s[k] for k in ("device_id", "name", "elevation")}, "checks": db.qc_latest(s["device_id"]),
                           "flags": db.qc_flags(s["device_id"], int(time.time() - rt.cfg["qc"]["window_days"] * 86400))}

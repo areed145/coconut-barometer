@@ -34,6 +34,12 @@ DEFAULTS: dict[str, Any] = {
         "min_pairs": 96,              # fewer readings to compare than this: "not enough data" (a day of RTMA)
         "temp_bias_warn": 1.5,        # temperature vs RTMA, °C either way (after the height difference)
         "temp_bias_fail": 3.0,
+        "dew_bias_warn": 2.0,         # dewpoint vs RTMA, °C either way (RTMA's dewpoint is less sure than its temperature)
+        "dew_bias_fail": 4.0,
+        "sun_warn": 1.0,              # °C warmer in strong sun with light wind than at night (vs RTMA): the radiation shield
+        "sun_fail": 2.0,
+        "drift_warn": 1.0,            # °C the last week's temperature bias has moved from the rest of the window's
+        "drift_fail": 2.0,
         "coverage_warn": 98.0,        # % of the minutes reported over the window, below which: warn ...
         "coverage_fail": 90.0,        # ... and fail
         "solar_warn": 0.8,            # clear days' solar peak over the clear-sky model's, below which: warn (dirty or shaded) ...
@@ -186,6 +192,8 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30),
           ("qc", "backfill_days"): (0, 365), ("qc", "keep_days"): (30, 3650), ("qc", "window_days"): (1, 365),
           ("qc", "min_pairs"): (1, 10000), ("qc", "temp_bias_warn"): (0.1, 20), ("qc", "temp_bias_fail"): (0.1, 30),
+          ("qc", "dew_bias_warn"): (0.1, 20), ("qc", "dew_bias_fail"): (0.1, 30), ("qc", "sun_warn"): (0.1, 10),
+          ("qc", "sun_fail"): (0.1, 20), ("qc", "drift_warn"): (0.1, 10), ("qc", "drift_fail"): (0.1, 20),
           ("qc", "coverage_warn"): (0, 100), ("qc", "coverage_fail"): (0, 100), ("qc", "solar_warn"): (0, 1.5),
           ("qc", "solar_fail"): (0, 1.5)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
