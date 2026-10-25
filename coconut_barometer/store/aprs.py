@@ -11,7 +11,7 @@ import json
 import math
 import time
 
-from ..aprs.igate import TYPES, bin_width, details, station_type
+from ..aprs.igate import TYPES, UNKNOWN, bin_width, details, digi_hops, station_type
 from .db import Database
 
 TRACK_COLS = "ts, lat, lon, altitude, speed, course"
@@ -199,3 +199,43 @@ class AprsStore(Database):
             out.append({"sector": s, "n": row["n"], "p50_km": row["p50"], "bin_km": widths[s], "counts": counts,
                         "beyond": row["n"] - sum(counts)})
         return out
+
+    def igate_digis(self, igate: str, start: int, end: int, edges: int = 300) -> dict:
+        """The RF network feeding the igate over the window (#117), from its packets' paths: each digi with the
+        packets it relayed, its senders (busiest first), when last heard and its share of all the igate gated; how
+        many came direct, through one digi, or more; the links sender → digi → … → igate by packets (the busiest
+        `edges`); and where each station on them last placed itself, when it did."""
+        total = 0
+        hops = {"direct": 0, "one": 0, "more": 0}
+        digis: dict[str, dict] = {}
+        links: dict[tuple[str, str], int] = {}
+        for call, path, n, last in self.db.execute(
+                "SELECT callsign, path, COUNT(*), MAX(ts) FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ? GROUP BY 1, 2",
+                (igate, start, end)).fetchall():
+            relay = digi_hops((path or "").split(","))
+            total += n
+            hops["direct" if not relay else "one" if len(relay) == 1 else "more"] += n
+            for d in dict.fromkeys(relay):
+                x = digis.setdefault(d, {"callsign": d, "packets": 0, "senders": {}, "last_ts": 0})
+                x["packets"] += n
+                x["senders"][call] = x["senders"].get(call, 0) + n
+                x["last_ts"] = max(x["last_ts"], last)
+            chain = [call, *relay, igate]
+            for a, b in zip(chain, chain[1:]):
+                if a != b and UNKNOWN not in (a, b):
+                    links[(a, b)] = links.get((a, b), 0) + n
+        busiest = sorted(links.items(), key=lambda kv: -kv[1])[:edges]
+        named = {c for (a, b), _ in busiest for c in (a, b)} | set(digis) - {UNKNOWN}
+        places = {}
+        if named:
+            for call, lat, lon in self.db.execute(
+                    "SELECT callsign, arg_max(lat, ts), arg_max(lon, ts) FROM aprs_igate WHERE igate=? AND lat IS NOT NULL "
+                    "AND callsign IN (SELECT unnest(?::VARCHAR[])) GROUP BY 1", (igate, sorted(named))).fetchall():
+                places[call] = [lat, lon]
+        rows = sorted(digis.values(), key=lambda x: (-x["packets"], x["callsign"]))
+        for x in rows:
+            x["share"] = x["packets"] / total if total else 0
+            x["sender_count"] = len(x["senders"])
+            x["senders"] = [c for c, _ in sorted(x["senders"].items(), key=lambda kv: -kv[1])[:20]]
+            x["at"] = places.get(x["callsign"])
+        return {"total": total, "hops": hops, "digis": rows, "edges": [[a, b, n] for (a, b), n in busiest], "places": places}

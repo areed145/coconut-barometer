@@ -3,6 +3,7 @@
 // them by distance from the igate, with the Weibull fit whose 90% distance is that effective range (igate.py).
 // Distance is from direct packets by default: a digipeated one says where the sender was, not how far the igate hears.
 // By direction (#115): the same fit per sector of bearing, as an outline on the map and a polar chart.
+// The map can show instead the digipeaters its packets came through (#117), from their paths.
 // Below, who it heard (#118): stations per day, new and regular, and what kind each one is (from its symbol).
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
@@ -59,7 +60,36 @@ function outline(rows, pick) {
   return { runs: runs.filter((x) => x.length), closed };
 }
 
-function IgateMap({ d, cell, sectors }) {
+// Sender → digi → … → igate, a line per link (thicker: more packets); digis sized by what they relayed.
+function drawNetwork(L, group, d, net, bounds) {
+  const at = (call) => (call === d.igate && d.home ? [d.home.lat, d.home.lon] : net.places[call]);
+  const top = net.edges.reduce((m, e) => Math.max(m, e[2]), 1);
+  for (const [a, b, n] of [...net.edges].reverse()) {
+    const p = at(a), q = at(b);
+    if (!p || !q) continue;
+    L.polyline([p, q], { color: css("--chart-1"), weight: 1.5 + 5 * Math.sqrt(n / top), opacity: 0.55 })
+      .bindTooltip(`${a} → ${b}: ${num(n)} packet${n === 1 ? "" : "s"}`).addTo(group);
+    bounds.push(p, q);
+  }
+  const digis = new Set(net.digis.map((x) => x.callsign));
+  for (const call of new Set(net.edges.flatMap((e) => [e[0], e[1]]))) {
+    if (digis.has(call) || call === d.igate || !net.places[call]) continue;
+    L.circleMarker(net.places[call], { radius: 3, color: css("--muted"), weight: 1, fillOpacity: 0.8 }).bindTooltip(call).addTo(group);
+  }
+  const most = net.digis.reduce((m, x) => Math.max(m, x.packets), 1);
+  for (const x of net.digis) {
+    if (!x.at) continue;
+    const pop = el("div", "wxpop");
+    pop.append(el("b", null, x.callsign), el("div", null, `${num(x.packets)} packets relayed · ${(x.share * 100).toFixed(0)}% of all gated`),
+      el("div", null, `${num(x.sender_count)} sender${x.sender_count === 1 ? "" : "s"}: ${x.senders.slice(0, 10).join(", ")}${x.sender_count > 10 ? ", …" : ""}`),
+      el("div", "muted", `last relayed ${ago(x.last_ts)}`));
+    L.circleMarker(x.at, { radius: 5 + 7 * Math.sqrt(x.packets / most), color: css("--fg"), weight: 1.5, fillColor: css("--chart-2"), fillOpacity: 0.9 })
+      .bindPopup(pop).addTo(group);
+    bounds.push(x.at);
+  }
+}
+
+function IgateMap({ d, cell, sectors, view, net }) {
   const wrap = useRef(null), box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef("");
   const [ready, setReady] = useState(false);
   const { fullscreen } = useMapTools(map, ready, wrap);       // ⌖ and ⛶, as on the other maps (#82)
@@ -82,8 +112,9 @@ function IgateMap({ d, cell, sectors }) {
     const { dlat, dlon, rows } = d.cells;
     const top = rows.reduce((m, r) => Math.max(m, r[2]), 1);
     const bounds = [];
+    if (view === "digis" && net?.edges) drawNetwork(L, group, d, net, bounds);
     // Least first, so the busiest cells draw on top.
-    for (const [lat, lon, n, stations] of [...rows].reverse()) {
+    for (const [lat, lon, n, stations] of view === "digis" ? [] : [...rows].reverse()) {
       const corners = [[lat, lon], [lat + dlat, lon + dlon]];
       const pop = el("div", "wxpop");
       pop.append(el("b", null, cellName(lat, lon, cell, d.cells)),
@@ -103,7 +134,7 @@ function IgateMap({ d, cell, sectors }) {
         L.circle([d.home.lat, d.home.lon], { radius: fit.effective_km * 1000, color: css("--fg"), weight: 1.5, dashArray: "6 6", fill: false, interactive: false }).addTo(group);
       }
       const rows = sectors?.rows;
-      if (rows?.some((r) => r.fit)) {
+      if (view !== "digis" && rows?.some((r) => r.fit)) {
         const { runs, closed } = outline(rows, (r) => r.fit?.effective_km);
         for (const run of runs) {
           const pts = run.map(([deg, km]) => ahead(d.home.lat, d.home.lon, deg, km));
@@ -121,17 +152,19 @@ function IgateMap({ d, cell, sectors }) {
         .bindPopup(pop).addTo(group);
       bounds.push([d.home.lat, d.home.lon]);
     }
-    // Fit to the data once per igate, and again when the first cells arrive.
-    const key = `${d.igate}:${bounds.length > 1}`;
+    // Fit to the data once per igate and view, and again when the first cells arrive.
+    const key = `${d.igate}:${view}:${bounds.length > 1}`;
     if (bounds.length && fitted.current !== key) {
       fitted.current = key;
       map.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 11 });
     }
-  }, [ready, d, cell, theme, sectors]);
+  }, [ready, d, cell, theme, sectors, view, net]);
   const top = d.cells.rows.reduce((m, r) => Math.max(m, r[2]), 0);
   return html`<div ref=${wrap} class=${mapboxClass(fullscreen, "igatemapbox")}>
     <div class="mapwrap igatemap" ref=${box}></div>
-    ${top > 0 && html`<div class="igatescale" aria-label="Packets per cell">
+    ${view === "digis" ? html`<div class="igatescale">Lines: packets along each link, thicker for more ·
+      <span class="igatedot digi"></span> digipeater (click for its senders) · <span class="igatedot"></span> sender</div>`
+    : top > 0 && html`<div class="igatescale" aria-label="Packets per cell">
       <span>1</span><i style=${`background: linear-gradient(to right, ${[0, 0.25, 0.5, 0.75, 1].map((t) => shade(t)).join(", ")})`}></i>
       <span>${num(top)} packets per cell (log scale)</span></div>`}
   </div>`;
@@ -294,6 +327,27 @@ function Directions({ s, units, n, setN }) {
   </div>`;
 }
 
+// The digis the igate's packets came through, and how many came direct.
+function Digis({ net, units }) {
+  if (!net?.hops || !net.total) return null;
+  const h = net.hops, share = (n) => `${((n / net.total) * 100).toFixed(0)}%`;
+  const rows = [{ label: "Heard direct", n: h.direct }, { label: "Through one digi", n: h.one }, { label: "Through two or more", n: h.more }];
+  const cols = [
+    { key: "callsign", label: "Digipeater", fmt: (c) => (c === "?" ? html`<span class="muted" title="A WIDEn-N used by a digi that didn't put its call in the path">unknown</span>` : aprsfi(c)) },
+    { key: "packets", label: "Relayed", num: true },
+    { key: "share", label: "Share", num: true, fmt: (v) => `${(v * 100).toFixed(1)}%` },
+    { key: "sender_count", label: "Senders", num: true },
+    { key: "last_ts", label: "Last relayed", num: true, fmt: (t) => ago(t) },
+    { key: "at", label: "Where", fmt: (at) => (at ? html`<span class="mono">${grid(at[0], at[1])}</span>` : html`<span class="muted">not heard placing itself</span>`) },
+  ];
+  return html`<div class="card">
+    <h2>Digipeaters</h2>
+    <p class="muted small">How the ${num(net.total)} packets gated reached the igate, from their paths. Map → Digipeaters draws the links.</p>
+    <${Bars} rows=${rows} value="n" right=${(r) => `${num(r.n)} · ${share(r.n)}`} />
+    ${net.digis.length ? html`<${Table} rows=${net.digis} cols=${cols} initial="packets" />` : html`<p class="muted">Everything came direct.</p>`}
+  </div>`;
+}
+
 const Tile = ({ label, value, note }) => html`<div class="kpi"><span>${label}</span><b>${value}</b>${note && html`<small> ${note}</small>`}</div>`;
 
 export function Igate() {
@@ -304,6 +358,14 @@ export function Igate() {
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
   const [n, setN] = useState(8);
+  const [view, setView] = useState("heat");
+  const [net, setNet] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api("/api/aprs/igate/digis", { params: { hours } }).then((x) => alive && setNet(x)).catch(() => {});
+    const stop = every(load, 60000);
+    return () => { alive = false; stop(); };
+  }, [hours]);
   const [sectors, setSectors] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -334,10 +396,14 @@ export function Igate() {
         <select aria-label="Count" value=${count} onChange=${(e) => setCount(e.target.value)}>
           <option value="packets">Packets</option><option value="stations">Stations</option>
         </select></label>
-      <label class="muted small">Grid
+      <label class="muted small">Map
+        <select aria-label="Map" value=${view} onChange=${(e) => setView(e.target.value)}>
+          <option value="heat">Heat map</option><option value="digis">Digipeaters</option>
+        </select></label>
+      ${view === "heat" && html`<label class="muted small">Grid
         <select aria-label="Grid cell" value=${cell} onChange=${(e) => setCell(e.target.value)}>
           ${CELLS.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
-        </select></label>
+        </select></label>`}
     </div>
     <div class="kpis">
       <${Tile} label="Packets gated" value=${num(t.packets)} note=${`in ${win}`} />
@@ -349,7 +415,7 @@ export function Igate() {
     </div>
     ${!d.home && html`<p class="muted">Distances wait for ${d.igate}'s own position: it shows up when it next beacons,
       or set its location under Settings → APRS.</p>`}
-    <${IgateMap} d=${d} cell=${cell} sectors=${sectors} />
+    <${IgateMap} d=${d} cell=${cell} sectors=${sectors} view=${view} net=${net} />
     ${dist && html`<div class="card">
       <h2>Count by distance</h2>
       <p class="muted small">${num(dist.n)} ${what}${direct ? " heard direct" : ""}, ${len(d.units, dist.bin_km, 1)} bins
@@ -367,6 +433,7 @@ export function Igate() {
           <td class="muted">${when(f.ts)}${f.direct ? "" : " · digipeated"}</td></tr>`)}
       </tbody></table></div>
     </div>`}
+    <${Digis} net=${net} units=${d.units} />
     <${Stations} hours=${hours} units=${d.units} />
     <p class="muted small">Counted from when the app started listening${t.first_ts ? ` (${when(t.first_ts)})` : ""}: APRS-IS keeps no history.
       ${d.stream?.state !== "connected" ? ` APRS-IS: ${d.stream?.state || "off"}.` : ""}</p>`;

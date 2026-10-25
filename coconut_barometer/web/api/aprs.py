@@ -142,3 +142,13 @@ def igate_sectors(start: int | None = None, end: int | None = None, hours: float
                             "n": r["n"], "p50_km": r["p50_km"],
                             "fit": {k: fit[k] for k in ("k", "r2", "r50_km", "effective_km")} if fit else None})
     return out
+
+
+@router.get("/igate/digis")
+def igate_digis(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
+                rt=Depends(runtime), db=Depends(store)):
+    """The digipeaters the igate's packets came through over the window (#117), and the links between them."""
+    gate = rt.aprs.igate()
+    start, end = _window(start, end, hours)
+    out = {"igate": gate, "start": start, "end": end}
+    return out | db.igate_digis(gate, start, end) if gate else out

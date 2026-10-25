@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer.aprs.service import AprsService
-from coconut_barometer.aprs.igate import bearing, bin_width, details, sector_of, gated_by, grid_center, parse_location, station_type, weibull_fit
+from coconut_barometer.aprs.igate import bearing, bin_width, details, digi_hops, sector_of, gated_by, grid_center, parse_location, station_type, weibull_fit
 from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle, server_filter
 from coconut_barometer.config import from_dict, validate
 from coconut_barometer.store import SCHEMA_VERSION, Store
@@ -247,6 +247,37 @@ class IgateTest(unittest.TestCase):
         self.assertEqual(baseline(new, now_h - 24 * 3, now_h)[now_h], (12, 12))
         self.assertNotIn(now_h, baseline(new, now_h - 24 * 2, now_h))   # two days: too little to expect anything
 
+    def test_the_digis_a_path_went_through(self):
+        hops = lambda p: digi_hops(p.split(","))
+        self.assertEqual(hops(f"WIDE1-1,WIDE2-1,qAR,{GATE}"), [])                  # direct: nothing used
+        self.assertEqual(hops(f"WIDE,qAR,{GATE}"), [])
+        self.assertEqual(hops(f"KJ4TFD-3*,WIDE2-1,qAR,{GATE}"), ["KJ4TFD-3"])
+        self.assertEqual(hops(f"K5WH-2,WIDE1*,WIDE2-1,qAR,{GATE}"), ["K5WH-2"])    # traced: its call, then the alias it used
+        self.assertEqual(hops(f"N5LUY-2,WIDE1,K5WH-2,WIDE2*,qAR,{GATE}"), ["N5LUY-2", "K5WH-2"])
+        self.assertEqual(hops(f"WIDE1*,WIDE2-1,qAR,{GATE}"), ["?"])                 # a digi that didn't say who it was
+        self.assertEqual(hops(f"KF5CDH-1,WIDE1,WIDE2*,qAR,{GATE}"), ["KF5CDH-1", "?"])
+        self.assertEqual(hops(f"TX2-2*,qAR,{GATE}"), ["?"])
+
+    def test_the_digipeater_network(self):
+        self.handle(gated(call="N5A-9"))                                            # direct
+        self.handle(gated(call="N5B-9", via="K5WH-2,WIDE1*,WIDE2-1"), now=NOW + 1)
+        self.handle(gated(call="N5B-9", via="K5WH-2,WIDE1*,WIDE2-1"), now=NOW + 2)
+        self.handle(gated(call="N5C-9", via="N5LUY-2,WIDE1,K5WH-2,WIDE2*"), now=NOW + 3)
+        self.handle(gated(call="N5D-9", via="WIDE1*,WIDE2-1"), now=NOW + 4)
+        self.handle(gated(call="K5WH-2", lat="3010.00N", info="!3010.00N/09740.00W#digi"), now=NOW + 5)   # its own beacon
+        n = self.store.igate_digis(GATE, NOW, NOW + 10)
+        self.assertEqual((n["total"], n["hops"]), (6, {"direct": 2, "one": 3, "more": 1}))
+        by = {d["callsign"]: d for d in n["digis"]}
+        self.assertEqual(list(by), ["K5WH-2", "?", "N5LUY-2"])
+        self.assertEqual((by["K5WH-2"]["packets"], by["K5WH-2"]["senders"], by["K5WH-2"]["sender_count"], by["K5WH-2"]["last_ts"]),
+                         (3, ["N5B-9", "N5C-9"], 2, NOW + 3))
+        self.assertAlmostEqual(by["K5WH-2"]["share"], 0.5)
+        self.assertEqual([round(v, 2) for v in by["K5WH-2"]["at"]], [30.17, -97.67])
+        self.assertIsNone(by["N5LUY-2"]["at"])                                      # never placed itself
+        self.assertEqual({(a, b): c for a, b, c in n["edges"]},
+                         {("N5A-9", GATE): 1, ("K5WH-2", GATE): 4, ("N5B-9", "K5WH-2"): 2, ("N5C-9", "N5LUY-2"): 1,
+                          ("N5LUY-2", "K5WH-2"): 1})
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
@@ -313,6 +344,10 @@ class AprsApiTest(unittest.TestCase):
         self.assertEqual((s["rows"][0]["from_deg"], s["rows"][0]["to_deg"], s["rows"][1]["from_deg"]), (337.5, 22.5, 22.5))
         self.assertEqual(len(self.c.get("/api/aprs/igate/sectors", params={"sectors": 16}).json()["rows"]), 16)
         self.assertEqual(self.c.get("/api/aprs/igate/sectors", params={"sectors": 12}).status_code, 422)
+
+    def test_igate_digis(self):
+        d = self.c.get("/api/aprs/igate/digis", params={"hours": 24}).json()
+        self.assertEqual((d["total"], d["hops"], [x["callsign"] for x in d["digis"]]), (4, {"direct": 3, "one": 1, "more": 0}, ["KJ4TFD-3"]))
 
     def test_igate_stations(self):
         s = self.c.get("/api/aprs/igate/stations", params={"hours": 24}).json()
