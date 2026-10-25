@@ -80,14 +80,19 @@ class QcStore(Database):
             self.db.execute('DELETE FROM qc_flags WHERE "end" < ?', (before,))
 
     # ---- what the checks read ---------------------------------------------------------------------------------
-    def qc_temperature_pairs(self, device_id: int, start: int, end: int, within: int = 150) -> list[tuple]:
-        """Each RTMA sample in [start, end] with the station's mean temperature within `within` seconds of it:
-        (ts, rtma °C, rtma cell height m, station °C)."""
-        return [tuple(r) for r in self.db.execute(
-            "SELECT r.ts, r.t, r.hgt, avg(o.temp) FROM qc_rtma r JOIN wx_obs o ON o.device_id = r.device_id "
+    def qc_rtma_pairs(self, device_id: int, start: int, end: int, within: int = 150) -> list[dict]:
+        """Each RTMA sample in [start, end] with the station's means within `within` seconds of it: {ts, the sample's
+        fields (hgt, pres, t, td, u, v, gust, tcdc), and the station's temp, dew (from its humidity), humidity,
+        pressure, wind, gust, solar}. Only samples the station has readings around."""
+        from .weather import DEW_SQL
+
+        rows = self.db.execute(
+            f"SELECT r.ts, {', '.join('r.' + k for k in RTMA)}, avg(o.temp), avg({DEW_SQL}), avg(o.humidity), avg(o.pressure), "
+            "avg(o.wind_avg), max(o.wind_gust), avg(o.solar) FROM qc_rtma r JOIN wx_obs o ON o.device_id = r.device_id "
             "AND o.ts BETWEEN r.ts - ? AND r.ts + ? WHERE r.device_id = ? AND r.ts BETWEEN ? AND ? "
-            "AND r.t IS NOT NULL AND o.temp IS NOT NULL GROUP BY r.ts, r.t, r.hgt ORDER BY r.ts",
-            (within, within, device_id, start, end)).fetchall()]
+            f"GROUP BY r.ts, {', '.join('r.' + k for k in RTMA)} ORDER BY r.ts", (within, within, device_id, start, end)).fetchall()
+        names = ("ts", *RTMA, "s_temp", "s_dew", "s_humidity", "s_pressure", "s_wind", "s_gust", "s_solar")
+        return [dict(zip(names, r)) for r in rows]
 
     # ---- results ----------------------------------------------------------------------------------------------
     def qc_save_run(self, device_id: int, suite: str, run_at: int, start: int, end: int, result: dict) -> None:

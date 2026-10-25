@@ -17,7 +17,7 @@ from coconut_barometer.config import from_dict
 from coconut_barometer.store import Store
 from coconut_barometer.weather import grib
 from coconut_barometer.weather.lambert import Lambert
-from coconut_barometer.weather.qc import suites
+from coconut_barometer.weather.qc import rtma_checks, suites
 from coconut_barometer.weather.qc.rtma_points import FIELDS, RtmaPoints, cells
 from coconut_barometer.weather.qc.sampler import QUARTER, QcService, distance_bearing, radar_at
 from coconut_barometer.web.app import create_app
@@ -197,7 +197,7 @@ class TemperatureCheckTest(unittest.TestCase):
             self.store.qc_save_rtma(11, ts, {"t": rtma_temp, "hgt": hgt})
 
     def check(self):
-        return suites.temperature(self.store, self.store.qc_stations()[0], T - 1, T + 86400, self.cfg)
+        return rtma_checks.temperature(self.store, self.store.qc_stations()[0], T - 1, T + 86400, self.cfg)
 
     def test_the_height_between_station_and_cell_is_allowed_for(self):
         self.add(8, 19.35, 20.0)                     # 100 m above the cell: RTMA's 20 °C is 19.35 °C up here
@@ -360,3 +360,69 @@ class InternalChecksTest(unittest.TestCase):
         self.assertEqual(flags["range"]["count"], 2)                        # temperature and its dewpoint, once each
         self.assertEqual({f["what"] for f in flags["range"]["newest"]}, {"temp out of range", "dew out of range"})
         self.assertEqual(set(self.store.qc_latest(11)), set(suites.SUITES))
+
+
+# ---- #106: temperature and humidity against RTMA ----------------------------------------------------------------
+class RtmaChecksTest(unittest.TestCase):
+    """Station readings paired with RTMA samples every hour for `days`: station = RTMA + offset(ts, solar, wind)."""
+
+    def setUp(self):
+        self.store = make_store()
+        self.cfg = from_dict({**CFG, "qc": {"min_pairs": 8}})
+        self.station = self.store.qc_stations()[0]
+
+    def pairs(self, days=10, offset=lambda ts, solar, wind: 0.0, dew_offset=0.0, wind_of=lambda ts: 1.0):
+        for k in range(days * 24):
+            ts = DAY0 + k * 3600
+            solar = clear_sky(38.3, -105.7, ts)
+            wind = wind_of(ts)
+            temp = 15.0 + offset(ts, solar, wind)
+            # RH for a dewpoint of 5 °C + dew_offset at the station's temperature (Magnus)
+            td = 5.0 + dew_offset
+            rh = 100 * np.exp(17.62 * td / (243.12 + td) - 17.62 * temp / (243.12 + temp))
+            self.store.wx_save_obs(11, [minute(ts + d, temp=round(temp, 2), humidity=round(float(rh), 2), wind=wind, solar=round(solar, 1))
+                                        for d in (-60, 0, 60)])
+            self.store.qc_save_rtma(11, ts, {"t": 15.0, "td": 5.0, "hgt": 2000.0})      # the station's own height: no lapse
+        return DAY0, DAY0 + days * 86400
+
+    def run_check(self, name, span):
+        return rtma_checks.SUITES[name][1](self.store, dict(self.station), *span, self.cfg)
+
+    def test_a_station_that_agrees_passes_every_check(self):
+        span = self.pairs()
+        for name in ("temperature", "dewpoint", "sun", "drift"):
+            self.assertEqual((name, self.run_check(name, span)["status"]), (name, "pass"))
+
+    def test_dewpoint_from_humidity(self):
+        span = self.pairs(dew_offset=-3.0)                 # the hygrometer reads dry: dewpoint 3 °C low
+        r = self.run_check("dewpoint", span)
+        self.assertEqual(r["status"], "warn")
+        self.assertAlmostEqual(r["metrics"]["bias"], -3.0, delta=0.05)
+        self.assertEqual(self.run_check("temperature", span)["status"], "pass")
+
+    def test_sun_heating_the_sensor_shows_in_calm_sunshine_not_at_night(self):
+        span = self.pairs(offset=lambda ts, solar, wind: 2.5 * solar / 900 if wind < 2 else 0.0)
+        r = self.run_check("sun", span)
+        self.assertIn(r["status"], ("warn", "fail"))
+        self.assertGreater(r["metrics"]["excess"], 1.0)
+        self.assertAlmostEqual(r["metrics"]["night_bias"], 0.0, places=2)
+        by = self.run_check("temperature", span)["metrics"]["by"]
+        self.assertLess(by["solar"]["bias"][0], 0.05)                          # night
+        self.assertGreater(by["solar"]["bias"][-1] or by["solar"]["bias"][-2], 1.5)   # full sun
+
+    def test_a_steady_offset_is_the_temperature_check_not_the_sun_or_drift(self):
+        span = self.pairs(offset=lambda ts, solar, wind: 2.0)
+        self.assertEqual(self.run_check("temperature", span)["status"], "warn")
+        self.assertEqual(self.run_check("sun", span)["status"], "pass")
+        self.assertEqual(self.run_check("drift", span)["status"], "pass")
+
+    def test_drift_in_the_last_week(self):
+        span = self.pairs(days=14, offset=lambda ts, solar, wind: 1.5 if ts >= DAY0 + 8 * 86400 else 0.0)
+        r = self.run_check("drift", span)
+        self.assertEqual(r["status"], "warn")
+        self.assertGreater(r["metrics"]["change"], 1.0)
+
+    def test_not_enough_to_judge(self):
+        span = self.pairs(days=1, wind_of=lambda ts: 5.0)               # windy all day: no calm sunshine
+        self.assertEqual(self.run_check("sun", span)["status"], "insufficient")
+        self.assertEqual(self.run_check("drift", span)["status"], "insufficient")

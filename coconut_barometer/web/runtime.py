@@ -114,7 +114,10 @@ class Runtime:
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
         self.radar.start(self._stop, self.store)     # MRMS and nationwide storm cells (weather/radar.py)
-        self.qc.start(self._stop, self.store)        # station QC (weather/qc/): only reads, so local mode too
+        if local.on():                              # station QC is the server's job: not sampled locally
+            local.held("sampling for station QC")
+        else:
+            self.qc.start(self._stop, self.store)    # station QC (weather/qc/)
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
         threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 
@@ -182,7 +185,7 @@ class Runtime:
                 del self.flickr_pending[token]
         client = self.client_factory(self.cfg)
         client.api.get_request_token(oauth_callback=callback_url)
-        url = client.api.auth_url(perms="write")
+        url = client.api.auth_url(perms="delete")
         token = parse_qs(urlparse(url).query)["oauth_token"][0]
         self.flickr_pending[token] = (client, now, username)
         return url
@@ -200,7 +203,7 @@ class Runtime:
 
     def flickr_status(self) -> dict:
         try:
-            ok = self.client is not None and bool(self.client.api.token_valid(perms="write"))
+            ok = self.client is not None and bool(self.client.api.token_valid(perms="delete"))
         except Exception:
             ok = False
         nsid = self.store().get_meta("nsid") if ok else None

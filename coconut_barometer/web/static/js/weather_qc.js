@@ -57,7 +57,8 @@ export function StationQc() {
   return html`
     <h1 class="title">Station QC</h1>
     <p class="muted">Each station checked against independent data around it over the last ${d.window_days} days. Checks run
-      every hour.${!d.enabled ? " Turned off in Settings → Weather → Station QC." : ""}</p>
+      every hour.${!d.enabled ? " Turned off in Settings → Weather → Station QC." : ""}
+      ${d.local ? " Local mode: nothing is sampled here (the server does it); what's shown is whatever this copy of the database has." : ""}</p>
     <div class="toolbar"><button onClick=${runNow} disabled=${running}>${running ? "Running…" : "Run checks now"}</button></div>
     ${!d.stations.length && html`<p class="muted">No stations with a location yet.</p>`}
     ${d.stations.map((s) => html`<section class="card" key=${s.device_id}><h2>${s.name}</h2>

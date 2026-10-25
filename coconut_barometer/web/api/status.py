@@ -183,6 +183,8 @@ def _qc(rt, db, now) -> dict:
     """Station QC's sampling (#105): signed in only, like the stations' details."""
     if not rt.cfg["qc"]["enabled"]:
         return row("qc", "Station QC", "off", "turned off", href="#/settings/weather")
+    if local.on():
+        return row("qc", "Station QC", "off", local.STATE)
     newest = db.qc_sampled()["rtma"]["newest"]
     down = {k: e for k, e in rt.qc.errors.items() if e}
     late = newest is None or now - newest > 2 * 3600

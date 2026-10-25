@@ -40,13 +40,15 @@ class LocalModeTest(unittest.TestCase):
                          "aprs": {"callsigns": ["KK6GPV-9"], "passcode": "12345", "cwop": {"Conroe": "KK6GPV-13"}}})
         app = create_app(cfg, FakeFlickr(), scheduler=False)
         rt = app.state.runtime
-        with mock.patch.object(rt.radar, "start") as radar, mock.patch.object(rt.weather, "start_stream") as weather:
+        with mock.patch.object(rt.radar, "start") as radar, mock.patch.object(rt.weather, "start_stream") as weather, \
+                mock.patch.object(rt.qc, "start") as qc:
             rt.start_scheduler()
         self.addCleanup(rt.stop)
         self.assertEqual((rt.aprs._stream, rt.aprs._reporter), (None, None))       # no APRS-IS login, no CWOP
         self.assertEqual(rt._scheduler.name, "scheduler (local mode)")              # no Flickr sync, no backups
         self.assertIsNone(rt.next_sync)
         self.assertEqual((radar.call_count, weather.call_count), (1, 1))            # what's only read: on
+        self.assertEqual(qc.call_count, 0)                                          # station QC: the server's job
 
     def test_push_and_github_reports_are_only_logged(self):
         store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
@@ -72,7 +74,7 @@ class LocalModeTest(unittest.TestCase):
         c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
         d = c.get("/api/status").json()
         rows = {r["id"]: r for r in d["rows"]}
-        for k in ("aprs", "cwop", "flickr", "backups", "errors"):
+        for k in ("aprs", "cwop", "flickr", "backups", "errors", "qc"):
             self.assertEqual((rows[k]["level"], rows[k]["state"]), ("off", local.STATE), k)
         self.assertTrue(d["local"])
         status_api._cache.clear()
