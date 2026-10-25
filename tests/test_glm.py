@@ -3,7 +3,12 @@ here), held for KEEP, fetched only when new, and counted per minute and cell for
 import re
 import unittest
 
-from coconut_barometer.weather.glm import KEEP, LEVELS, Lightning, hour_prefix, listed, parse_ascii, start_time
+import json
+
+import numpy as np
+
+from coconut_barometer.weather.glm import (CORES, FRESH, KEEP, LEVELS, TRAIL, Lightning, hour_prefix, listed, parse_ascii,
+                                            shapes_text, start_time)
 
 NOW = 1_792_884_000          # 2026-10-24 23:20:00 UTC (day 297)
 
@@ -141,6 +146,61 @@ class GlmTest(unittest.TestCase):
         self.assertEqual(fine["level"], "fine")
         self.assertEqual(len(dict(fine["minutes"])[NOW - 600]) // 3, 1)      # within a ~3 km cell still
         self.assertEqual(g.view((0, 0, 10, 10), 4)["minutes"], [])
+
+
+def flashes(*fs):
+    """(age seconds before NOW, lat, lon) -> Lightning.data as it holds them."""
+    return {"t": np.array([NOW - a for a, _, _ in fs], dtype=np.int64), "lat": np.array([round(la * 100) for _, la, _ in fs], dtype=np.int16),
+            "lon": np.array([round(lo * 100) for _, _, lo in fs], dtype=np.int16), "newest": NOW - min(a for a, _, _ in fs)}
+
+
+class ShapesTest(unittest.TestCase):
+    """#101: the smooth shapes, traced on the server as radar's are."""
+    BOX = (-100.0, 30.0, -94.0, 36.0)
+
+    def shapes(self, data, level="fine", box=BOX):
+        return json.loads(shapes_text(data, NOW, box, level))
+
+    def test_nothing_to_draw(self):
+        for data in (None, flashes((10, 33.0, -97.0)) | {"t": np.zeros(0, dtype=np.int64)},
+                     flashes((TRAIL + 60, 33.0, -97.0)),          # older than the trail
+                     flashes((10, 45.0, -60.0))):                 # nowhere near the view
+            out = self.shapes(data)
+            self.assertEqual((out["bands"], out["cores"]), ([], []))
+
+    def test_a_lone_strike_still_shows_and_says_how_recent(self):
+        new = self.shapes(flashes((20, 33.0, -97.0)))
+        self.assertEqual([b["age"] for b in new["bands"]], [round((1 - k / FRESH) * TRAIL) for k in range(FRESH)])
+        self.assertEqual([len(b["polys"]) for b in new["bands"]], [1] * FRESH)       # one place, every level of recent
+        self.assertEqual(new["cores"], [])                                            # one flash isn't a crowd
+        w, s_, e, n = new["bands"][0]["polys"][0][:4]
+        q = new["q"]
+        self.assertTrue(w / q < -97.0 < e / q and s_ / q < 33.0 < n / q)
+        self.assertLess((e - w) / q, 0.5)                                             # about a GLM pixel across
+        old = self.shapes(flashes((TRAIL - 60, 33.0, -97.0)))
+        self.assertEqual([b["age"] for b in old["bands"]], [TRAIL])                   # there, but only as long ago
+
+    def test_crowded_flashes_make_cores(self):
+        crowd = flashes(*[(30 + i, 33.0 + (i % 5) * 0.01, -97.0 + (i // 5) * 0.01) for i in range(40)])
+        cores = self.shapes(crowd)["cores"]
+        self.assertEqual([c["core"] for c in cores], list(range(1, len(CORES) + 1)))
+
+    def test_a_strike_just_outside_the_view_still_reaches_in(self):
+        edge = self.shapes(flashes((20, 33.0, self.BOX[2] + 0.03)))                  # ~3 km east of the view
+        self.assertTrue(edge["bands"])
+        far = self.shapes(flashes((20, 33.0, self.BOX[2] + 1.0)))
+        self.assertEqual(far["bands"], [])
+
+    def test_kept_per_minute_but_the_live_one_follows_new_flashes(self):
+        g = Lightning(get=None, clock=lambda: NOW)
+        g.data = flashes((90, 33.0, -97.0))
+        past = g.shapes(NOW - 600, self.BOX, 8)
+        g.data = flashes((90, 33.0, -97.0), (100, 33.5, -96.0))                     # a late file for that past
+        self.assertIs(g.shapes(NOW - 600, self.BOX, 8), past)                         # a past minute: kept
+        live = g.shapes(NOW, self.BOX, 8)
+        g.data = flashes((20, 34.0, -95.0), (90, 33.0, -97.0))                       # a newer file comes in
+        self.assertIsNot(g.shapes(NOW, self.BOX, 8), live)
+        self.assertEqual(json.loads(g.shapes(NOW, self.BOX, 3))["level"], "coarse")
 
 
 if __name__ == "__main__":

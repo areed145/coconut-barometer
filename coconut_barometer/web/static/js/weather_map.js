@@ -8,7 +8,8 @@
 // timeline shows, as are the temperature and surface wind (NOAA's RTMA analysis every 15 minutes, surface_layer.js,
 // #85, #86): each fetched while it's shown (useFeed). Lightning is where GOES-East's lightning mapper saw it
 // (lightning_layer.js, #94): the 15 minutes up to the time the timeline shows, fetched each minute and only what's
-// new. The map's own errors go to the server (#65), which reports them like its own. The stations' own strikes are
+// new; by default as smooth shapes the server traces from them as the radar's are (weather/glm.py, #101), drawn by the
+// radar's canvas, with lines where the flashes crowd and the newest flashes as dots on top. The map's own errors go to the server (#65), which reports them like its own. The stations' own strikes are
 // rings: a Tempest reports how far away a strike was but not which way, so each is a ring at that distance.
 // The place names are the basemap's own, as tiles of their own (leaflet.js baseMap's labels) over the satellite and
 // under the radar (which is sparse, and matters more); with the satellite on they turn to light text on a dark halo,
@@ -23,7 +24,8 @@ import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./ra
 import { frontsCanvas } from "./fronts_layer.js";
 import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
 import { decodeGrid, temperatureCanvas, windCanvas, tempScale, windScale, TEMP_RANGE, WIND_RANGE } from "./surface_layer.js";
-import { lightningCanvas, lightningScale, mergeMinutes, TRAIL } from "./lightning_layer.js";
+import { lightningCanvas, lightningScale, mergeMinutes, ageStops, TRAIL } from "./lightning_layer.js";
+import { rampColor } from "./ramp.js";
 import { linesCanvas, loadLines } from "./lines_layer.js";
 import { loopWindow } from "./wx_loop.js";
 import { useMapTools, mapboxClass, LayersPanel, LoopBar, SPEEDS, loadLayers, saveLayers } from "./wx_controls.js";
@@ -119,6 +121,8 @@ export function WxMap({ show, unitsFor, compass }) {
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
   const hazardsLayer = useRef(null), tempLayer = useRef(null), windLayer = useRef(null), glmLayer = useRef(null), linesLayer = useRef(null);
+  const glmShapesLayer = useRef(null), glmCoresLayer = useRef(null);
+  const glmShapes = useRef(new Map());             // the smooth lightning: view:minute(:newest, live) -> {bands, cores}
   const [ready, setReady] = useState(false);
   const [info, setInfo] = useState(null);          // /api/wx/map: stations and the frames available
   const [live, setLive] = useState(null);          // /api/wx/live: the readings on the pins
@@ -126,7 +130,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const [layers, setLayers] = useState(loadLayers);    // the Layers panel's choices, remembered on this device
   const set = (change) => setLayers((l) => ({ ...l, ...change }));
   useEffect(() => saveLayers(layers), [layers]);
-  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, glmStyle, radarOpacity: opacity } = layers;
+  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, lightningStyle: glmStyle, radarOpacity: opacity } = layers;
   const { hazards: showHazards, hazardsMinor: showMinor, temp: showTemp, tempOpacity, wind: showWind } = layers;
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (viewFor)
   const [surfView, setSurfView] = useState(null);  // ... and the temperature and wind (viewFor SURFACE_ZOOMS)
@@ -160,6 +164,7 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current.createPane("wxradar").style.zIndex = 360;
       map.current.createPane("wxwind").style.zIndex = 365;     // over the radar, under the fronts
       map.current.createPane("wxfronts").style.zIndex = 370;     // over the radar, under the storm cells and pins
+      map.current.createPane("wxglmshapes").style.zIndex = 374;  // the smooth lightning, under its newest flashes
       map.current.createPane("wxlightning").style.zIndex = 375;  // over the fronts, under the storm cells and pins
       rings.current = lf.L.layerGroup().addTo(map.current);
       storms.current = lf.L.layerGroup().addTo(map.current);
@@ -169,8 +174,10 @@ export function WxMap({ show, unitsFor, compass }) {
       const rtmaLink = '<a href="https://www.nco.ncep.noaa.gov/pmb/products/rtma/">NOAA RTMA</a>';
       tempLayer.current = temperatureCanvas(lf.L, "wxtemp", `Temperature: ${rtmaLink}`);
       windLayer.current = windCanvas(lf.L, "wxwind", `Wind: ${rtmaLink}`);
-      glmLayer.current = lightningCanvas(lf.L, "wxlightning",
-        'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>');
+      const glmLink = 'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>';
+      glmLayer.current = lightningCanvas(lf.L, "wxlightning", glmLink);
+      glmShapesLayer.current = radarCanvas(lf.L, "wxglmshapes", glmLink, "age");
+      glmCoresLayer.current = radarCanvas(lf.L, "wxglmshapes", glmLink, "core", (core) => (core > 1 ? 1.75 : 1));
       linesLayer.current = linesCanvas(lf.L, "wxlines", 'Borders: <a href="https://www.naturalearthdata.com/">Natural Earth</a>');
       // A tap on watches or warnings: what they are there (the most important first), when the layer is on.
       map.current.on("click", (e) => {
@@ -341,6 +348,45 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!m.hasLayer(layer)) layer.addTo(m);
     layer.set(held.minutes, held.q, glmAt, held.colors, glmStyle);
   }, [ready, showGlm, glmTick, glmAt, glmStyle]);
+  // Smooth: the server's shapes for the minute shown and the view, drawn as the radar's are, the crowding as lines
+  // over them; the last frame stays up while the next loads. Each minute is fetched once, except the live one, again
+  // whenever newer flashes have come in; played or scrubbed, the timeline's minutes are fetched ahead, LOADING / 2 at
+  // a time, as the radar's frames are.
+  const smooth = showGlm && glmStyle === "smooth" && glmView;
+  const glmMinute = glmAt == null ? null : Math.floor(glmAt / 60) * 60;
+  const glmLive = !(playing || idx != null);
+  const shapesKey = (minute, live) => `${glmView.key}:${minute}${live ? `:${glmHeld.current.state?.newest}` : ""}`;
+  const fetchShapes = (minute, live) => {
+    const kept = glmShapes.current, key = shapesKey(minute, live);
+    if (kept.has(key)) return Promise.resolve(kept.get(key));
+    return api(`/api/wx/glm/shapes?zoom=${glmView.zoom}&bbox=${glmView.bbox.join(",")}&t=${minute + 59}`).then((x) => {
+      const d = { bands: decode(x.shapes), cores: decode({ ...x.shapes, bands: x.shapes.cores }) };
+      kept.set(key, d);
+      for (const k of [...kept.keys()].slice(0, -90)) kept.delete(k);
+      return d;
+    });
+  };
+  useEffect(() => {
+    const m = map.current, layer = glmShapesLayer.current, cores = glmCoresLayer.current;
+    if (!ready || !m || !layer) return;
+    if (!smooth || glmMinute == null) { layer.remove(); cores.remove(); return; }
+    if (!m.hasLayer(layer)) { layer.addTo(m); cores.addTo(m); }
+    let alive = true;
+    fetchShapes(glmMinute, glmLive).then((d) => {
+      if (!alive) return;
+      layer.set(d.bands, (age) => rampColor(ageStops(glmHeld.current.colors), age)).setOpacity(0.85);
+      cores.set(d.cores, (core) => `rgba(40, 16, 0, ${core > 1 ? 0.7 : 0.45})`);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [ready, smooth, glmView?.key, glmMinute, glmLive, glmTick]);
+  useEffect(() => {
+    if (!smooth || glmLive || !timeline.length) return;
+    let alive = true;
+    const todo = [...new Set(timeline.map((x) => Math.floor(x / 60) * 60))].reverse();
+    const next = () => { const minute = todo.shift(); if (alive && minute != null) fetchShapes(minute, false).catch(() => {}).finally(next); };
+    for (let i = 0; i < LOADING / 2; i++) next();
+    return () => { alive = false; };
+  }, [smooth, glmView?.key, glmLive, timeline[0], timeline.length]);
   useEffect(() => {
     for (const [k, layer] of tiles.current.sat) layer.setOpacity(shownSat && k === `${sat}:${shownSat.time}` ? layers.satOpacity : 0);
   });
@@ -547,7 +593,7 @@ export function WxMap({ show, unitsFor, compass }) {
       <i style=${`background: ${lightningScale(glmHeld.current.colors)}`}></i><span>${TRAIL / 60} min</span></p>`}`;
   const notes = html`${showGlm ? (glmState?.error && !glmHeld.current.minutes.size ? " Lightning unavailable right now."
       : glmState?.pending ? " Lightning is loading…"
-      : glmState ? ` Lightning: flashes GOES-East's lightning mapper saw in the ${TRAIL / 60} minutes up to the time shown, ${glmStyle === "dots" ? "bigger where there were more" : "brighter where they crowd, crosses for the last 2 minutes"}; about a minute behind.` : "") : ""}
+      : glmState ? ` Lightning: flashes GOES-East's lightning mapper saw in the ${TRAIL / 60} minutes up to the time shown, ${glmStyle === "dots" ? "bigger where there were more" : glmStyle === "smooth" ? "lines where they crowd, dots for the last 2 minutes" : "brighter where they crowd, crosses for the last 2 minutes"}; about a minute behind.` : "") : ""}
     ${showRings ? " Station strikes: rings at the distance a station measured a strike in the last hour (it can't tell direction)." : ""}
     ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
     ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}

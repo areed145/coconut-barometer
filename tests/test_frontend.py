@@ -158,8 +158,12 @@ class FrontendTest(unittest.TestCase):
           const bad = loadLayers();
           store.set("cb-wxmap-layers", '{"lightning": false}');             // the rings' old name (#94)
           const old = loadLayers();
+          store.set("cb-wxmap-layers", '{"glmStyle": "dots"}');             // the style's old name (#101): a choice kept ...
+          const dots = loadLayers().lightningStyle;
+          store.set("cb-wxmap-layers", '{"glmStyle": "blobs"}');            // ... the old default not
+          const blobs = loadLayers().lightningStyle;
           store.set("cb-wxmap-layers", "{not json");
-          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad, old,
+          console.log(JSON.stringify({ first: JSON.stringify(first) === JSON.stringify(DEFAULT_LAYERS), again, bad, old, dots, blobs,
             broken: loadLayers().radar, summary: layersSummary(again), first_hazards: first.hazards, first_minor: first.hazardsMinor }));
         """ % os.path.join(STATIC, "js", "wx_controls.js")
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
@@ -176,6 +180,7 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
         self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Sat")
         self.assertEqual((out["old"]["rings"], out["old"]["glm"], "lightning" in out["old"]), (False, True, False))
+        self.assertEqual((out["first"] and out["again"]["lightningStyle"], out["dots"], out["blobs"]), ("smooth", "dots", "smooth"))
         self.assertEqual((out["first_hazards"], out["first_minor"]), (True, False))   # warnings on, advisories off
 
     @unittest.skipUnless(NODE, "needs Node")
@@ -344,6 +349,27 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["r"], sorted(out["r"]))
         self.assertTrue(0 < out["peak"] < 1)
         self.assertEqual(out["stops"], DEFAULTS["theme"]["lightning_colors"])
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_smooth_lightning_is_drawn_by_the_radars_canvas(self):
+        """#101: the server's lightning shapes decode as radar's do, keeping each level's age (or core), and the radar's
+        canvas colors a level by the key it's given and can draw outlines."""
+        script = r"""
+          import { decode } from "%s";
+          const sq = [-9700, 3300, -9690, 3310, [-9700, 3300, 10, 0, 0, 10, -10, 0]];
+          const d = decode({ level: "fine", q: 100, bands: [{ age: 900, polys: [sq] }, { age: 112, polys: [sq] }] });
+          console.log(JSON.stringify({ ages: d.bands.map((b) => b.age), rings: d.bands[0].polys[0].rings.length, none: decode({ q: 1 }) }));
+        """ % os.path.join(STATIC, "js", "radar_layer.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual((out["ages"], out["rings"], out["none"]), ([900, 112], 1, None))
+        radar = open(os.path.join(STATIC, "js", "radar_layer.js")).read()
+        m = open(os.path.join(STATIC, "js", "weather_map.js")).read()
+        self.assertIn("this._colorOf(band[key])", radar)
+        self.assertIn("if (outline) { ctx.lineWidth = outline(band[key]); ctx.stroke(); }", radar)
+        self.assertIn('radarCanvas(lf.L, "wxglmshapes", glmLink, "age")', m)
+        self.assertIn('radarCanvas(lf.L, "wxglmshapes", glmLink, "core",', m)
+        panes = {k: int(v) for k, v in re.findall(r'createPane\("(\w+)"\)\.style\.zIndex = (\d+)', m)}
+        self.assertLess(panes["wxglmshapes"], panes["wxlightning"])          # the newest flashes over the shapes
 
     def test_an_alert_opens_its_own_page(self):
         main = open(os.path.join(STATIC, "js", "main.js")).read()
