@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS memberships (album_id TEXT, photo_id TEXT, PRIMARY KE
 CREATE TABLE IF NOT EXISTS trips (id TEXT PRIMARY KEY, place TEXT, place_public TEXT);
 CREATE TABLE IF NOT EXISTS trip_photos (trip_id TEXT, photo_id TEXT, PRIMARY KEY (trip_id, photo_id));
 CREATE TABLE IF NOT EXISTS classifications (photo_id TEXT, fingerprint TEXT, result TEXT, created_at BIGINT, PRIMARY KEY (photo_id, fingerprint));
+CREATE TABLE IF NOT EXISTS photo_fingerprints (photo_id TEXT PRIMARY KEY, phash TEXT, updated_at BIGINT);
 CREATE TABLE IF NOT EXISTS cameras (photo_id TEXT PRIMARY KEY, camera TEXT, make TEXT, model TEXT, fetched_at BIGINT, lens TEXT, exif TEXT);
 CREATE TABLE IF NOT EXISTS decisions (photo_id TEXT, action TEXT, target TEXT, status TEXT, detail TEXT, "at" BIGINT, PRIMARY KEY (photo_id, action, target));
 CREATE TABLE IF NOT EXISTS queue (photo_id TEXT PRIMARY KEY, status TEXT, changes TEXT, built_at BIGINT, reviewed_at BIGINT, result TEXT);
@@ -178,7 +179,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def is_sqlite_file(path) -> bool:

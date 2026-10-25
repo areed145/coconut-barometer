@@ -279,6 +279,18 @@ export function Reviewer({ onCount, targetPhotoId }) {
     catch (e) { toast("Error: " + e.message); }
     setBusy(false);
   };
+  const duplicateAction = async (action) => {
+    if (!item || busy) return;
+    if (action === "delete" && !window.confirm("Delete this photo from Flickr? This permanently deletes the new upload.")) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/review/items/${item.photo_id}/duplicate`, { method: "POST", body: { action } });
+      if (r.status === "deleted") { toast("Duplicate deleted from Flickr"); removeCurrent(); loadSummary(); }
+      else if (r.status === "processing") loadItem(item.photo_id);
+      else if (r.status === "failed") toast("Could not delete from Flickr: " + r.error);
+    } catch (e) { toast("Error: " + e.message); }
+    setBusy(false);
+  };
   const find = async (e) => {
     e.preventDefault(); if (!goto.trim()) return;
     try {
@@ -331,6 +343,9 @@ export function Reviewer({ onCount, targetPhotoId }) {
       </div>
       <div class="panel">
         <div class="card"><h2>Proposed changes <span class=${"status s-" + item.status}>${STATE[item.status] || item.status}</span></h2>
+          ${item.duplicate && html`<div class="problem"><b>Possible duplicate</b><p>This upload looks like a photo already in your library.</p>
+            <a class="duplicate-match" href=${item.duplicate.url} target="_blank" rel="noopener noreferrer"><img src=${item.duplicate.thumb} alt="" />
+              ${item.duplicate.title || "Open matching photo on Flickr"} ↗</a></div>`}
           ${ready && item.result?.error && html`<p class="problem">⚠ Applying failed twice, so it's still here: ${item.result.error}.
             Apply to try again, or Re-process for a fresh proposal.</p>`}
           ${item.changes.map((c, i) => html`<${Change} key=${i} c=${c} ch=${choices[i]} i=${i} editable=${editable}
@@ -339,11 +354,13 @@ export function Reviewer({ onCount, targetPhotoId }) {
           ${item.status === "new" && html`<p class="why">Waiting to be processed; processing it now…</p>`}
           ${item.status === "processing" && html`<p class="why"><span class="spin">⟳</span> Processing in the background…</p>`}
           ${item.status === "applying" && html`<p class="why"><span class="spin">⟳</span> Applying in the background…</p>`}
-          ${ready && !item.changes.length && html`<p class="why">Nothing to change. Ignore it, or Re-process it.</p>`}
+          ${ready && !item.duplicate && !item.changes.length && html`<p class="why">Nothing to change. Ignore it, or Re-process it.</p>`}
         </div>
         <div class="actions">
-          ${editable && html`<button class="primary" onClick=${apply} disabled=${busy}>Apply</button>`}
-          ${ready && html`<button onClick=${ignore} disabled=${busy} title="Out of review; nothing changes on Flickr">Ignore</button>
+          ${item.duplicate && html`<button class="primary" onClick=${() => duplicateAction("keep")} disabled=${busy}>Keep and review</button>
+            <button class="danger" onClick=${() => duplicateAction("delete")} disabled=${busy}>Delete from Flickr…</button>`}
+          ${!item.duplicate && editable && html`<button class="primary" onClick=${apply} disabled=${busy}>Apply</button>`}
+          ${!item.duplicate && ready && html`<button onClick=${ignore} disabled=${busy} title="Out of review; nothing changes on Flickr">Ignore</button>
             <button onClick=${processNow} disabled=${busy} title="A fresh look; it stays in review">Re-process</button>`}
           ${item.status === "not_queued" && html`<button class="primary" onClick=${send} disabled=${busy}>Send to review</button>`}
           <button onClick=${() => move(1)}>${inReview ? "Skip" : "Next"}</button>

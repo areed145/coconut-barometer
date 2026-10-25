@@ -25,7 +25,7 @@ python -m coconut_barometer settings import-file config.example.yaml
 #   API keys: Settings → Connections, or flickr.api_key / flickr.api_secret / vision.api_key in the file before importing
 #   Flickr key: https://www.flickr.com/services/apps/create/
 #   Anthropic key: https://console.anthropic.com/
-python -m coconut_barometer auth      # opens the browser; paste the code back (or Settings → Connections → Connect Flickr)
+python -m coconut_barometer auth      # opens the browser; paste the code back (read/write/delete access; or Settings → Connections → Connect Flickr)
 python -m coconut_barometer sync      # caches your photo list + album membership locally
 python -m coconut_barometer albums    # lists your album titles, so you can match them in Settings
 python -m coconut_barometer check     # validates the settings and checks album names against your library
@@ -109,6 +109,8 @@ coconut-barometer serve                          # then Photos → Review at htt
 `process` starts with a bulk `sync` (about one call per 500 photos, so every photo's title, tags and albums are current), then works through the photos never processed, in small batches: fetch EXIF if it isn't cached, classify if there's no result for the current settings, and plan that photo's changes into review. It can be stopped and resumed; photos already processed (or in review) are skipped. A photo whose EXIF or classification failed isn't queued, so it's retried next run. `--refresh-each` also re-reads each photo and its albums individually (+2 calls per photo). After changing settings, `process --rebuild` re-plans the photos in review (`--media video` or `--media photo` to limit it; photos being applied are never touched).
 
 A photo is in review from being sent there until you apply or ignore it. It gets there three ways: `process`, a sync bringing a new upload, or **Send to Review** on a photo in the gallery. **Settings → Photos → Review** decides what happens then, whichever way it came: processed right away (the default), or when you open it. There's no memory between visits: every processing proposes afresh, skipping only what's already true on Flickr.
+
+A new upload is first checked against the photos uploaded before it: one that looks like a photo already in the library (a perceptual fingerprint of the thumbnail, so a resized or recompressed copy still matches) is held in review as a **Possible duplicate**, beside a link to the match. **Keep and review** processes it as usual; **Delete from Flickr** deletes the new upload (it needs delete access: reconnect Flickr if it was connected before that was asked for). The first check fingerprints the whole library's thumbnails, once; they're kept. A thumbnail that can't be fetched doesn't hold a photo up. Local mode doesn't check.
 
 **Photos → Review** shows the photos in review one at a time: a large image, what's on Flickr now, and each proposed change. Untick albums, click tags to drop them, edit the title or description, then:
 

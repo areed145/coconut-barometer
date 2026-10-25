@@ -208,6 +208,7 @@ class ReviewApp:
         result = q["result"] if q["status"] != "applying" else None
         return {
             "photo_id": photo_id, "status": q["status"], "result": result,
+            "duplicate": (q["result"] or {}).get("duplicate"),
             "changes": [Change.from_dict(c).to_dict() for c in q["changes"]],
             "photo": {"title": p["title"], "description": p["description"], "tags": (p["tags"] or "").split(),
                       "albums": albums, "album_links": [{"title": t, "id": a} for t, a in in_albums], "date_taken": p["date_taken"], "image": large, "thumb": p["thumb_url"],
@@ -252,6 +253,27 @@ class ReviewApp:
             self.store.record(photo_id, "set_location", "", "rejected")
         self.store.queue_remove(photo_id)
         return {"status": "ignored"}
+
+    def duplicate_decision(self, photo_id: str, action: str) -> dict:
+        """Keep a suspected re-upload for normal review, or delete that new Flickr upload."""
+        q = self.store.queue_item(photo_id)
+        if not q or not (q.get("result") or {}).get("duplicate"):
+            raise KeyError(photo_id)
+        if q["status"] != "pending":
+            return {"status": "busy"}
+        if action == "keep":
+            self.store.queue_finish(photo_id, "pending", {"new_upload": True, "duplicate_action": "keep"})
+            return self.process(photo_id)
+        if action != "delete":
+            raise ValueError("action must be keep or delete")
+        if self.client is None:
+            return {"status": "failed", "error": "Flickr is not connected"}
+        try:
+            self.client.call("flickr.photos.delete", photo_id=photo_id)
+        except Exception as e:      # a token from before delete access was asked for: Flickr says 99
+            return {"status": "failed", "error": f"{e}. Reconnect Flickr (Settings → Connections) to allow deleting"}
+        self.store.delete_photos([photo_id])
+        return {"status": "deleted"}
 
     def _gone_on_flickr(self, photo_id: str) -> bool:
         """Whether Flickr says the photo no longer exists. Asked only when an apply failed: one call."""
@@ -367,7 +389,8 @@ class ReviewApp:
         from ..planner import build_plan
         from ..vision import provider_key
 
-        ids = [pid for pid in store.queue_ids(["pending"]) if pid not in self.processing]
+        ids = [pid for pid in store.queue_ids(["pending"]) if pid not in self.processing
+               and not (store.queue_item(pid)["result"] or {}).get("duplicate")]    # held: keep or delete first
         if not ids:
             return {"status": "done", "rows": 0}
         rows = build_plan(self.cfg, store, provider_key(self.cfg["vision"]), photo_ids=set(ids),
@@ -627,8 +650,34 @@ class ReviewApp:
                 raise RuntimeError(f"{e.code} Set it in Settings → Connections.")
         return self._provider
 
+    def _duplicate_of(self, store, photo_id: str) -> dict | None:
+        """A new upload that looks like a photo already in the library (duplicates.py): held for you to keep or
+        delete. None if it isn't a new upload, you kept it, it's local mode, or it can't tell (its thumbnail
+        wouldn't download): then it's reviewed as usual."""
+        from .. import local
+        from ..duplicates import find_duplicate
+
+        result = (store.queue_item(photo_id) or {}).get("result") or {}
+        if not result.get("new_upload") or result.get("duplicate_action") == "keep":
+            return None
+        if local.on():          # #92: the server's job (the first check fingerprints the whole library)
+            local.held("checking new uploads for duplicates")
+            return None
+        try:
+            return find_duplicate(store, photo_id, downloader=self.process_kw.get("downloader"))
+        except Exception as e:
+            self.log(f"duplicate check for {photo_id} skipped: {e}")
+            return None
+
     def _process(self, store, photo_id: str) -> dict:
         from ..pipeline import process
+
+        match = self._duplicate_of(store, photo_id)
+        if match:
+            store.queue_finish(photo_id, "pending", {"new_upload": True, "duplicate": match})
+            self.processing.discard(photo_id)
+            self.fresh.discard(photo_id)
+            return {"status": "duplicate", "match": match}
 
         fresh = photo_id in self.fresh
         try:

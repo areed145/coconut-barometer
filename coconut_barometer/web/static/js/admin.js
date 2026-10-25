@@ -191,7 +191,7 @@ function FlickrPanel() {
       : html`<b class="problem">Not connected</b>`}</p>
     ${!s.keys_set ? html`<p class="why">Set the Flickr API key and secret first.</p>`
       : html`<button class=${s.connected ? "" : "primary"} onClick=${connect}>${s.connected ? "Reconnect" : "Connect Flickr"}</button>
-        <p class="why">Opens flickr.com to approve access (read and write), then brings you back here.</p>`}
+        <p class="why">Opens flickr.com to approve access (read, write, and delete), then brings you back here.</p>`}
   </div>`;
 }
 

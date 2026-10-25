@@ -22,6 +22,10 @@ class Decision(BaseModel):
     choices: list[Choice]
 
 
+class DuplicateDecision(BaseModel):
+    action: Literal["keep", "delete"]
+
+
 class Pick(BaseModel):
     photo_id: str
     index: int
@@ -91,6 +95,16 @@ def ignore(photo_id: str, rt=Depends(runtime)):
         return rt.review.ignore(photo_id)
     except KeyError:
         raise HTTPException(404, "not in review")
+
+
+@router.post("/items/{photo_id}/duplicate")
+def duplicate_decision(photo_id: str, body: DuplicateDecision, rt=Depends(runtime)):
+    try:
+        return rt.review.duplicate_decision(photo_id, body.action)
+    except KeyError:
+        raise HTTPException(404, "no duplicate decision is waiting")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/items/{photo_id}/process")

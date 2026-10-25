@@ -160,6 +160,9 @@ class FakeFlickr:
         if method == "flickr.photosets.delete":
             del self.sets[p["photoset_id"]]
             return {}
+        if method == "flickr.photos.delete":
+            self.photos = [ph for ph in self.photos if ph["id"] != p["photo_id"]]
+            return {}
         if method == "flickr.photos.geo.removeLocation":
             for ph in self.photos:
                 if ph["id"] == p["photo_id"]:

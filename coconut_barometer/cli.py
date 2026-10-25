@@ -37,7 +37,10 @@ def _provider(cfg):
 
 
 def cmd_auth(cfg, store, args):
-    c = _client(cfg)
+    from .flickr_client import FlickrClient
+
+    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
+    c.authenticate("delete")
     print(f"Authenticated as {c.nsid()} (token cached in ~/.flickr/)")
 
 
@@ -474,7 +477,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="coconut_barometer", description="Auto-tag and album-sort a Flickr library.")
     ap.add_argument("-c", "--config", default=os.environ.get("CONFIG_PATH", "config.yaml"))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("auth", help="authorize with Flickr (write access)")
+    sub.add_parser("auth", help="authorize with Flickr (read, write and delete access)")
     p = sub.add_parser("sync", help="bring the database up to date with Flickr (whatever's due; cheap)")
     p.add_argument("--full", dest="mode", action="store_const", const="full",
                    help="re-read everything (~180 calls for 10k photos)")
