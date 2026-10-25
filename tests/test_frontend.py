@@ -531,6 +531,13 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("}, [more, photos.length, total]);", gallery)
         self.assertIn('addEventListener("scroll", near, { passive: true });', gallery)
 
+    def test_lightbox_preloads_neighbours_once_the_photo_is_in(self):
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn("onLoad=${preload}", gallery)
+        self.assertIn("for (const i of [index + step, index - step, index + 2 * step])", gallery)
+        self.assertIn("if (frugal()) return;", gallery)                     # not on Save-Data or 2G
+        self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded
+
 
 if __name__ == "__main__":
     unittest.main()

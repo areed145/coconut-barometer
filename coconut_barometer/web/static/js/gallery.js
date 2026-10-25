@@ -168,8 +168,22 @@ export function SinglePhoto({ id }) {
   return html`<${Lightbox} photos=${[p]} index=${0} onIndex=${() => {}} onClose=${() => location.replace(photosLink())} />`;
 }
 
+// Photo detail, kept for the last few photos opened or preloaded, so stepping back and forth doesn't fetch it again.
+const details = new Map();
+function photoDetail(id) {
+  const key = `${signedIn()}:${id}`;       // signed in sees more (private photos, locations)
+  if (!details.has(key)) {
+    details.set(key, api(`/api/photos/${id}`).catch((e) => { details.delete(key); throw e; }));
+    if (details.size > 40) details.delete(details.keys().next().value);
+  }
+  return details.get(key);
+}
+// On a metered or slow connection, don't fetch what may never be looked at.
+const frugal = () => { const c = navigator.connection; return !!c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || "")); };
+
 export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   const p = photos[index];
+  const was = useRef(index);              // the index before, for the direction of travel
   const [detail, setDetail] = useState(null);
   const [timeline, setTimeline] = useState(null);
   const [zoom, setZoom] = useState(false);
@@ -188,7 +202,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   };
   useEffect(() => {
     setDetail(null); setTimeline(null); setZoom(false);
-    api(`/api/photos/${p.id}`).then(setDetail).catch(() => {});
+    photoDetail(p.id).then(setDetail).catch(() => {});
     if (signedIn()) api(`/api/analytics/photos/${p.id}`).then(setTimeline).catch(() => {});
     if (index >= photos.length - 5) onNearEnd?.();
   }, [p.id]);
@@ -206,11 +220,27 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   }, [index, photos.length]);
   const prefs = zoom ? ["k", "h", "l", "b", "c", "z", "w", "n"] : ["b", "l", "c", "z", "w", "n"];
   const big = pick(p.sizes, prefs);
+  // Once this image is in, fetch the neighbours' (the next two the way we're going, one the other way) so the next
+  // arrow press shows a photo at once (#131). Not the zoom sizes unless zoomed: they're large.
+  const preload = () => {
+    const step = index < was.current ? -1 : 1;
+    was.current = index;
+    if (frugal()) return;
+    for (const i of [index + step, index - step, index + 2 * step]) {
+      const n = photos[i];
+      if (!n) continue;
+      const img = new Image();
+      img.decoding = "async";
+      img.src = pick(n.sizes, prefs);
+      photoDetail(n.id).catch(() => {});
+    }
+  };
   const d = detail, e = d?.engagement;
   const daily = timeline?.daily || [];
   return html`<div class=${"lightbox" + (info ? "" : " noinfo")} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
     <div class=${"stage" + (zoom ? " zoomed" : "")}>
-      <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => setZoom(!zoom)} onError=${fallback(p.sizes, prefs)} />
+      <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => setZoom(!zoom)} onLoad=${preload}
+           onError=${fallback(p.sizes, prefs)} />
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>
       ${index > 0 && html`<button class="navbtn prev" onClick=${() => onIndex(index - 1)} aria-label="Previous">‹</button>`}
       ${index < photos.length - 1 && html`<button class="navbtn next" onClick=${() => onIndex(index + 1)} aria-label="Next">›</button>`}
