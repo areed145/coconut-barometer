@@ -611,6 +611,10 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 .maprows { display: flex; flex-direction: column; gap: 6px; }
 .maprow { display: grid; grid-template-columns: minmax(80px, 200px) auto 1fr auto; gap: var(--s2); align-items: center; }
 .items { overflow-x: auto; }
+.tripmap { height: min(55dvh, 460px); }
+.tripdot { width: 16px; height: 16px; border-radius: 50%; background: var(--chart-2); border: 2px solid var(--bg); box-shadow: 0 0 0 1.5px var(--fg); }
+.replay { display: flex; align-items: center; gap: var(--s2); margin: var(--s3) 0; }
+.replay input[type=range] { flex: 1; min-width: 0; }
 .places .placesmap { height: 280px; margin-top: var(--s2); }
 .places tr.sel td input:not([type=radio]) { border-color: var(--chart-2); }
 .places td input[type=radio] { width: auto; min-width: 0; }

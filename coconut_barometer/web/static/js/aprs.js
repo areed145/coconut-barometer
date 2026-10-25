@@ -191,6 +191,7 @@ function CallCard({ c, i, units, now, track, win }) {
       <div class="aprsfoot">
         ${p.path && html`<span class="aprspath" title="The path this packet took">${p.path.split(",").map((h, j) => html`<code key=${j}>${h}</code>`)}</span>`}
         <span class="aprslinks"><a href=${aprsFi(c.callsign)} target="_blank" rel="noopener">aprs.fi ↗</a>
+          <a href=${`#/aprs/trips/${encodeURIComponent(c.callsign)}`}>Trips</a>
           <button class="link" onClick=${() => setOpen(!open)}>${open ? "Hide packets" : "Packets"}</button></span>
       </div>
       ${open && html`<${Packets} call=${c.callsign} units=${units} />`}`}

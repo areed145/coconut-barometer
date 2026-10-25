@@ -35,6 +35,7 @@ const Weather = lazy(() => import("./weather.js"), "Weather");
 const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
 const Aprs = lazy(() => import("./aprs.js"), "Aprs");
 const Igate = lazy(() => import("./igate.js"), "Igate");
+const AprsTrips = lazy(() => import("./aprs_trips.js"), "AprsTrips");
 const Admin = lazy(() => import("./admin.js"), "Admin");
 const Setup = lazy(() => import("./setup.js"), "Setup");
 
@@ -97,7 +98,7 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trip
                     ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["visitors", "status", "settings"];
-const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
+const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"], ["qc", "QC"]];
 const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
 
@@ -147,7 +148,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;
   else if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
-  else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />` : html`<${Aprs} />`;
+  else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />`
+    : route[1] === "trips" ? html`<${AprsTrips} call=${route[2] && decodeURIComponent(route[2])} />` : html`<${Aprs} />`;
   else if (tab === "visitors") page = html`<${Visitors} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;

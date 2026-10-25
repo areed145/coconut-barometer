@@ -66,6 +66,8 @@ DEFAULTS: dict[str, Any] = {
         "passcode": None,             # APRS-IS passcode for the callsign: only for sending (CWOP weather reports)
         "cwop": {},                   # station name -> the callsign-SSID it reports to CWOP as; none: nothing sent
         "cwop_minutes": 10,           # how often each reports (CWOP asks for 5-10 minutes, no more often than 5)
+        "trip_stop_minutes": 10,      # staying this long (within 100 m) ends a trip (#120)
+        "trip_gap_minutes": 30,       # nothing heard this long while it moved: a gap, ending a trip without a stop
         "places": [],                 # named circles: {name, lat, lon, radius_m (200)}, for arrive/leave alerts and stops
     },
     "alerts": {                       # notifications to the devices turned on in Settings → Alerts; 0 turns one off
@@ -205,6 +207,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
           ("trips", "gap_hours"): (1, 24 * 14), ("trips", "jump_km"): (1, 20000), ("trips", "min_photos"): (2, 1000),
           ("groups", "max_per_photo"): (0, 10), ("groups", "min_match"): (0, 50), ("aprs", "cwop_minutes"): (5, 60),
+          ("aprs", "trip_stop_minutes"): (1, 24 * 60), ("aprs", "trip_gap_minutes"): (5, 24 * 60),
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
           ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "igate_altitude_km"): (0, 50),
           ("alerts", "igate_quiet_minutes"): (0, 24 * 60),
