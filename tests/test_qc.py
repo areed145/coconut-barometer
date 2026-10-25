@@ -499,3 +499,151 @@ class WindPressureChecksTest(unittest.TestCase):
         self.assertEqual(self.run_check("wind_dir", span)["status"], "insufficient")
         self.assertEqual(self.run_check("wind_speed", span)["status"], "insufficient")
         self.assertEqual(self.run_check("pressure", span)["status"], "pass")
+
+
+# ---- #109 and #111: lightning vs GLM, and front passages ---------------------------------------------------------
+from coconut_barometer.weather.qc import lightning as lightning_check, passages  # noqa: E402
+
+
+class LightningCheckTest(unittest.TestCase):
+    def setUp(self):
+        self.store = make_store()
+        self.cfg = from_dict(CFG)
+        self.station = self.store.qc_stations()[0]
+        self.span = (DAY0, DAY0 + 10 * 86400)
+
+    def strike(self, ts, km):
+        self.store.wx_save_event(11, ts, "strike", km, 100.0)
+
+    def flash(self, ts, km, bearing=90.0):
+        self.store.qc_save_glm([(11, ts, 38.3 + km / 1000, -105.7 + bearing / 10000, km, bearing)])
+
+    def check(self):
+        return lightning_check.lightning(self.store, dict(self.station), *self.span, self.cfg)
+
+    def storm(self, day, heard=True, km=12.0):
+        """20 minutes of lightning: GLM flashes every 30 s at km, and the station hearing them 2 km closer."""
+        t0 = DAY0 + day * 86400 + 18 * 3600
+        for k in range(40):
+            self.flash(t0 + k * 30, km, 225.0)
+            if heard:
+                self.strike(t0 + k * 30 + 10, km - 2)
+
+    def test_strikes_glm_confirms(self):
+        for day in range(3):
+            self.storm(day)
+        r = self.check()
+        self.assertEqual(r["status"], "pass")
+        m = r["metrics"]
+        self.assertEqual((m["strikes"], m["matched"], m["unconfirmed"], m["missed"]), (120, 120, 0, 0))
+        self.assertAlmostEqual(m["distance_bias"], -2.0)
+        self.assertEqual(m["newest_matched"][-1]["bearing"], 225.0)          # a direction for the strike
+        self.assertEqual(r["flags"], [])
+
+    def test_strikes_with_no_lightning_around_are_interference(self):
+        self.storm(0)
+        for k in range(30):                                                  # a fence charger, two days later
+            self.strike(DAY0 + 3 * 86400 + k * 60, 1.0)
+        r = self.check()
+        self.assertEqual(r["status"], "warn")                                # 30 of 70: over 0.3, under 0.6
+        self.assertEqual(r["metrics"]["unconfirmed"], 30)
+        self.assertEqual([f[2] for f in r["flags"]], ["strikes with no lightning in reach"])
+
+    def test_storms_nearby_it_didnt_hear(self):
+        for day in range(5):                                                 # each storm two 15-minute periods
+            self.storm(day, heard=day == 0)
+        r = self.check()
+        self.assertEqual(r["status"], "fail")
+        self.assertGreaterEqual(r["metrics"]["miss_rate"], 0.8 - 1e-9)
+        self.assertIn("lightning nearby, none heard", {f[2] for f in r["flags"]})
+
+    def test_a_storm_beyond_twenty_km_isnt_a_miss(self):
+        for day in range(4):
+            self.storm(day, heard=False, km=35.0)
+        self.assertEqual(self.check()["status"], "insufficient")
+
+    def test_history_minutes_fill_in_where_the_stream_wasnt(self):
+        t0 = DAY0 + 18 * 3600
+        self.strike(t0, 10.0)
+        self.store.wx_save_obs(11, [minute(t0, wind=1.0)[:13] + [0, 10.0, 1, 2.6, 1],     # the same strike: not twice
+                                    minute(t0 + 600)[:13] + [0, 8.0, 3, 2.6, 1]])         # stream down: 3 at 8 km
+        self.assertEqual(self.store.qc_strikes(11, *self.span), [(t0, 10.0), (t0 + 600, 8.0), (t0 + 600, 8.0), (t0 + 600, 8.0)])
+
+
+class FrontPassageTest(unittest.TestCase):
+    """The station at 38.3 N, 105.7 W. A front along a meridian, its points north to south: moving east."""
+
+    def setUp(self):
+        self.store = make_store()
+        self.cfg = from_dict(CFG)
+        self.station = self.store.qc_stations()[0]
+
+    @staticmethod
+    def line(lon, kind="cold"):
+        return {"type": kind, "points": [[41.0, lon], [36.0, lon]]}
+
+    def analyses(self, t, kind="cold"):
+        """A front 1.3° west of the station at t - 90 min, and 0.7° east of it at t + 90 min."""
+        self.store.qc_save_front(t - 5400, {"fronts": [self.line(-107.0, kind)], "centers": []})
+        self.store.qc_save_front(t + 5400, {"fronts": [self.line(-105.0, kind)], "centers": []})
+
+    def readings(self, t, change=True):
+        """Six hours either side: before it, a south wind and dewpoint 10 °C; after, northwest and 4 °C; the pressure
+        lowest at the front and 2 hPa up three hours on."""
+        rows = []
+        for ts in range(t - 6 * 3600, t + 6 * 3600, 60):
+            after = change and ts >= t
+            td, temp = (4.0 if after else 10.0), (14.0 if after else 18.0)
+            rh = 100 * np.exp(17.62 * td / (243.12 + td) - 17.62 * temp / (243.12 + temp))
+            p = 800.0 + (abs(ts - t) / 3600 * 0.7 if change else 0.0)
+            rows.append(minute(ts, temp=temp, humidity=round(float(rh), 2), pressure=round(p, 2), wind=4.0,
+                               wind_dir=300.0 if after else 180.0))
+        self.store.wx_save_obs(11, rows)
+
+    def test_which_side(self):
+        self.assertEqual(passages.side(self.line(-107.0)["points"], 38.3, -105.7)[1], 1)        # ahead of it
+        self.assertEqual(passages.side(self.line(-105.0)["points"], 38.3, -105.7)[1], -1)       # behind it
+        self.assertIsNone(passages.side([[45.0, -107.0], [42.0, -107.0]], 38.3, -105.7))        # it ends north of here
+
+    def test_a_passage_and_its_time(self):
+        t = DAY0 + 86400
+        self.analyses(t)
+        (p,) = passages.crossings(self.store.qc_front_analyses(DAY0, DAY0 + 3 * 86400), 38.3, -105.7)
+        self.assertEqual(p["type"], "cold")
+        self.assertAlmostEqual(p["ts"], t - 5400 + 10800 * 1.3 / 2.0, delta=300)    # by the distances (cos lat cancels)
+
+    def test_fronts_that_brought_what_they_should(self):
+        for day in (1, 3, 5):
+            t = DAY0 + day * 86400
+            self.analyses(t)
+            self.readings(t)
+        r = passages.fronts(self.store, dict(self.station), DAY0, DAY0 + 7 * 86400, self.cfg)
+        self.assertEqual(r["status"], "pass")
+        p = r["metrics"]["passages"][0]
+        self.assertEqual(set(p["found"]), {"wind", "cooler", "pressure"})
+        self.assertAlmostEqual(p["wind_shift"], 120.0, delta=5)          # S to NW: veering
+        self.assertGreater(p["cooler"], 5.0)
+
+    def test_fronts_the_station_didnt_notice(self):
+        for day in (1, 3, 5):
+            t = DAY0 + day * 86400
+            self.analyses(t)
+            self.readings(t, change=False)
+        r = passages.fronts(self.store, dict(self.station), DAY0, DAY0 + 7 * 86400, self.cfg)
+        self.assertEqual(r["status"], "warn")
+        self.assertEqual(r["metrics"]["agree"], 0)
+
+    def test_a_front_moving_away_isnt_a_passage(self):
+        t = DAY0 + 86400
+        self.store.qc_save_front(t - 5400, {"fronts": [self.line(-105.0)], "centers": []})
+        self.store.qc_save_front(t + 5400, {"fronts": [self.line(-104.0)], "centers": []})
+        self.assertEqual(passages.crossings(self.store.qc_front_analyses(DAY0, t + 86400), 38.3, -105.7), [])
+        # a stationary front has no "ahead": crossing either way counts
+        self.analyses(t + 86400, kind="stationary")
+        self.assertEqual([p["type"] for p in passages.crossings(self.store.qc_front_analyses(DAY0, t + 3 * 86400), 38.3, -105.7)],
+                         ["stationary"])
+
+    def test_no_readings_then_isnt_judged(self):
+        self.analyses(DAY0 + 86400)
+        r = passages.fronts(self.store, dict(self.station), DAY0, DAY0 + 7 * 86400, self.cfg)
+        self.assertEqual((r["status"], r["metrics"]["n"]), ("insufficient", 0))

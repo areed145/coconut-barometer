@@ -41,7 +41,8 @@ BATTERY_WARN, BATTERY_FAIL = 2.41, 2.375        # V: the Tempest slows its sampl
 MAX_FLAGS = 50                                  # a check keeps at most this many flags (the longest)
 DAY_READINGS = 100                              # a day with fewer readings than this isn't judged (solar)
 
-COLUMNS = ("ts", "temp", "humidity", "pressure", "wind_avg", "wind_gust", "solar", "uv", "rain", "battery", "report_interval")
+COLUMNS = ("ts", "temp", "humidity", "pressure", "wind_avg", "wind_gust", "wind_dir", "solar", "uv", "rain", "battery",
+           "report_interval")
 
 
 def obs(store, station: dict, start: int, end: int) -> dict:
