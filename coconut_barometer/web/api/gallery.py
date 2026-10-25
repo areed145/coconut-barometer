@@ -13,18 +13,15 @@ router = APIRouter(prefix="/api", tags=["gallery"])
 Sort = Literal["newest", "oldest", "taken", "views", "faves", "comments", "title"]
 
 
-@router.get("/photos")
-def photos(q: str = Query("", max_length=100), sort: Sort = "newest", media: Literal["photo", "video"] | None = None,
-           album: str | None = Query(None, max_length=40), tag: str = Query("", max_length=100),
-           year: int | None = Query(None, ge=1800, le=3000), camera: str = Query("", max_length=200),
-           on: str = Query("", pattern=r"^(|(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
-           day: str = Query("", pattern=r"^(|\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
-           near: str = Query("", pattern=r"^(|-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?)$"),
-           is_: str = Query("", alias="is", max_length=300),
-           limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0), db=Depends(store), me=Depends(viewer)):
-    """The Photos page and every filtered view of it (album, tag, year, `on` this day of any year
-    ("MM-DD"), the `day` taken ("YYYY-MM-DD"), `near` a point ("lat,lon"), camera, search, and presets:
-    ?is=untitled,no_album means both)."""
+def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"] | None = None,
+            album: str | None = Query(None, max_length=40), tag: str = Query("", max_length=100),
+            year: int | None = Query(None, ge=1800, le=3000), camera: str = Query("", max_length=200),
+            on: str = Query("", pattern=r"^(|(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
+            day: str = Query("", pattern=r"^(|\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
+            near: str = Query("", pattern=r"^(|-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?)$"),
+            is_: str = Query("", alias="is", max_length=300), me=Depends(viewer)) -> dict:
+    """The Photos page's filters: album, tag, year, `on` this day of any year ("MM-DD"), the `day` taken
+    ("YYYY-MM-DD"), `near` a point ("lat,lon"), camera, search, and presets (?is=untitled,no_album means both)."""
     presets = [p for p in is_.split(",") if p]
     unknown = [p for p in presets if p not in PRESETS or (me is None and PRESETS[p][1] == "Status")]
     if unknown:
@@ -32,8 +29,21 @@ def photos(q: str = Query("", max_length=100), sort: Sort = "newest", media: Lit
     point = tuple(float(x) for x in near.split(",")) if near else None
     if point and not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
         raise HTTPException(422, "near: no such place")
-    return db.photo_page(album_id=album, q=q, sort=sort, media=media, limit=limit, offset=offset, tag=tag,
-                         year=year, camera=camera, presets=presets, public_only=me is None, on=on, day=day, near=point)
+    return dict(album_id=album, q=q, media=media, tag=tag, year=year, camera=camera, presets=presets,
+                public_only=me is None, on=on, day=day, near=point)
+
+
+@router.get("/photos")
+def photos(sort: Sort = "newest", limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0),
+           f: dict = Depends(filters), db=Depends(store)):
+    """The Photos page and every filtered view of it."""
+    return db.photo_page(sort=sort, limit=limit, offset=offset, **f)
+
+
+@router.get("/photo-months")
+def photo_months(sort: Sort = "newest", f: dict = Depends(filters), db=Depends(store)):
+    """Photos per month, in the sort's order, for the timeline (#126): their running total is each month's offset."""
+    return db.photo_months(sort=sort, **f)
 
 
 @router.get("/theme")

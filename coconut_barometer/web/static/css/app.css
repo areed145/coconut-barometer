@@ -360,6 +360,19 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .jrow { display: flex; gap: 6px; }
 .jrow .tile { aspect-ratio: auto; flex: 0 1 auto; min-width: 0; }
 .jrow.last .tile { flex-shrink: 0; }
+/* the timeline (#126): a rail down the right edge, beside the photos (over them on phones, while scrolling) */
+.with-timeline { margin-right: 44px; }
+.with-timeline .justified { overflow-anchor: none; }
+.timeline { position: fixed; z-index: 15; right: calc(var(--s1) + var(--safe-r)); top: calc(var(--header-h) + var(--s5)); bottom: var(--s5);
+  width: 40px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: var(--r-sm); }
+.timeline:focus-visible { outline: 2px solid var(--accent); }
+.timeline .yr { position: absolute; right: 4px; transform: translateY(-50%); font-size: var(--text-2xs); color: var(--muted);
+  font-variant-numeric: tabular-nums; pointer-events: none; }
+.timeline .thumb { position: absolute; right: 0; width: 40px; height: 2px; background: var(--accent); pointer-events: none; }
+.timeline .bubble { position: absolute; right: 46px; transform: translateY(-50%); white-space: nowrap; font-size: var(--text-sm);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px var(--s2); box-shadow: var(--shadow-2);
+  pointer-events: none; opacity: 0; transition: opacity .2s; }
+.timeline.active .bubble, .timeline:hover .bubble, .timeline:focus-visible .bubble { opacity: 1; }
 .toplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s2); }
 .toplist .tile { cursor: pointer; }
 .toplist .tile .cap { opacity: 1; }
@@ -658,6 +671,11 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
 }
 @media (max-width: 520px) {
   .jrow .tile { border-radius: 2px; }
+  .with-timeline { margin-right: 0; }
+  .timeline { width: 30px; background: color-mix(in srgb, var(--surface) 80%, transparent); opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .timeline.active { opacity: 1; pointer-events: auto; }
+  .timeline .thumb { width: 30px; }
+  .timeline .yr { right: 2px; }
   .justified, .jrow { gap: 3px; }
   .albums { grid-template-columns: repeat(2, 1fr); gap: var(--s2); }
   .toplist { grid-template-columns: repeat(3, 1fr); gap: var(--s1); }

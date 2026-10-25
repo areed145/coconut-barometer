@@ -68,11 +68,34 @@ def photo_card(p) -> dict:
 
 
 class GalleryStore(Database):
-    def photo_page(self, album_id: str | None = None, q: str = "", sort: str = "newest", media: str | None = None,
-                   limit: int = 60, offset: int = 0, tag: str = "", year: int | None = None, camera: str = "",
-                   presets: list[str] | None = None, public_only: bool = False, on: str = "",
-                   near: tuple[float, float] | None = None, day: str = "") -> dict:
-        """One page of photos, by any mix of filters: album, search text, tag (Flickr's
+    def photo_page(self, sort: str = "newest", limit: int = 60, offset: int = 0, **filters) -> dict:
+        """One page of photos, by any mix of the filters (see `filtered`)."""
+        joins, clause, args = self.filtered(**filters)
+        total = self.db.execute(f"SELECT COUNT(*) FROM photos p {joins}{clause}", args).fetchone()[0]
+        rows = self.db.execute(f"SELECT p.* FROM photos p {joins}{clause} ORDER BY {SORTS.get(sort, SORTS['newest'])} "
+                               f"LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
+        return {"total": total, "offset": offset, "photos": [photo_card(r) for r in rows]}
+
+    # The month each date sort goes by, as "YYYY-MM" (#126). Grouped in the sort's own order, so the counts add up
+    # to each month's offset in it. Uploads by UTC month, the same order as by the second.
+    MONTHS = {"taken": ("substr(p.date_taken, 1, 7)", "DESC"),
+              "newest": ("strftime(to_timestamp(p.date_upload), '%Y-%m')", "DESC"),
+              "oldest": ("strftime(to_timestamp(p.date_upload), '%Y-%m')", "ASC")}
+
+    def photo_months(self, sort: str = "newest", **filters) -> list[dict]:
+        """For the timeline: [{month, count}] for the filtered photos in `sort` order, or [] for a sort that isn't by date.
+        Photos without a date (month None) come last, as they do in the sort."""
+        if sort not in self.MONTHS:
+            return []
+        month, order = self.MONTHS[sort]
+        joins, clause, args = self.filtered(**filters)
+        return [{"month": r[0], "count": r[1]} for r in self.db.execute(
+            f"SELECT {month} AS mo, COUNT(*) FROM photos p {joins}{clause} GROUP BY mo ORDER BY mo {order} NULLS LAST", args)]
+
+    def filtered(self, album_id: str | None = None, q: str = "", media: str | None = None, tag: str = "",
+                 year: int | None = None, camera: str = "", presets: list[str] | None = None, public_only: bool = False,
+                 on: str = "", near: tuple[float, float] | None = None, day: str = "") -> tuple[str, str, list]:
+        """(joins, WHERE clause, arguments) for any mix of filters: album, search text, tag (Flickr's
         normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), the day taken
         (`day`, "YYYY-MM-DD"), within NEAR_M of a point (`near`, (lat, lon)), camera, photo or video,
         and presets (all must hold)."""
@@ -111,10 +134,7 @@ class GalleryStore(Database):
             where.append("p.media = ?")
             args.append(media)
         clause = (" WHERE " + " AND ".join(where)) if where else ""
-        total = self.db.execute(f"SELECT COUNT(*) FROM photos p {joins}{clause}", args).fetchone()[0]
-        rows = self.db.execute(f"SELECT p.* FROM photos p {joins}{clause} ORDER BY {SORTS.get(sort, SORTS['newest'])} "
-                               f"LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
-        return {"total": total, "offset": offset, "photos": [photo_card(r) for r in rows]}
+        return joins, clause, args
 
     def photo_highlights(self, year: int, month_start: int, public_only: bool = False) -> dict:
         """For Home: how many photos were taken in `year`, and the most viewed one uploaded since `month_start`."""

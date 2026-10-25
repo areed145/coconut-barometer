@@ -129,6 +129,24 @@ class WebTest(unittest.TestCase):
         self.login()
         self.assertEqual([p["id"] for p in self.c.get("/api/photos/1/related").json()["nearby"]], ["2", "3", "5"])
 
+    def test_photo_months_add_up_to_offsets(self):
+        """#126: photos per month in the sort's own order, under the same filters, so the running total is each month's
+        offset in /api/photos; [] for a sort that isn't by date."""
+        x = self.store.db.execute
+        for pid, taken, up in [("1", "2019-07-17 10:00:00", 1700000000), ("2", "2019-07-01 09:00:00", 1600000000),
+                               ("3", "2024-01-05 00:00:00", 1710000000), ("4", "2019-08-02 00:00:00", 1500000000),
+                               ("5", None, 1720000000)]:
+            x("UPDATE photos SET date_taken=?, date_upload=?, tags=? WHERE id=?", (taken, up, "kept" if pid != "3" else "", pid))
+        self.store.db.commit()
+        self.login()
+        months = lambda **p: [(m["month"], m["count"]) for m in self.c.get("/api/photo-months", params=p).json()]
+        self.assertEqual(months(sort="taken"), [("2024-01", 1), ("2019-08", 1), ("2019-07", 2), (None, 1)])
+        self.assertEqual(months(sort="taken", tag="kept"), [("2019-08", 1), ("2019-07", 2), (None, 1)])   # filtered
+        self.assertEqual(months(sort="oldest"), [("2017-07", 1), ("2020-09", 1), ("2023-11", 1), ("2024-03", 1), ("2024-07", 1)])
+        self.assertEqual(months(sort="views"), [])
+        ids = [p["id"] for p in self.c.get("/api/photos", params={"sort": "taken", "offset": 2}).json()["photos"]]
+        self.assertEqual(ids, ["1", "2", "5"])                    # offset 2 = 1 + 1: where 2019-07 starts
+
     def test_photo_highlights_count_public_photos_for_visitors(self):
         x = self.store.db.execute
         x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")

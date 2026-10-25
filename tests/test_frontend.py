@@ -548,6 +548,17 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('const FILTERS = ["album", "tag", "year", "on", "day", "near",', gallery)
         self.assertIn("onRelated=${(photos, index, label) => setAlt({ photos, index, label })}", gallery)
 
+    def test_photostream_timeline(self):
+        """#126: the date sorts get a rail; a jump lands once its page is laid out; photos above load back in with the one on
+        screen kept where it was."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('const DATED = ["newest", "oldest", "taken"];', gallery)
+        self.assertIn('api("/api/photo-months", { params: query })', gallery)
+        self.assertIn("less(before)", gallery)
+        self.assertIn("if (t) scrollBy(0, t.getBoundingClientRect().top - a.top);", gallery)
+        self.assertIn("useLayoutEffect(() => {                           // only once the page is laid out", gallery)
+        self.assertIn('role="slider" tabindex="0"', gallery)                                  # and the arrow keys
+
     def test_lightbox_slideshow(self):
         """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
@@ -555,7 +566,7 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("setTimeout(() => (index < photos.length - 1 ? onIndex(index + 1) : play(false)), secs * 1000)", gallery)
         self.assertIn("if (!playing || held) return;", gallery)
         self.assertIn("const vis = () => setHeld(document.hidden);", gallery)
-        self.assertIn("<${PhotoGrid} paged=${paged} slideshow=${slideshow} />", gallery)
+        self.assertIn("<${PhotoGrid} paged=${paged} slideshow=${slideshow}", gallery)
         self.assertIn("try { localStorage.setItem(PACE_KEY, n); } catch {}", gallery)     # storage may be blocked
 
     def test_lightbox_touch_gestures(self):

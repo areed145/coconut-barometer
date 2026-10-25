@@ -1,5 +1,5 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useMemo, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share, today, dayLabel } from "./lib.js";
+import { html, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share, today, dayLabel } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
@@ -8,38 +8,60 @@ import { aspect, justify } from "./justify.js";
 
 const PAGE = 60;
 
-// Loads pages from fetchPage(offset) as the sentinel scrolls into view.
+// Loads pages from fetchPage(offset) as the sentinels scroll into view: down with more(), from the top or from wherever
+// jump(offset) went (the timeline, #126), and back up to the top with less(). photos are those from `start` on.
+// less(before) calls before() just as the photos above go in, so the grid can keep what's on screen where it is.
 function usePaged(fetchPage, deps) {
-  const [photos, setPhotos] = useState([]);
-  const [total, setTotal] = useState(null);
+  const [view, setView] = useState({ photos: [], start: 0, total: null });
   const [loading, setLoading] = useState(false);
-  const state = useRef({ photos: [], total: null, loading: false, gen: 0 });
-  const more = useCallback(async () => {
+  const state = useRef({ photos: [], start: 0, total: null, loading: false, gen: 0 });
+  const load = useCallback(async (up, before) => {
     const s = state.current;
-    if (s.loading || (s.total !== null && s.photos.length >= s.total)) return;
+    if (s.loading || (up ? s.start === 0 : s.total !== null && s.start + s.photos.length >= s.total)) return;
     s.loading = true; setLoading(true);
-    const gen = s.gen;
+    const gen = s.gen, from = up ? Math.max(0, s.start - PAGE) : s.start + s.photos.length;
     try {
-      const page = await fetchPage(s.photos.length);
-      if (gen !== state.current.gen) return;           // filters changed meanwhile
-      s.photos = [...s.photos, ...page.photos]; s.total = page.total;
-      setPhotos(s.photos); setTotal(s.total);
+      const page = await fetchPage(from);
+      if (gen !== state.current.gen) return;           // filters changed, or it jumped, meanwhile
+      if (up) { before?.(); s.photos = [...page.photos.slice(0, s.start - from), ...s.photos]; s.start = from; }
+      else s.photos = [...s.photos, ...page.photos];
+      s.total = page.total;
+      setView({ photos: s.photos, start: s.start, total: s.total });
     } finally { if (gen === state.current.gen) { s.loading = false; setLoading(false); } }
   }, deps);
+  const jump = (start) => {
+    state.current = { photos: [], start, total: state.current.total, loading: false, gen: state.current.gen + 1 };
+    setView({ photos: [], start, total: state.current.total });
+    load(false);
+  };
   useEffect(() => {
-    state.current = { photos: [], total: null, loading: false, gen: state.current.gen + 1 };
-    setPhotos([]); setTotal(null);
-    more();
+    state.current = { photos: [], start: 0, total: null, loading: false, gen: state.current.gen + 1 };
+    setView({ photos: [], start: 0, total: null });
+    load(false);
   }, deps);
-  return { photos, total, loading, more };
+  return { ...view, loading, more: useCallback(() => load(false), [load]), less: useCallback((before) => load(true, before), [load]), jump };
 }
 
-export function PhotoGrid({ paged, slideshow = 0 }) {
-  const { photos, total, loading, more } = paged;
+// A tile in the row at the top of the screen, under the sticky header, in the grid `el`: the last in the row, the
+// one furthest along the list (a row can start in one month and end in the next, where a jump to that month lands).
+// The first when the row doesn't reach the edge; a point between rows misses, so try lower.
+function tileAt(el) {
+  if (!el) return null;
+  const r = el.getBoundingClientRect(), y = Math.max(r.top, document.querySelector("header.top")?.getBoundingClientRect().bottom || 0);
+  for (const dy of [8, 16, 24]) for (const x of [r.right - 4, r.left + 4]) {
+    const t = document.elementFromPoint(x, Math.min(y + dy, innerHeight - 1))?.closest(".tile");
+    if (t && el.contains(t)) return t;
+  }
+  return null;
+}
+
+export function PhotoGrid({ paged, slideshow = 0, onAt }) {
+  const { photos, start, total, loading, more, less } = paged;
   const [open, setOpen] = useState(null);           // index into photos
   const [autoplay, setAutoplay] = useState(false);
   useEffect(() => { if (slideshow && photos.length) { setAutoplay(true); setOpen(0); } }, [slideshow]);   // a click on Slideshow
   const sentinel = useRef(null);
+  const top = useRef(null);
   const box = useRef(null);
   const [width, setWidth] = useState(0);
   // The grid's width, at most once a frame while resizing.
@@ -69,13 +91,42 @@ export function PhotoGrid({ paged, slideshow = 0 }) {
     addEventListener("resize", near);
     return () => { io.disconnect(); removeEventListener("scroll", near); removeEventListener("resize", near); };
   }, [more, photos.length, total]);
+  // Above, after a jump: the same, upward. When the photos above go in, the one at the top of the screen stays put.
+  const anchor = useRef(null);
+  const before = () => {
+    const t = tileAt(box.current);
+    anchor.current = t && { id: t.dataset.id, top: t.getBoundingClientRect().top };
+  };
+  useLayoutEffect(() => {
+    const a = anchor.current, t = a && box.current?.querySelector(`[data-id="${a.id}"]`);
+    anchor.current = null;
+    if (t) scrollBy(0, t.getBoundingClientRect().top - a.top);
+  }, [start]);
+  useEffect(() => {
+    const el = top.current;
+    if (!el || !start) return;
+    const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && less(before), { rootMargin: "800px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [less, start, rows.length]);
+  // Where the screen is in the list (for the timeline): the photo at the top of it.
+  useEffect(() => {
+    if (!onAt) return;
+    let frame = 0;
+    const at = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { const t = tileAt(box.current); t && onAt(+t.dataset.i); }); };
+    at();
+    addEventListener("scroll", at, { passive: true });
+    return () => { removeEventListener("scroll", at); cancelAnimationFrame(frame); };
+  }, [onAt, rows]);
   if (total === 0) return html`<div class="empty">No photos here.</div>`;
   return html`
+    ${start > 0 && html`<div class="sentinel" ref=${top}></div>`}
     <div class="justified" ref=${box}>
       ${rows.map((r) => html`<div class=${"jrow" + (r.last ? " last" : "")} key=${photos[r.start].id}>
         ${photos.slice(r.start, r.end).map((p, j) => {
           const w = aspect(p) * r.height;
-          return html`<button class="tile" key=${p.id} onClick=${() => setOpen(r.start + j)} aria-label=${p.title || "Untitled photo"}
+          return html`<button class="tile" key=${p.id} data-id=${p.id} data-i=${start + r.start + j} onClick=${() => setOpen(r.start + j)}
+              aria-label=${p.title || "Untitled photo"}
               style=${{ width: `${w}px`, height: `${r.height}px` }}>
             <img loading="lazy" decoding="async" alt="" src=${pick(p.sizes, THUMB)} onError=${fallback(p.sizes, THUMB)}
                  srcset=${[p.sizes.n && p.sizes.n + " 320w", p.sizes.w && p.sizes.w + " 400w", p.sizes.z && p.sizes.z + " 640w",
@@ -88,7 +139,8 @@ export function PhotoGrid({ paged, slideshow = 0 }) {
       </div>`)}
     </div>
     <div class="sentinel" ref=${sentinel}></div>
-    <div class="more">${loading ? "Loading…" : total !== null && `${num(photos.length)} of ${num(total)}`}</div>
+    <div class="more">${loading ? "Loading…" : total !== null && (start ? `${num(start + 1)}–${num(start + photos.length)} of ${num(total)}`
+      : `${num(photos.length)} of ${num(total)}`)}</div>
     ${open !== null && html`<${Lightbox} photos=${photos} index=${open} onIndex=${setOpen} autoplay=${autoplay}
         onClose=${() => { setOpen(null); setAutoplay(false); }} onNearEnd=${more} />`}`;
 }
@@ -121,8 +173,28 @@ export function Photos({ params = {} }) {
     if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
-  const paged = usePaged((offset) => api("/api/photos", { params: { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera,
-    day: f.day, near: f.near, media: f.media, q: f.q, sort: f.sort || "newest", is: f.is, offset, limit: PAGE } }), [key]);
+  const query = { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera, day: f.day, near: f.near, media: f.media,
+                  q: f.q, sort: f.sort || "newest", is: f.is };
+  const paged = usePaged((offset) => api("/api/photos", { params: { ...query, offset, limit: PAGE } }), [key]);
+  // The timeline (#126), for the date sorts: photos per month, and the photo at the top of the screen (told to the
+  // timeline alone, so scrolling doesn't redraw the page).
+  const [months, setMonths] = useState([]);
+  useEffect(() => { setMonths([]); if (DATED.includes(query.sort)) api("/api/photo-months", { params: query }).then(setMonths).catch(() => {}); }, [key]);
+  const at = useMemo(() => ({ tell: null }), []);
+  const wrap = useRef(null);
+  const landing = useRef(null);                     // the photo a jump goes to, until its page is in
+  const toTile = (t) => scrollBy(0, t.getBoundingClientRect().top - (document.querySelector("header.top")?.getBoundingClientRect().bottom || 0) - 8);
+  const jump = (offset) => {
+    const loaded = wrap.current?.querySelector(`.tile[data-i="${offset}"]`);
+    if (loaded) return toTile(loaded);
+    landing.current = offset;
+    paged.jump(offset);
+  };
+  useLayoutEffect(() => {                           // only once the page is laid out: while it's empty the page is shorter
+    const t = landing.current !== null && wrap.current?.querySelector(`.tile[data-i="${landing.current}"]`);
+    if (t) { landing.current = null; toTile(t); }
+  });
+  const timeline = DATED.includes(query.sort) && paged.total > 2 * PAGE && months.length > 1;
   const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
                  ["on", "On this day", f.on && dayLabel(f.on)], ["day", "Taken on", f.day],
                  ["near", "Within 500 m of", f.near.replace(",", ", ")], ["camera", "Camera", f.camera]]
@@ -165,7 +237,65 @@ export function Photos({ params = {} }) {
       ${active.map((id) => html`<span class="chip on" key=${"is" + id}>${label[id] || id}
         <button class="link" onClick=${() => togglePreset(id)} aria-label=${`Remove ${label[id] || id}`}>✕</button></span>`)}
       ${chips.length + active.length > 1 && html`<button class="link" onClick=${() => location.replace(photosLink({ sort: f.sort }))}>Clear all</button>`}</div>`}
-    <${PhotoGrid} paged=${paged} slideshow=${slideshow} />`;
+    <div ref=${wrap} class=${timeline ? "with-timeline" : ""}>
+      <${PhotoGrid} paged=${paged} slideshow=${slideshow} onAt=${timeline ? (i) => at.tell?.(i) : null} />
+    </div>
+    ${timeline && html`<${Timeline} months=${months} at=${at} onJump=${jump} />`}`;
+}
+
+const DATED = ["newest", "oldest", "taken"];
+const monthLabel = (m) => (m ? new Date(`${m}-15T12:00:00`).toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "No date");
+
+// The timeline (#126): a rail down the right edge. Every photo has the same share of its height, so a busy month is a
+// longer stretch; the years are marked. Click or drag to jump to a month (arrow keys too); while scrolling, the month
+// in view shows beside it. On phones it only appears while scrolling.
+function Timeline({ months, at, onJump }) {
+  const rail = useRef(null);
+  const [h, setH] = useState(0);
+  const [cur, setCur] = useState(0);                // the photo at the top of the screen
+  const [drag, setDrag] = useState(null);           // the photo under the pointer, while dragging
+  const [active, setActive] = useState(false);      // scrolled just now
+  const marks = useMemo(() => { let o = 0; return months.map((m) => { const r = { ...m, at: o }; o += m.count; return r; }); }, [months]);
+  const total = marks.length ? marks.at(-1).at + marks.at(-1).count : 0;
+  const monthOf = (o) => {                          // the last month starting at or before photo o
+    let lo = 0, hi = marks.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (marks[mid].at <= o) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+  useEffect(() => { at.tell = setCur; return () => { at.tell = null; }; }, [at]);
+  useEffect(() => { setActive(true); const t = setTimeout(() => setActive(false), 1500); return () => clearTimeout(t); }, [cur]);
+  useEffect(() => {
+    const ro = new ResizeObserver(() => setH(rail.current?.clientHeight || 0));
+    if (rail.current) ro.observe(rail.current);
+    return () => ro.disconnect();
+  }, []);
+  const y = (o) => (o / Math.max(1, total)) * h;
+  const under = (e) => { const r = rail.current.getBoundingClientRect(); return Math.min(total - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * total))); };
+  const years = [];
+  let seen = null;
+  for (const m of marks) {                          // each year marked where its stretch starts, unless that crowds the last mark
+    const yr = m.month?.slice(0, 4);
+    if (!yr || yr === seen) continue;
+    seen = yr;
+    if (!years.length || y(m.at) - years.at(-1).y >= 18) years.push({ yr, y: y(m.at) });
+  }
+  const shown = drag ?? cur, i = monthOf(shown);
+  const key = (e) => {
+    const to = e.key === "ArrowDown" || e.key === "PageDown" ? i + 1 : e.key === "ArrowUp" || e.key === "PageUp" ? i - 1 : null;
+    if (to === null || !marks[to]) return;
+    e.preventDefault(); onJump(marks[to].at);
+  };
+  return html`<div class=${"timeline" + (active || drag !== null ? " active" : "")} ref=${rail} role="slider" tabindex="0"
+      aria-label="Timeline" aria-valuemin="0" aria-valuemax=${total - 1} aria-valuenow=${shown} aria-valuetext=${monthLabel(marks[i]?.month)}
+      onKeyDown=${key}
+      onPointerDown=${(e) => { e.currentTarget.setPointerCapture(e.pointerId); setDrag(under(e)); }}
+      onPointerMove=${(e) => drag !== null && setDrag(under(e))}
+      onPointerUp=${() => { if (drag !== null) onJump(marks[monthOf(drag)].at); setDrag(null); }}
+      onPointerCancel=${() => setDrag(null)}>
+    ${years.map((m) => html`<span class="yr" key=${m.yr} style=${{ top: `${m.y}px` }}>${m.yr}</span>`)}
+    <span class="thumb" style=${{ top: `${y(shown)}px` }}></span>
+    <span class="bubble" style=${{ top: `${y(shown)}px` }}>${monthLabel(marks[i]?.month)}</span>
+  </div>`;
 }
 
 export function Albums() {
