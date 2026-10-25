@@ -267,7 +267,8 @@ class FrontendTest(unittest.TestCase):
     def test_lightning_merges_only_whats_new(self):
         """#94: each answer's minutes replace the ones held, and what's older than wanted is dropped."""
         script = r"""
-          import { mergeMinutes, AGE_STOPS, TRAIL } from "%s";
+          import { mergeMinutes, ageStops, TRAIL } from "%s";
+          const AGE_STOPS = ageStops(null);
           const held = new Map([[60, [1, 2, 1]], [120, [1, 2, 1]], [180, [3, 4, 1]]]);
           const merged = mergeMinutes(held, { minutes: [[180, [3, 4, 2]], [240, [5, 6, 1]], [0, [9, 9, 9]]] }, 120);
           console.log(JSON.stringify({ merged: [...merged], none: [...mergeMinutes(held, null, 0)].length,
@@ -315,6 +316,34 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(out["line"], [[29, -95], [28.95, -94.9], [28.95, -95.1]])
         self.assertLess(out["box"][0], -150)                               # the Americas, GOES-East's side ...
         self.assertTrue(out["near"])                                       # ... and the Texas coast where it is
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_lightning_blobs_keep_every_flash_and_the_newest_on_top(self):
+        """A lone flash still makes a (small) blob; crowded flashes make an opaque core; the newer band covers the
+        older; the default colors are config.py's."""
+        from coconut_barometer.config import DEFAULTS
+        script = r"""
+          import { paintBlobs, peak, radiusFor, DEFAULT_STOPS } from "%s";
+          const nx = 60, ny = 30, img = () => ({ data: new Uint8ClampedArray(nx * ny * 4) });
+          const px = (im, x, y) => [...im.data.slice((y * nx + x) * 4, (y * nx + x) * 4 + 4)];
+          const lone = img(); paintBlobs(lone, nx, ny, [[[255, 0, 0], [[10, 10, 1]]]], 2);
+          const lit = (im) => { let n = 0; for (let i = 3; i < im.data.length; i += 4) n += im.data[i] > 0; return n; };
+          const crowd = img(); paintBlobs(crowd, nx, ny, [[[255, 0, 0], [[30, 15, 20]]]], 2);
+          const both = img(); paintBlobs(both, nx, ny, [[[255, 0, 0], [[30, 15, 20]]], [[0, 0, 255], [[30, 15, 20]]]], 2);
+          console.log(JSON.stringify({ lone: lit(lone), loneCentre: px(lone, 10, 10), far: px(lone, 40, 10),
+            core: px(crowd, 30, 15), halo: px(crowd, 30 + 6, 15), top: px(both, 30, 15),
+            r: [radiusFor(1), radiusFor(3), radiusFor(6)], peak: peak(2), stops: DEFAULT_STOPS }));
+        """ % os.path.join(STATIC, "js", "lightning_layer.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertGreater(out["lone"], 4)                                  # a lone strike: still there ...
+        self.assertEqual(out["loneCentre"][:3], [255, 0, 0])                # ... in its color
+        self.assertEqual(out["far"], [0, 0, 0, 0])
+        self.assertGreater(out["core"][3], out["halo"][3])                  # crowded: an opaque core in a halo
+        self.assertGreater(out["top"][2], 200)                              # the newer band on top ...
+        self.assertLess(out["top"][0], 40)                                  # ... the older barely through
+        self.assertEqual(out["r"], sorted(out["r"]))
+        self.assertTrue(0 < out["peak"] < 1)
+        self.assertEqual(out["stops"], DEFAULTS["theme"]["lightning_colors"])
 
     def test_an_alert_opens_its_own_page(self):
         main = open(os.path.join(STATIC, "js", "main.js")).read()

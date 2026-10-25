@@ -97,6 +97,15 @@ class MapTest(unittest.TestCase):
         raw = {"theme": {"radar_colors": [same[0], {"dbz": 30, "color": "#ffffff"}]}}
         self.assertEqual([e for e in validate(raw, _merge(DEFAULTS, raw))[0] if "radar_colors" in e], [])
 
+    def test_lightning_color_stops_are_checked_like_the_radars(self):
+        ok = {"theme": {"lightning_colors": [{"min": 0, "color": "#ffffff"}, {"min": 15, "color": "#b3122e"}]}}
+        self.assertEqual([e for e in validate(ok, _merge(DEFAULTS, ok))[0] if "lightning_colors" in e], [])
+        late = {"theme": {"lightning_colors": [{"min": 0, "color": "#ffffff"}, {"min": 20, "color": "#b3122e"}]}}
+        self.assertIn('theme.lightning_colors: should be at least two stops like {min: 5, color: "#ffb020"} (minute 0-15)',
+                      validate(late, _merge(DEFAULTS, late))[0])
+        same = {"theme": {"lightning_colors": [{"min": 5, "color": "#ffffff"}, {"min": 5, "color": "#b3122e"}]}}
+        self.assertIn("theme.lightning_colors: two stops at the same minute; give each its own", validate(same, _merge(DEFAULTS, same))[0])
+
     def test_tiles_are_allowed_and_the_libraries_are_here(self):
         self.assertIn("https://basemaps.cartocdn.com ", CSP)
         loader = open(os.path.join(STATIC, "js", "leaflet.js")).read()
