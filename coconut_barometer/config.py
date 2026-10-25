@@ -122,6 +122,10 @@ DEFAULTS: dict[str, Any] = {
             {"dbz": 15, "color": "#8fd3ff"}, {"dbz": 25, "color": "#2fa84f"}, {"dbz": 35, "color": "#f2d22e"},
             {"dbz": 45, "color": "#f28c28"}, {"dbz": 55, "color": "#d7301f"}, {"dbz": 65, "color": "#b03ab5"},
         ],
+        "lightning_colors": [         # the Weather map's lightning, by age in minutes (0-15): blended between these
+            {"min": 0, "color": "#ffffff"}, {"min": 2, "color": "#fff36b"}, {"min": 5, "color": "#ffb020"},
+            {"min": 10, "color": "#f0582a"}, {"min": 15, "color": "#b3122e"},
+        ],
     },
     "map": {
         "expand_at": 40,              # a cluster this small opens into thumbnails when clicked
@@ -371,16 +375,17 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
             errors.append(f"aprs.igate: {gate!r} isn't a callsign (like WA5DTR-15), or leave it empty")
     checks.append(igate)
 
-    def radar_colors():
-        stops = get(("theme", "radar_colors"))
+    def color_stops(name, key, top, unit, example):
+        stops = get(("theme", name))
         ok = isinstance(stops, list) and len(stops) >= 2 and all(
-            isinstance(s, dict) and set(s) == {"dbz", "color"} and isinstance(s["dbz"], (int, float)) and 0 <= s["dbz"] <= 90
+            isinstance(s, dict) and set(s) == {key, "color"} and isinstance(s[key], (int, float)) and 0 <= s[key] <= top
             and isinstance(s["color"], str) and re.fullmatch(r"#[0-9a-fA-F]{6}", s["color"]) for s in stops)
         if not ok:
-            errors.append("theme.radar_colors: should be at least two stops like {dbz: 20, color: \"#2fa84f\"} (dBZ 0-90)")
-        elif len({st["dbz"] for st in stops}) < len(stops):
-            errors.append("theme.radar_colors: two stops at the same dBZ; give each its own")
-    checks.append(radar_colors)
+            errors.append(f"theme.{name}: should be at least two stops like {example} ({unit} 0-{top})")
+        elif len({st[key] for st in stops}) < len(stops):
+            errors.append(f"theme.{name}: two stops at the same {unit}; give each its own")
+    checks.append(lambda: color_stops("radar_colors", "dbz", 90, "dBZ", '{dbz: 20, color: "#2fa84f"}'))
+    checks.append(lambda: color_stops("lightning_colors", "min", 15, "minute", '{min: 5, color: "#ffb020"}'))
 
     def github_repo():
         repo = get(("github", "repo")).strip()

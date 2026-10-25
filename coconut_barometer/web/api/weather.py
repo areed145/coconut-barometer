@@ -321,12 +321,13 @@ def watches_warnings(bbox: str | None = Query(None, max_length=100), zoom: float
 
 @router.get("/glm")
 def glm_lightning(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24),
-                  since: int | None = Query(None, ge=0)):
+                  since: int | None = Query(None, ge=0), rt=Depends(runtime)):
     """The Map tab's lightning: the flashes GOES-East's lightning mapper saw in `bbox` since `since` (weather/glm.py),
-    counted per minute and cell, ~3 km cells zoomed in and ~11 km out. `pending` while the server is catching up."""
+    counted per minute and cell, ~3 km cells zoomed in and ~11 km out, and Settings → Display → Lightning colors.
+    `pending` while the server is catching up."""
     from ...weather.glm import glm
 
-    return glm.view(_bbox(bbox), zoom, since)
+    return {**glm.view(_bbox(bbox), zoom, since), "colors": rt.cfg["theme"]["lightning_colors"]}
 
 
 @router.get("/temperature")

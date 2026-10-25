@@ -208,6 +208,9 @@ META = {
     "theme.color_high": _m("display", "High", "e.g. the biggest cluster, or the longest bar.", group="Colors"),
     "theme.radar_colors": _m("display", "Radar colors", "The Weather map's radar, from light rain to hail: each "
                              "stop is a dBZ and its color, blended in between.", group="Radar"),
+    "theme.lightning_colors": _m("display", "Lightning colors", "The Weather map's lightning, by how long ago: each "
+                                 "stop is minutes before the time shown (0 is new, 15 the oldest shown) and its color, "
+                                 "blended in between.", group="Radar"),
     "map.expand_at": _m("display", "Show thumbnails from (photos)", "On the photo map, clicking a cluster zooms in one "
                         "level; once it holds this many photos or fewer, it opens into thumbnails instead.", group="Map"),
 

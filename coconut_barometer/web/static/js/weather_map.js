@@ -126,13 +126,13 @@ export function WxMap({ show, unitsFor, compass }) {
   const [layers, setLayers] = useState(loadLayers);    // the Layers panel's choices, remembered on this device
   const set = (change) => setLayers((l) => ({ ...l, ...change }));
   useEffect(() => saveLayers(layers), [layers]);
-  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, radarOpacity: opacity } = layers;
+  const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, glmStyle, radarOpacity: opacity } = layers;
   const { hazards: showHazards, hazardsMinor: showMinor, temp: showTemp, tempOpacity, wind: showWind } = layers;
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (viewFor)
   const [surfView, setSurfView] = useState(null);  // ... and the temperature and wind (viewFor SURFACE_ZOOMS)
   const [glmView, setGlmView] = useState(null);    // ... and the lightning (glmViewFor)
   // The lightning held for glmView: minute -> cells, from `from` on, and the last answer's state; bumped as it changes.
-  const glmHeld = useRef({ key: null, minutes: new Map(), from: Infinity, q: null, at: null, state: null, pending: false });
+  const glmHeld = useRef({ key: null, minutes: new Map(), from: Infinity, q: null, at: null, state: null, pending: false, colors: null });
   const [glmTick, setGlmTick] = useState(0);
   const [live_, setLiveFrame] = useState(null);     // /api/wx/radar for the view: the newest shapes and the storm cells
   const [times, setTimes] = useState([]);          // /api/wx/radar/frames: the loop's kept frames
@@ -322,7 +322,7 @@ export function WxMap({ show, unitsFor, compass }) {
       api(`/api/wx/glm?zoom=${glmView.zoom}&bbox=${glmView.bbox.join(",")}&since=${since}`).then((x) => {
         if (!alive || held.key !== key) return;
         const oldest = Math.min(glmFrom, Date.now() / 1000 - TRAIL);
-        Object.assign(held, { minutes: mergeMinutes(held.minutes, x, oldest), from: full ? glmFrom : held.from, q: x.q,
+        Object.assign(held, { minutes: mergeMinutes(held.minutes, x, oldest), from: full ? glmFrom : held.from, q: x.q, colors: x.colors,
           at: Date.now() / 1000, state: x, pending: x.pending });
         setGlmTick((n) => n + 1);
         clearTimeout(soon);
@@ -339,8 +339,8 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!ready || !m || !layer) return;
     if (!showGlm) { layer.remove(); return; }
     if (!m.hasLayer(layer)) layer.addTo(m);
-    layer.set(held.minutes, held.q, glmAt);
-  }, [ready, showGlm, glmTick, glmAt]);
+    layer.set(held.minutes, held.q, glmAt, held.colors, glmStyle);
+  }, [ready, showGlm, glmTick, glmAt, glmStyle]);
   useEffect(() => {
     for (const [k, layer] of tiles.current.sat) layer.setOpacity(shownSat && k === `${sat}:${shownSat.time}` ? layers.satOpacity : 0);
   });
@@ -544,10 +544,10 @@ export function WxMap({ show, unitsFor, compass }) {
     ${showWind && html`<p class="muted heatkey"><span>wind: calm</span>
       <i style=${`background: ${windScale()}`}></i><span>${ends("speed", WIND_RANGE)[1]}+</span></p>`}
     ${showGlm && html`<p class="muted heatkey"><span>lightning: new</span>
-      <i style=${`background: ${lightningScale()}`}></i><span>${TRAIL / 60} min</span></p>`}`;
+      <i style=${`background: ${lightningScale(glmHeld.current.colors)}`}></i><span>${TRAIL / 60} min</span></p>`}`;
   const notes = html`${showGlm ? (glmState?.error && !glmHeld.current.minutes.size ? " Lightning unavailable right now."
       : glmState?.pending ? " Lightning is loading…"
-      : glmState ? ` Lightning: flashes GOES-East's lightning mapper saw in the ${TRAIL / 60} minutes up to the time shown, bigger where there were more; about a minute behind.` : "") : ""}
+      : glmState ? ` Lightning: flashes GOES-East's lightning mapper saw in the ${TRAIL / 60} minutes up to the time shown, ${glmStyle === "dots" ? "bigger where there were more" : "brighter where they crowd, crosses for the last 2 minutes"}; about a minute behind.` : "") : ""}
     ${showRings ? " Station strikes: rings at the distance a station measured a strike in the last hour (it can't tell direction)." : ""}
     ${radarOn && live_ && !live_.t ? " The radar starts within a few minutes of the server starting." : ""}
     ${showRadar && live_?.t ? " Radar: NOAA MRMS, cleaned." : ""}${showStorms && live_?.t ? " Dots: storms the NWS radars are tracking." : ""}

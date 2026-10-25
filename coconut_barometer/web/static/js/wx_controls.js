@@ -6,7 +6,7 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 // ---- remembered per device ------------------------------------------------------------------------------------
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
 export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, glm: true,
-  rings: true, temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
+  glmStyle: "blobs", rings: true, temp: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9, tempOpacity: 0.6, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
@@ -199,6 +199,7 @@ export const mapboxClass = (fullscreen, extra = "") => `${extra ? extra + " " : 
 // ---- the Layers panel -------------------------------------------------------------------------------------------
 const SATS = [["", "None"], ["geocolor", "Color"], ["infrared", "Infrared"]];
 const BASEMAPS = [["auto", "Auto (theme)"], ["light", "Light"], ["dark", "Dark"]];
+const GLM_STYLES = [["blobs", "Blobs"], ["dots", "Dots"]];
 const FOCUSABLE = "button, input, a[href]";
 
 // What's on, for the closed button.
@@ -258,6 +259,9 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         ${check("hazardsMinor", "with advisories & marine", !layers.hazards, "wxlayer wxsub")}
         ${check("fronts", "Fronts")}
         ${check("glm", "Lightning")}
+        <span class="wxradios wxsub" role="radiogroup" aria-label="Lightning style">${GLM_STYLES.map(([k, l]) => html`<label key=${k}>
+          <input type="radio" name="wxglm" checked=${layers.glmStyle === k} disabled=${!layers.glm} onChange=${() => set({ glmStyle: k })} />
+          <span>${l}</span></label>`)}</span>
         ${check("rings", `Station strikes${strikes ? ` (${strikes})` : ""}`)}
         <h3>Surface</h3>
         <div class="wxrow">${check("temp", "Temperature")}${slider("tempOpacity", "Temperature opacity", !layers.temp)}</div>
