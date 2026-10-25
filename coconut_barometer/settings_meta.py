@@ -232,6 +232,9 @@ META = {
                      "Empty: none. A change reconnects; packets already counted stay under the igate that gated them."),
     "aprs.igate_location": _m("aprs", "Igate location", "Where it is, for distances: \"lat, lon\" (30.27, -97.74) or "
                               "a grid locator (EM10dg). Empty: wherever its own position beacons put it."),
+    "aprs.places": _m("aprs", "Places", "Named circles for the arrive and leave alerts (Settings → Alerts) and for naming "
+                      "where a trip stopped: Home, Work, Cabin. Click the map to put the selected place there, or take "
+                      "a tracked callsign's position. Only you see them.", group="Places"),
     "aprs.cwop": _m("aprs", "Stations that report", "The callsign-SSID each station reports as, e.g. KK6GPV-13 (-13 is "
                     "the usual SSID for weather; each station needs its own). It sends its current readings and its exact "
                     "position to CWOP (shown on aprs.fi and CWOP's maps; NOAA uses them). Blank: that station doesn't.",
@@ -253,6 +256,13 @@ META = {
                                    "2 hPa is about 0.06 inHg.", group="Weather"),
     "alerts.callsign_quiet_hours": _m("alerts", "Callsign heard after quiet (hours)", "A callsign from Settings → APRS "
                                       "heard again after this long without a packet.", group="APRS"),
+    "alerts.places": _m("alerts", "Arrive and leave", "A notification when a callsign arrives at or leaves a place "
+                        "(Settings → APRS → Places). on: arrive, leave or both; quiet: hours to say nothing, like "
+                        "22:00-07:00 (the weather station's time). Leaving counts once it's 1.2 × the radius away, so "
+                        "the edge doesn't flap.", group="APRS"),
+    "alerts.place_dwell_minutes": _m("alerts", "Arrived or left after (minutes)", "Two positions in a row decide it, or "
+                                     "one that has stood this long with nothing since (beacons are sparse when parked).",
+                                     group="APRS"),
     "alerts.igate_quiet_minutes": _m("alerts", "Igate quiet for (minutes)", "The igate gating nothing this long when "
                                      "it usually gates 10 packets an hour or more, gating well under its usual for 3 "
                                      "hours, or its own beacon stopping; and a notice when it's back. Not while the "

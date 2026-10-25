@@ -1,15 +1,17 @@
 // Settings (layered over config.yaml), API keys, account and sessions.
-import { html, useState, useEffect, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice, every } from "./lib.js";
+import { html, useState, useEffect, useRef, api, download, upload, toast, ago, until, day, loadTheme, themeChoice, setThemeChoice, every } from "./lib.js";
 import { RestoreBackup } from "./setup.js";
 import { WxStations } from "./weather.js";
 import { IOS } from "./device.js";
+import { leaflet, baseMap } from "./leaflet.js";
 
 const SOURCE = { default: "default", file: "config.yaml", admin: "set here", env: "environment" };
 const lines = (v) => (v || []).join("\n");
 const unlines = (s) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 const commas = (v) => (Array.isArray(v) ? v.join(", ") : v || "");
 const uncommas = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
-const NUMERIC = new Set(["lat", "lon", "radius_km"]);
+const NUMERIC = new Set(["lat", "lon", "radius_km", "radius_m"]);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 function ThemeSetting() {
   const [choice, setChoice] = useState(themeChoice());
@@ -90,6 +92,70 @@ function CwopField({ value, onChange, disabled }) {
   </div>`;
 }
 
+// Settings → APRS → Places (#121): a row per place, and a map of them. Clicking the map puts the selected place
+// there; "From" takes a tracked callsign's newest position.
+function PlacesField({ value, onChange, disabled }) {
+  const rows = value || [];
+  const [sel, setSel] = useState(0);
+  const [calls, setCalls] = useState([]);
+  const box = useRef(null), map = useRef(null), layer = useRef(null), latest = useRef({ rows, sel, disabled });
+  latest.current = { rows, sel, disabled };
+  const round = (v) => Math.round(v * 1e5) / 1e5;
+  const set = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  useEffect(() => {
+    api("/api/aprs/stations").then((d) => setCalls(d.callsigns.filter((c) => c.last))).catch(() => {});
+    let alive = true;
+    leaflet().then((lf) => {
+      if (!alive || !box.current) return;
+      map.current = baseMap(lf, box.current, { minZoom: 3 }).setView([39, -96], 4);
+      layer.current = lf.L.layerGroup().addTo(map.current);
+      map.current.on("click", (e) => {
+        const { rows: r, sel: s, disabled: off } = latest.current;
+        if (off || !r[s]) return;
+        onChange(r.map((p, j) => (j === s ? { ...p, lat: round(e.latlng.lat), lon: round(e.latlng.lng) } : p)));
+      });
+      draw(true);
+    }).catch(() => {});
+    return () => { alive = false; map.current?.remove(); map.current = null; };
+  }, []);
+  const draw = (fit) => {
+    const L = window.L, group = layer.current;
+    if (!group) return;
+    group.clearLayers();
+    const { rows: r, sel: s } = latest.current, pts = [];
+    r.forEach((p, i) => {
+      if (typeof p.lat !== "number" || typeof p.lon !== "number") return;
+      const c = css(i === s ? "--chart-2" : "--chart-1");
+      L.circle([p.lat, p.lon], { radius: p.radius_m || 200, color: c, weight: i === s ? 3 : 1.5, fillOpacity: 0.15 })
+        .bindTooltip(p.name || "(no name)", { permanent: true, direction: "top", className: "placetip" }).addTo(group);
+      pts.push([p.lat, p.lon]);
+    });
+    if (fit && pts.length) map.current.fitBounds(L.latLngBounds(pts).pad(0.5), { maxZoom: 15 });
+  };
+  useEffect(() => draw(false), [value, sel]);
+  const add = () => {
+    const c = map.current?.getCenter();
+    onChange([...rows, { name: `Place ${rows.length + 1}`, lat: round(c?.lat ?? 30), lon: round(c?.lng ?? -97), radius_m: 200 }]);
+    setSel(rows.length);
+  };
+  return html`<div class="places">
+    <div class="items"><table><thead><tr><th></th><th>Name</th><th>Latitude</th><th>Longitude</th><th>Radius (m)</th><th></th><th></th></tr></thead>
+      <tbody>${rows.map((p, i) => html`<tr key=${i} class=${i === sel ? "sel" : ""}>
+        <td><input type="radio" name="place-sel" checked=${i === sel} onChange=${() => setSel(i)} aria-label=${`Select ${p.name}`} /></td>
+        <td><input value=${p.name || ""} disabled=${disabled} onFocus=${() => setSel(i)} onChange=${(e) => set(i, { name: e.target.value.trim() })} aria-label="name" /></td>
+        ${["lat", "lon", "radius_m"].map((k) => html`<td><input type="number" step="any" value=${p[k] ?? ""} disabled=${disabled} aria-label=${k}
+          onFocus=${() => setSel(i)} onChange=${(e) => set(i, { [k]: e.target.value === "" ? undefined : Number(e.target.value) })} /></td>`)}
+        <td>${!disabled && calls.length > 0 && html`<select aria-label="From a callsign" value=""
+          onChange=${(e) => { const c = calls.find((x) => x.callsign === e.target.value); if (c) set(i, { lat: round(c.last.lat), lon: round(c.last.lon) }); }}>
+          <option value="">From…</option>${calls.map((c) => html`<option key=${c.callsign} value=${c.callsign}>${c.callsign}</option>`)}</select>`}</td>
+        <td>${!disabled && html`<button class="link" onClick=${() => { onChange(rows.filter((_, j) => j !== i)); setSel(0); }} aria-label="Remove">✕</button>`}</td>
+      </tr>`)}</tbody></table>
+      ${!disabled && html`<button class="link" onClick=${add}>+ Add a place</button>`}</div>
+    <div class="mapwrap placesmap" ref=${box}></div>
+    ${rows.length > 0 && !disabled && html`<p class="why">Click the map to put ${rows[sel]?.name || "the selected place"} there.</p>`}
+  </div>`;
+}
+
 function ItemsField({ s, value, onChange, disabled }) {
   const items = value || [];
   const set = (i, field, raw) => {
@@ -161,6 +227,7 @@ function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
   else if (s.kind === "text") input = html`<textarea rows="6" value=${value || ""} disabled=${disabled} placeholder="(the built-in brief)"
       onInput=${(e) => onChange(e.target.value.trim() ? e.target.value : null)}></textarea>`;
   else if (s.kind === "list") input = html`<${ListField} value=${value} onChange=${onChange} disabled=${disabled} />`;
+  else if (s.path === "aprs.places") input = html`<${PlacesField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.path === "aprs.cwop") input = html`<${CwopField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.kind === "map") input = html`<${MapField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.kind === "items") input = html`<${ItemsField} s=${s} value=${value} onChange=${onChange} disabled=${disabled} />`;

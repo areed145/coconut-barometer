@@ -322,6 +322,21 @@ class IgateTest(unittest.TestCase):
         self.assertAlmostEqual(w[day]["pressure"], 1013.0)
         self.assertEqual(self.store.wx_overnight(11, day, day + 3600), {day: 10.0})
 
+    def test_places(self):
+        from coconut_barometer.aprs.places import is_quiet, named, step
+        cfg = {"aprs": {"places": [{"name": "Home", "lat": 30.0, "lon": -97.0}, {"name": "Shop", "lat": 30.001, "lon": -97.0, "radius_m": 500}]}}
+        self.assertEqual((named(cfg, 30.0, -97.0), named(cfg, 30.004, -97.0), named(cfg, 31, -97)), ("Home", "Shop", None))
+        self.assertEqual((is_quiet("22:00-07:00", 23 * 60), is_quiet("22:00-07:00", 6 * 60), is_quiet("22:00-07:00", 12 * 60),
+                          is_quiet("09:00-17:00", 12 * 60), is_quiet("", 0)), (True, True, False, True, False))
+        s, ev = step(None, True, 0)
+        self.assertEqual((s["in"], ev), (True, None))
+        s, ev = step(s, False, 1)
+        s, ev = step(s, None, 2)                                      # back to the edge: the leave in the making is off
+        s, ev = step(s, False, 3)
+        self.assertEqual((s["in"], ev, s["pending"]["first"]), (True, None, 3))
+        s, ev = step(s, False, 4)
+        self.assertEqual((s["in"], ev, s["since"]), (False, "leave", 3))
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
