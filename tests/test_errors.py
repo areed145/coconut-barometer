@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer import errors
 from coconut_barometer.config import from_dict
+from coconut_barometer.weather.client import WeatherFlowError
 from coconut_barometer.web.app import create_app
 
 
@@ -46,6 +47,14 @@ class FakeGitHub:
 
 def boom(message="it broke"):
     raise ValueError(message)
+
+
+def weatherflow_down():
+    """As WeatherFlowClient.get raises it when the connection drops (#99)."""
+    try:
+        raise requests.ConnectionError("Remote end closed connection without response")
+    except requests.ConnectionError as e:
+        raise WeatherFlowError("couldn't reach WeatherFlow: ConnectionError") from e
 
 
 def caught(fn, *a):
@@ -159,7 +168,8 @@ class CaughtTest(unittest.TestCase):
         with self.assertLogs("coconut_barometer.errors") as log:
             errors.caught(caught(lambda: (_ for _ in ()).throw(requests.ConnectionError("down"))), "aprs")
             errors.caught(caught(lambda: (_ for _ in ()).throw(APIError("overloaded"))), "vision")
-        self.assertEqual([r.levelname for r in log.records], ["WARNING", "WARNING"])
+            errors.caught(caught(weatherflow_down), "wx job")
+        self.assertEqual([r.levelname for r in log.records], ["WARNING", "WARNING", "WARNING"])
         self.assertNotIn("Traceback", "".join(log.output))
         self.assertEqual(self.reported, [])
 

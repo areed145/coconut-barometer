@@ -48,7 +48,8 @@ BEARER = re.compile(r"(?i)\b(bearer|token)\s+[a-z0-9_\-.]{12,}")
 
 def expected(exc: BaseException) -> bool:
     from .flickr_client import FlickrCallError
-    return (isinstance(exc, (*EXPECTED, FlickrCallError))
+    from .weather.client import WeatherFlowError   # WeatherFlow down, slow or refusing the token (#99)
+    return (isinstance(exc, (*EXPECTED, FlickrCallError, WeatherFlowError))
             or any(c.__module__.split(".")[0] in OUTSIDE for c in type(exc).__mro__))
 
 
