@@ -147,6 +147,45 @@ class WebTest(unittest.TestCase):
         ids = [p["id"] for p in self.c.get("/api/photos", params={"sort": "taken", "offset": 2}).json()["photos"]]
         self.assertEqual(ids, ["1", "2", "5"])                    # offset 2 = 1 + 1: where 2019-07 starts
 
+    def test_gear_and_its_filters(self):
+        """#127: per camera and lens (counts, dates, engagement), pairs, and settings parsed from Flickr's clean EXIF
+        strings into buckets that the photostream's `lens` and `setting` filters match exactly."""
+        import json
+        x = self.store.db.execute
+        x("DELETE FROM cameras")
+        for pid, cam, lens, exif in [
+                ("1", "Nikon D90", "Tamron 28-300", {"FocalLengthIn35mmFormat": "450 mm", "FNumber": "f/6.3", "ISO": "200", "ExposureTime": "0.002 sec (1/500)"}),
+                ("2", "Nikon D90", "Tamron 28-300", {"FocalLengthIn35mmFormat": "42 mm", "FNumber": "f/3.5", "ISO": "6400", "ExposureTime": "1/4000 sec"}),
+                ("3", "Apple iPhone X", "iPhone X back", {"FocalLengthIn35mmFormat": "28 mm", "FNumber": "f/1.8", "ISO": "20", "ExposureTime": "2 sec"}),
+                ("4", "", "", {})]:
+            x("INSERT INTO cameras (photo_id, camera, lens, exif) VALUES (?, ?, ?, ?)", (pid, cam, lens, json.dumps(exif)))
+        x("UPDATE photos SET views = CAST(id AS INTEGER) * 10, date_taken = '2019-0' || id || '-01 10:00:00'")
+        x("UPDATE photos SET ispublic=0 WHERE id='3'")
+        self.store.db.commit()
+        g = self.c.get("/api/gear").json()                                              # a visitor: public photos only
+        self.assertEqual([(c["name"], c["photos"], c["first"], c["last"], c["views"]) for c in g["cameras"]],
+                         [("Nikon D90", 2, "2019-01-01", "2019-02-01", 15.0)])
+        self.assertEqual(g["pairs"], [{"camera": "Nikon D90", "lens": "Tamron 28-300", "photos": 2}])
+        bucket = lambda name, label: next(b for b in g["settings"][name] if b["label"] == label)
+        self.assertEqual(bucket("focal", "400 mm and over")["photos"], 1)
+        self.assertEqual(bucket("shutter", "1/500–1/250")["photos"], 1)                 # from the fraction, not 0.002
+        self.assertEqual(bucket("shutter", "faster than 1/4000")["photos"], 0)
+        self.assertEqual(bucket("shutter", "1/4000–1/1000")["photos"], 1)               # "1/4000 sec"
+        self.assertEqual(bucket("iso", "6400 and over")["photos"], 1)
+        ids = lambda **p: {ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]}
+        self.assertEqual(ids(setting="focal:400-"), {"1"})
+        self.assertEqual(ids(setting=f"shutter:{1/500}-{1/250}"), {"1"})
+        self.assertEqual(ids(setting="iso:6400-", camera="Nikon D90"), {"2"})
+        self.assertEqual(ids(lens="Tamron 28-300"), {"1", "2"})
+        for bad in ("nope:1-2", "focal:x", "focal"):
+            self.assertEqual(self.c.get("/api/photos", params={"setting": bad}).status_code, 422, bad)
+        self.login()
+        from coconut_barometer.web.api import gallery
+        gallery._GEAR.clear()
+        g = self.c.get("/api/gear").json()
+        self.assertEqual({c["name"] for c in g["cameras"]}, {"Nikon D90", "Apple iPhone X"})
+        self.assertEqual(next(b for b in g["settings"]["shutter"] if b["label"] == "1 s and longer")["photos"], 1)
+
     def test_photo_highlights_count_public_photos_for_visitors(self):
         x = self.store.db.execute
         x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")

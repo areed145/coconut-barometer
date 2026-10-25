@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...planner import photo_page as flickr_url
-from ...store.gallery import PRESETS
+from ...store.gallery import PRESETS, SETTINGS
 from ..deps import runtime, store, viewer
 
 router = APIRouter(prefix="/api", tags=["gallery"])
@@ -19,9 +19,12 @@ def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"]
             on: str = Query("", pattern=r"^(|(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
             day: str = Query("", pattern=r"^(|\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))$"),
             near: str = Query("", pattern=r"^(|-?\d{1,2}(\.\d+)?,-?\d{1,3}(\.\d+)?)$"),
+            lens: str = Query("", max_length=200),
+            setting: str = Query("", pattern=r"^(|[a-z]+:\d+(\.\d+)?(e-?\d+)?-(\d+(\.\d+)?(e-?\d+)?)?)$", max_length=60),
             is_: str = Query("", alias="is", max_length=300), me=Depends(viewer)) -> dict:
     """The Photos page's filters: album, tag, year, `on` this day of any year ("MM-DD"), the `day` taken
-    ("YYYY-MM-DD"), `near` a point ("lat,lon"), camera, search, and presets (?is=untitled,no_album means both)."""
+    ("YYYY-MM-DD"), `near` a point ("lat,lon"), camera, lens, an EXIF `setting` from low up to (not including) high
+    ("focal:24-28", "iso:6400-": see SETTINGS), search, and presets (?is=untitled,no_album means both)."""
     presets = [p for p in is_.split(",") if p]
     unknown = [p for p in presets if p not in PRESETS or (me is None and PRESETS[p][1] == "Status")]
     if unknown:
@@ -29,8 +32,15 @@ def filters(q: str = Query("", max_length=100), media: Literal["photo", "video"]
     point = tuple(float(x) for x in near.split(",")) if near else None
     if point and not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
         raise HTTPException(422, "near: no such place")
+    exif = None
+    if setting:
+        name, _, span = setting.partition(":")
+        low, _, high = span.partition("-")
+        if name not in SETTINGS:
+            raise HTTPException(422, f"setting: no such setting {name!r}")
+        exif = (name, float(low), float(high) if high else None)
     return dict(album_id=album, q=q, media=media, tag=tag, year=year, camera=camera, presets=presets,
-                public_only=me is None, on=on, day=day, near=point)
+                public_only=me is None, on=on, day=day, near=point, lens=lens, setting=exif)
 
 
 @router.get("/photos")
@@ -72,6 +82,22 @@ def photo_presets(db=Depends(store), me=Depends(viewer)):
         counts = db.preset_counts(public_only=me is None)
         _PRESET_COUNTS[key] = (time.time(), counts)
     return counts
+
+
+_GEAR: dict[tuple[str, bool], tuple[float, dict]] = {}     # (database path, public only) -> (when, gear)
+
+
+@router.get("/gear")
+def gear(db=Depends(store), me=Depends(viewer)):
+    """Cameras, lenses and settings (the Gear page). Worked out at most once a minute: it reads every photo's EXIF."""
+    import time
+
+    key = (db.path, me is None)
+    at, got = _GEAR.get(key, (0.0, None))
+    if got is None or time.time() - at > 60:
+        got = db.gear(public_only=me is None)
+        _GEAR[key] = (time.time(), got)
+    return got
 
 
 @router.get("/photo-years")

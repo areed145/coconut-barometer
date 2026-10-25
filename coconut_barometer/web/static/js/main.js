@@ -28,6 +28,7 @@ const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
+const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
 const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
@@ -91,7 +92,8 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
   </div>`;
 }
 
-const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
+const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["gear", "Gear"], ["analytics", "Analytics"],
+                    ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
@@ -137,6 +139,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (sub === "review" && route[2] === "applied") page = html`<${AppliedList} />`;
   else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} targetPhotoId=${route.params.photo_id} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
+  else if (sub === "gear") page = html`<${Gear} />`;
   else if (sub === "photo") page = html`<${SinglePhoto} id=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;

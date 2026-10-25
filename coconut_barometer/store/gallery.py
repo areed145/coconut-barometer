@@ -39,6 +39,35 @@ PRESETS = {
 
 NEAR_M = 500                # "nearby": within this many meters (#124)
 
+# EXIF settings as numbers (#127), from Flickr's clean strings ("0.004 sec (1/250)", "f/5.6", "50 mm", "400"), in SQL so
+# the Gear page's charts and the photostream's `setting` filter agree. Focal length is the 35 mm equivalent (a phone's
+# real 4 mm says nothing). Shutter in seconds, from the fraction when there is one ("1/4000 sec", and 0.003 is 1/320 or 1/400).
+def _num(text: str) -> str:
+    return rf"TRY_CAST(regexp_extract({text}, '[0-9]+(\.[0-9]+)?') AS DOUBLE)"
+
+
+_EXPOSURE = "json_extract_string(c.exif, '$.ExposureTime')"
+_PART = lambda i: rf"TRY_CAST(regexp_extract({_EXPOSURE}, '([0-9.]+)/([0-9.]+)', {i}) AS DOUBLE)"   # a, b of "a/b"
+SETTINGS = {
+    "focal": _num("json_extract_string(c.exif, '$.FocalLengthIn35mmFormat')"),
+    "f": _num("json_extract_string(c.exif, '$.FNumber')"),
+    "iso": _num("json_extract_string(c.exif, '$.ISO')"),
+    "shutter": f"COALESCE({_PART(1)} / NULLIF({_PART(2)}, 0), {_num(_EXPOSURE)})",
+}
+# The Gear page's buckets: [low, high) and how each reads; None: no limit.
+SETTING_BUCKETS = {
+    "focal": [(0, 24, "under 24 mm"), (24, 28, "24–27 mm"), (28, 35, "28–34 mm"), (35, 50, "35–49 mm"), (50, 85, "50–84 mm"),
+              (85, 135, "85–134 mm"), (135, 200, "135–199 mm"), (200, 300, "200–299 mm"), (300, 400, "300–399 mm"),
+              (400, None, "400 mm and over")],
+    "f": [(0, 1.4, "under f/1.4"), (1.4, 2, "f/1.4–1.9"), (2, 2.8, "f/2–2.7"), (2.8, 4, "f/2.8–3.9"), (4, 5.6, "f/4–5.5"),
+          (5.6, 8, "f/5.6–7.9"), (8, 11, "f/8–10"), (11, None, "f/11 and over")],
+    "shutter": [(0, 1 / 4000, "faster than 1/4000"), (1 / 4000, 1 / 1000, "1/4000–1/1000"), (1 / 1000, 1 / 500, "1/1000–1/500"),
+                (1 / 500, 1 / 250, "1/500–1/250"), (1 / 250, 1 / 125, "1/250–1/125"), (1 / 125, 1 / 60, "1/125–1/60"),
+                (1 / 60, 1 / 30, "1/60–1/30"), (1 / 30, 1 / 8, "1/30–1/8"), (1 / 8, 1, "1/8–1 s"), (1, None, "1 s and longer")],
+    "iso": [(0, 100, "under 100"), (100, 200, "100–199"), (200, 400, "200–399"), (400, 800, "400–799"), (800, 1600, "800–1599"),
+            (1600, 3200, "1600–3199"), (3200, 6400, "3200–6399"), (6400, None, "6400 and over")],
+}
+
 
 def near_sql(lat: float, lon: float, meters: float = NEAR_M) -> tuple[str, list, str, list]:
     """Photos within `meters` of a point: a WHERE clause (a box first, for speed, then the circle) and the distance
@@ -94,11 +123,12 @@ class GalleryStore(Database):
 
     def filtered(self, album_id: str | None = None, q: str = "", media: str | None = None, tag: str = "",
                  year: int | None = None, camera: str = "", presets: list[str] | None = None, public_only: bool = False,
-                 on: str = "", near: tuple[float, float] | None = None, day: str = "") -> tuple[str, str, list]:
+                 on: str = "", near: tuple[float, float] | None = None, day: str = "", lens: str = "",
+                 setting: tuple[str, float, float | None] | None = None) -> tuple[str, str, list]:
         """(joins, WHERE clause, arguments) for any mix of filters: album, search text, tag (Flickr's
         normalized form), year taken, day of the year taken (`on`, "MM-DD": "on this day"), the day taken
-        (`day`, "YYYY-MM-DD"), within NEAR_M of a point (`near`, (lat, lon)), camera, photo or video,
-        and presets (all must hold)."""
+        (`day`, "YYYY-MM-DD"), within NEAR_M of a point (`near`, (lat, lon)), camera, lens, an EXIF `setting`
+        in [low, high) ((name, low, high or None), see SETTINGS), photo or video, and presets (all must hold)."""
         from ..util import norm_tag
 
         where, args = [PUBLIC] if public_only else [], []
@@ -106,9 +136,18 @@ class GalleryStore(Database):
         if album_id:
             joins = "JOIN memberships m ON m.photo_id = p.id AND m.album_id = ?"
             args.append(album_id)
+        if camera or lens or setting:
+            joins += " JOIN cameras c ON c.photo_id = p.id"
         if camera:
-            joins += " JOIN cameras c ON c.photo_id = p.id AND c.camera = ?"
+            where.append("c.camera = ?")
             args.append(camera)
+        if lens:
+            where.append("c.lens = ?")
+            args.append(lens)
+        if setting:
+            name, low, high = setting
+            where.append(f"{SETTINGS[name]} >= ?" + (f" AND {SETTINGS[name]} < ?" if high is not None else ""))
+            args += [low] if high is None else [low, high]
         if tag:
             where.append("(' ' || p.tags || ' ') ILIKE ?")
             args.append(f"% {norm_tag(tag)} %")
@@ -144,6 +183,33 @@ class GalleryStore(Database):
         top = self.db.execute(f"SELECT p.* FROM photos p WHERE p.date_upload >= ?{public} ORDER BY p.views DESC, p.id LIMIT 1",
                               (month_start,)).fetchone()
         return {"year": year, "taken": taken, "top_upload": photo_card(top) if top else None}
+
+    def gear(self, public_only: bool = False) -> dict:
+        """The Gear page (#127): per camera and per lens, how many photos, the first and last taken (known dates only),
+        and the average views and faves; the commonest camera + lens pairs; and how many photos fall in each of
+        SETTING_BUCKETS. Visitors: public photos only."""
+        base = f"FROM cameras c JOIN photos p ON p.id = c.photo_id WHERE c.camera <> ''{f' AND {PUBLIC}' if public_only else ''}"
+        known = "CASE WHEN COALESCE(p.date_taken_unknown, 0) = 0 THEN substr(p.date_taken, 1, 10) END"
+
+        def by(col: str, limit: int = 200) -> list[dict]:
+            return [{"name": r[0], "photos": r[1], "first": r[2], "last": r[3], "views": round(r[4] or 0, 1), "faves": round(r[5] or 0, 2)}
+                    for r in self.db.execute(
+                        f"SELECT {col}, COUNT(*), MIN({known}), MAX({known}), AVG(p.views), AVG(p.faves) {base} "
+                        f"AND COALESCE({col}, '') <> '' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT ?", (limit,))]
+
+        pairs = [{"camera": r[0], "lens": r[1], "photos": r[2]} for r in self.db.execute(
+            f"SELECT c.camera, c.lens, COUNT(*) {base} AND COALESCE(c.lens, '') <> '' GROUP BY 1, 2 ORDER BY 3 DESC, 1, 2 LIMIT 30")]
+        values = self.db.execute(f"SELECT {', '.join(SETTINGS.values())} FROM cameras c JOIN photos p ON p.id = c.photo_id"
+                                 f"{f' WHERE {PUBLIC}' if public_only else ''}").fetchall()   # as the `setting` filter counts
+        settings = {}
+        for i, name in enumerate(SETTINGS):
+            got = [v[i] for v in values if v[i] is not None]
+            settings[name] = [{"label": label, "low": low, "high": high,
+                               "photos": sum(1 for x in got if x >= low and (high is None or x < high))}
+                              for low, high, label in SETTING_BUCKETS[name]]
+        cameras = by("c.camera")
+        return {"cameras": cameras, "lenses": by("c.lens"), "pairs": pairs, "settings": settings,
+                "photos": sum(c["photos"] for c in cameras)}
 
     def related(self, photo_id: str, limit: int = 12, public_only: bool = False) -> dict | None:
         """For the lightbox (#124): photos taken within NEAR_M of this one, nearest first, and photos taken the same day,

@@ -147,7 +147,16 @@ export function PhotoGrid({ paged, slideshow = 0, onAt }) {
 
 const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
                ["faves", "Most faved"], ["comments", "Most commented"], ["title", "Title"]];
-const FILTERS = ["album", "tag", "year", "on", "day", "near", "camera", "media", "q", "sort", "is"];
+const FILTERS = ["album", "tag", "year", "on", "day", "near", "camera", "lens", "setting", "media", "q", "sort", "is"];
+
+// How a `setting` filter from the Gear page reads: "focal:24-28" is ["Focal length", "24 mm to 28 mm"].
+const shutter = (s) => (s >= 1 ? `${+s.toFixed(1)} s` : `1/${Math.round(1 / s)}`);
+function setting(v) {
+  const [name, span = ""] = v.split(":"), [lo, hi] = span.split("-").map((x) => (x === "" ? null : +x));
+  const fmt = { focal: (x) => `${x} mm`, f: (x) => `f/${x}`, iso: String, shutter }[name] || String;
+  return [{ focal: "Focal length", f: "Aperture", iso: "ISO", shutter: "Shutter" }[name] || "Setting",
+          hi == null ? `${fmt(lo)} and over` : !lo ? `under ${fmt(hi)}` : `${fmt(lo)} to ${fmt(hi)}`];
+}
 
 // The Photos page, and every filtered view of it: the filters live in the address
 // (#/photos/photostream?album=…&tag=…&year=…&on=…&camera=…&media=…&q=…&sort=…), so any of them can be linked to.
@@ -173,8 +182,8 @@ export function Photos({ params = {} }) {
     if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
-  const query = { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera, day: f.day, near: f.near, media: f.media,
-                  q: f.q, sort: f.sort || "newest", is: f.is };
+  const query = { album: f.album, tag: f.tag, year: f.year, on: f.on, camera: f.camera, lens: f.lens, setting: f.setting, day: f.day,
+                  near: f.near, media: f.media, q: f.q, sort: f.sort || "newest", is: f.is };
   const paged = usePaged((offset) => api("/api/photos", { params: { ...query, offset, limit: PAGE } }), [key]);
   // The timeline (#126), for the date sorts: photos per month, and the photo at the top of the screen (told to the
   // timeline alone, so scrolling doesn't redraw the page).
@@ -197,7 +206,8 @@ export function Photos({ params = {} }) {
   const timeline = DATED.includes(query.sort) && paged.total > 2 * PAGE && months.length > 1;
   const chips = [["album", "Album", album?.title || "…"], ["tag", "Tag", f.tag], ["year", "Taken in", f.year],
                  ["on", "On this day", f.on && dayLabel(f.on)], ["day", "Taken on", f.day],
-                 ["near", "Within 500 m of", f.near.replace(",", ", ")], ["camera", "Camera", f.camera]]
+                 ["near", "Within 500 m of", f.near.replace(",", ", ")], ["camera", "Camera", f.camera], ["lens", "Lens", f.lens],
+                 ["setting", ...(f.setting ? setting(f.setting) : [])]]
     .filter(([k]) => f[k]);
   const label = Object.fromEntries(presets.map((p) => [p.id, p.label]));
   const groups = [...new Set(presets.map((p) => p.group))];

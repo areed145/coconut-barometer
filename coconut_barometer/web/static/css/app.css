@@ -381,6 +381,20 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .pgroup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: var(--s1) 0; }
 .pgroup .why { width: 90px; flex: none; }
 
+/* gear (#127): when each camera was in use, on one scale of years */
+.inuse { display: grid; grid-template-columns: minmax(110px, 26%) minmax(0, 1fr) auto; gap: 6px var(--s2); align-items: center; }
+.inuse .row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; font-size: var(--text-sm);
+  text-align: left; color: inherit; text-decoration: none; }
+.inuse .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inuse .track { position: relative; height: 10px; background: var(--surface-2); border-radius: var(--r-pill); }
+.inuse .span { position: absolute; top: 0; bottom: 0; background: var(--chart-1); border-radius: var(--r-pill); min-width: 4px; }
+.inuse .row:hover .span { background: var(--accent); }
+.inuse .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+.inuse .axis .track { background: none; height: 1.4em; }
+.inuse .axis .track span { position: absolute; transform: translateX(-50%); font-size: var(--text-2xs); color: var(--muted); }
+.card.gear { margin-bottom: var(--s4); }
+.cols.settings4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }   /* two by two, not three and one */
+
 /* albums */
 .albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--s3); }
 .album { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; color: inherit; }

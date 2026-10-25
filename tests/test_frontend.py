@@ -559,6 +559,23 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("useLayoutEffect(() => {                           // only once the page is laid out", gallery)
         self.assertIn('role="slider" tabindex="0"', gallery)                                  # and the arrow keys
 
+    def test_gear_page_links_to_the_photostream(self):
+        """#127: a public Photos tab; each bar or row opens the photostream filtered to it, and the chips read plainly."""
+        gear = open(os.path.join(STATIC, "js", "gear.js")).read()
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('["gear", "Gear"]', main)
+        self.assertNotIn('"gear"', main[main.index("const PRIVATE_PHOTO_TABS"):main.index("const PRIVATE_TABS")])
+        self.assertIn('go({ setting: `${k}:${r.low}-${r.high ?? ""}` })', gear)
+        self.assertIn('"camera", "lens", "setting",', gallery)
+        if NODE:
+            start = gallery.index("const shutter = ")                         # the chip's formatter, run as it is
+            script = gallery[start:gallery.index("\n}\n", gallery.index("function setting(")) + 3]
+            out = subprocess.run([NODE, "-e", script + 'console.log(JSON.stringify(["focal:24-28", "shutter:0.002-0.004", "iso:6400-", "f:0-1.4"].map(setting)))'],
+                                 capture_output=True, text=True, timeout=60).stdout
+            self.assertEqual(json.loads(out), [["Focal length", "24 mm to 28 mm"], ["Shutter", "1/500 to 1/250"],
+                                               ["ISO", "6400 and over"], ["Aperture", "under f/1.4"]])
+
     def test_lightbox_slideshow(self):
         """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
