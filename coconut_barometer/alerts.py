@@ -7,6 +7,8 @@ streams have already stored, and sent with push.py to the devices turned on.
     pressure    sea-level pressure down alerts.pressure_drop_hpa or more over 3 hours (the newest observation
                 against the one 3 hours before it, as the Live card shows)
     callsign    a callsign from Settings → APRS heard after alerts.callsign_quiet_hours without a packet
+    igate       the igate quiet or gating far less than usual, or its beacon stopped (aprs/health.py), and back
+    record      the igate heard a station direct farther than any in alerts.igate_record_days (the long-distance log)
     altitude    a packet the igate gated from alerts.igate_altitude_km up or higher (a balloon, a flight), per callsign
     storm       a storm cell the NWS radars track (weather/radar.py) of at least alerts.storm_dbz whose path comes
                 within alerts.storm_km of a station in the next alerts.storm_minutes
@@ -24,12 +26,15 @@ from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 
 from . import push
+from .aprs.health import DEGRADED_HOURS, health
+from .aprs.igate import home
 from .weather import radar as rd
 
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
 SENT_META = "alerts_sent"
 STORMS_META, RADAR_META, NOTED_META = "alerts_storms", "alerts_radar", "alerts_noted"
+IGATE_META = "alerts_igate"     # which igate troubles have been alerted and not yet seen to clear
 RAIN_FIT = 0.7           # how well the rain's distance must fit a steady approach (R²) to alert
 
 
@@ -55,6 +60,10 @@ def _hours(s: float) -> str:
     return f"{s / 86400:.0f} days" if s >= 2 * 86400 else f"{s / 3600:.0f} hours"
 
 
+def _span(s: float) -> str:
+    return f"{round(s / 60)} min" if s < 5400 else _hours(s)
+
+
 COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 
@@ -63,8 +72,8 @@ def _minutes(s: float) -> str:
 
 
 class Alerts:
-    def __init__(self, cfg: dict, callsigns=lambda: [], radar=None, igate=lambda: ""):
-        self.cfg, self.callsigns, self.radar, self.igate = cfg, callsigns, radar, igate
+    def __init__(self, cfg: dict, callsigns=lambda: [], radar=None, igate=lambda: "", stream=lambda: {}):
+        self.cfg, self.callsigns, self.radar, self.igate, self.stream = cfg, callsigns, radar, igate, stream
         self.since: int | None = None
 
     def check(self, store, now: float | None = None) -> list[dict]:
@@ -123,6 +132,10 @@ class Alerts:
                                 "evidence": {"callsign": call, "first_packet_at": first, "previous_packet_at": before,
                                              "quiet_seconds": first - before}})
         gate = self.igate()
+        if a["igate_quiet_minutes"] and gate:
+            out += self._igate(store, gate, now, units)
+        if a["igate_record_days"] and gate:
+            out += self._record(store, gate, since, now, units)
         if a["igate_altitude_km"] and gate:
             for h in store.igate_high(gate, since, now, a["igate_altitude_km"] * 1000):
                 up = f"{h['altitude'] * 3.28084:,.0f} ft" if units == "imperial" else f"{h['altitude'] / 1000:.1f} km"
@@ -133,6 +146,57 @@ class Alerts:
                                          "latitude": h["lat"], "longitude": h["lon"], "direct": h["direct"],
                                          "threshold_km": a["igate_altitude_km"], "window_start": since, "window_end": now}})
         return out
+
+    def _igate(self, store, gate: str, now: int, units: str) -> list[dict]:
+        """An alert when the igate stops gating or beaconing, and one when it's back. What's been alerted is kept
+        (IGATE_META) until it clears, so each trouble is told once. Nothing while APRS-IS itself is down."""
+        h = health(store, gate, now, self.stream(), self.cfg["alerts"]["igate_quiet_minutes"])
+        if not h["connected"]:
+            return []
+        state, out = json.loads(store.get_meta(IGATE_META) or "{}"), []
+        evidence = {"igate": gate, "last_packet_at": h["last_ts"], "packets_last_hour": h["last_hour"],
+                    "expected_per_hour": h["rate"], "beacon_at": h["beacon_ts"]}
+        last = f"its last packet {_span(now - h['last_ts'])} ago" if h["last_ts"] else "nothing gated yet"
+        for trouble, bad, title, body in (
+                ("gating", h["gating"], f"{gate} has gone quiet" if h["gating"] == "quiet" else f"{gate} is gating less than usual",
+                 f"APRS-IS is fine, but {last}; it usually gates about {h['rate']:.0f} an hour now." if h["gating"] == "quiet"
+                 else f"{h['last_hour']} packets in the last hour, under its usual for {DEGRADED_HOURS} hours running."),
+                ("beacon", h["beacon_stale"], f"{gate}'s beacon has stopped",
+                 f"Its own position beacon was last heard {_span(now - (h['beacon_ts'] or now))} ago." if h["beacon_stale"] else "")):
+            if bad and trouble not in state:
+                state[trouble] = now
+                out.append({"key": f"igate:{trouble}", "url": "/#/aprs/igate", "title": title, "body": body,
+                            "evidence": {**evidence, "trouble": bad if isinstance(bad, str) else trouble}})
+            elif not bad and trouble in state:
+                since = state.pop(trouble)
+                out.append({"key": f"igate:{trouble}-back", "url": "/#/aprs/igate",
+                            "title": f"{gate} is gating again" if trouble == "gating" else f"{gate}'s beacon is back",
+                            "body": f"{_span(now - since)} after the alert.", "evidence": evidence})
+        store.set_meta(IGATE_META, json.dumps(state))
+        return out
+
+    def _record(self, store, gate: str, since: int, now: int, units: str) -> list[dict]:
+        """A new farthest believable direct station in alerts.igate_record_days, heard since the last check. Only
+        against something already heard in that time, so the first packets ever aren't each a record."""
+        at = home(self.cfg, store, gate)
+        days = self.cfg["alerts"]["igate_record_days"]
+        if not at:
+            return []
+        at = (at["lat"], at["lon"])
+        new = store.igate_long(at, gate, since + 1, now, 1)["rows"]
+        before = new and store.igate_long(at, gate, now - days * 86400, since, 1)["rows"]
+        if not new or not before or new[0]["km"] <= before[0]["km"]:
+            return []
+        x, b = new[0], before[0]
+        when = "ever" if days >= 3650 else f"in {days} days"
+        return [{"key": "record", "url": "/#/aprs/igate",
+                 "title": f"Farthest {when}: {x['callsign']} at {_dist(x['km'], units)}",
+                 "body": f"Heard direct by {gate}, {COMPASS[round(x['bearing'] / 45) % 8]}. The farthest before was "
+                         f"{b['callsign']} at {_dist(b['km'], units)}.",
+                 "evidence": {"callsign": x["callsign"], "igate": gate, "distance_km": round(x["km"], 1),
+                              "bearing_degrees": round(x["bearing"]), "observed_at": x["ts"], "path": x["path"],
+                              "previous": b["callsign"], "previous_km": round(b["km"], 1), "previous_at": b["ts"],
+                              "days": days, "window_start": since, "window_end": now}}]
 
     def _radar(self, store, now: int, units: str) -> list[dict]:
         """Storm and rain alerts for each station, with the guards against tracking errors (#71). A candidate a

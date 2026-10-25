@@ -21,6 +21,7 @@ import time
 from fastapi import APIRouter, Depends, Query
 
 from ... import activity, local
+from ...aprs.health import health
 from ...errors import reporter
 from ..deps import runtime, session, store, viewer
 from . import weather as wx_api
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 CACHE_SECONDS, FLICKR_CHECK = 15, 600
 STALE_WARN, STALE_BAD = 15 * 60, 60 * 60          # a station's newest observation, this old
 LEVELS = ("ok", "off", "warn", "bad")             # worse to the right; "off" doesn't count
-PUBLIC = ("weatherflow", "aprs", "imagery", "radar", "lightning", "fronts", "hazards")
+PUBLIC = ("weatherflow", "aprs", "igate", "imagery", "radar", "lightning", "fronts", "hazards")
 FEED_LATE = {"lightning": (10 * 60, 30 * 60), "fronts": (6 * 3600, 12 * 3600)}   # its newest data this much older than
                                                                                  # the check: warn, bad
 _cache: dict[tuple, tuple] = {}
@@ -75,6 +76,23 @@ def _aprs(rt, now) -> dict:
                (f"connected · last packet {_ago(now, heard)}" if heard else "connected · no packets yet") if ok
                else f"{s.get('state') or 'not started'}",
                s.get("error"), "#/settings/aprs", heard)
+
+
+def _igate(rt, db, now) -> dict:
+    """The igate in Settings → APRS (#119): gating as usual, and still beaconing. Can't be told while APRS-IS is down."""
+    gate = rt.aprs.igate()
+    if local.on() or not gate:
+        return row("igate", "Igate", "off", local.STATE if local.on() else "none set", href="#/settings/aprs")
+    h = health(db, gate, int(now), rt.aprs.hub.snapshot(), rt.cfg["alerts"]["igate_quiet_minutes"] or 60)
+    expected = f" (usually ~{h['expected_hour']:.0f})" if h["expected_hour"] is not None else ""
+    state = f"{gate} · {h['last_hour']} gated in the last hour{expected} · last packet {_ago(now, h['last_ts'])}"
+    if not h["connected"]:
+        return row("igate", "Igate", "off", f"{gate} · can't tell until APRS-IS has been connected a while", href="#/aprs/igate")
+    trouble = ("not gating: quiet when it usually isn't" if h["gating"] == "quiet" else
+               "gating well under its usual for 3 hours" if h["gating"] == "degraded" else
+               f"its beacon stopped {_ago(now, h['beacon_ts'])}" if h["beacon_stale"] else None)
+    level = "bad" if h["gating"] == "quiet" else "warn" if trouble else "ok"
+    return row("igate", "Igate", level, f"{state} · {trouble}" if trouble else state, None, "#/aprs/igate", h["last_ts"])
 
 
 def _cwop(rt, now) -> dict:
@@ -261,7 +279,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     hit = _cache.get((rt.db_path, me is None))
     if hit and now - hit[0] < CACHE_SECONDS:
         return hit[1]
-    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
+    rows = [_weatherflow(rt, db, now), _aprs(rt, now), _igate(rt, db, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
     if me is not None:
         rows += [_qc(rt, db, now), _cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now),
                  _visitors(rt, now), _error_reports(now)]

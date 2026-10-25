@@ -99,6 +99,72 @@ class AlertsTest(Base):
         save(13000, self.now + 30)
         self.assertEqual(self.alerts.check(self.store, self.now + 60), [])
 
+    def test_the_igate_goes_quiet_and_comes_back(self):
+        gate = "WA5DTR-15"
+        stream = {"state": "connected", "since": self.now - 6 * 3600}
+        self.alerts.igate, self.alerts.stream = (lambda: gate), (lambda: stream)
+        save = lambda ts: self.store.igate_save(gate, {"from": "N5XYZ-9"}, True, ts)
+        for week in range(1, 4):                                   # 20 packets an hour, the last three weeks
+            for h in range(-26, 2):
+                for i in range(20):
+                    save(self.now - week * 7 * 86400 + h * 3600 + i * 180)
+        save(self.now - 2 * 3600)                                  # then nothing for two hours
+        igate = lambda: {k: v for k, v in self.kinds().items() if k == "igate"}
+        a = igate()["igate"]
+        self.assertEqual((a["key"], a["title"]), ("igate:gating", "WA5DTR-15 has gone quiet"))
+        self.assertIn("its last packet 2 hours ago; it usually gates about 20 an hour", a["body"])
+        self.alerts.since = self.now - 60
+        self.assertEqual(igate(), {})                              # told once
+        stream["state"] = "reconnecting"                           # APRS-IS down: nothing said either way
+        save(self.now - 30)
+        self.alerts.since = self.now - 60
+        self.assertEqual(igate(), {})
+        stream["state"] = "connected"
+        self.alerts.since = self.now - 60
+        self.assertEqual(igate(), {})                              # one packet in three hours: still well under its usual
+        for i in range(60):                                        # its usual 20 an hour again
+            save(self.now // 3600 * 3600 - 3 * 3600 + i * 180)
+        self.alerts.since = self.now - 60
+        self.assertEqual(igate()["igate"]["key"], "igate:gating-back")
+
+    def test_the_igate_is_not_blamed_without_a_baseline_or_a_connection(self):
+        gate = "WA5DTR-15"
+        self.alerts.igate = lambda: gate
+        self.alerts.stream = lambda: {"state": "connected", "since": self.now - 6 * 3600}
+        self.store.igate_save(gate, {"from": "N5XYZ-9"}, True, self.now - 3 * 3600)    # no history: no expectation
+        self.assertNotIn("igate", self.kinds())
+        self.alerts.stream = lambda: {"state": "connected", "since": self.now - 600}  # only just reconnected
+        self.alerts.since = self.now - 60
+        self.assertNotIn("igate", self.kinds())
+
+    def test_the_igate_beacon_stops(self):
+        gate = "WA5DTR-15"
+        self.alerts.igate = lambda: gate
+        self.alerts.stream = lambda: {"state": "connected", "since": self.now - 6 * 3600}
+        self.store.igate_place(gate, 30.0, -97.0, self.now - 4 * 3600)
+        self.assertEqual(self.kinds()["igate"]["title"], "WA5DTR-15's beacon has stopped")
+        self.store.igate_place(gate, 30.0, -97.0, self.now - 60)
+        self.alerts.since = self.now - 60
+        self.assertEqual(self.kinds()["igate"]["key"], "igate:beacon-back")
+
+    def test_the_igate_hears_farther_than_ever(self):
+        gate = "WA5DTR-15"
+        self.alerts.igate = lambda: gate
+        self.cfg["alerts"]["igate_record_days"] = 30
+        self.cfg["aprs"]["igate_location"] = "30.0, -97.0"
+        put = lambda call, lat, ts: self.store.igate_save(gate, {"from": call, "latitude": lat, "longitude": -97.0}, True, ts)
+        put("N5OLD-9", 30.5, self.now - 5 * 86400)                  # 56 km, five days ago
+        put("N5NEW-9", 30.4, self.now - 30)                          # nearer: no record
+        self.assertNotIn("record", self.kinds())
+        self.alerts.since = self.now - 60
+        put("N5NEW-9", 30.9, self.now - 20)                          # 100 km
+        r = self.kinds()["record"]
+        self.assertEqual(r["title"], "Farthest in 30 days: N5NEW-9 at 100 km")
+        self.assertIn("The farthest before was N5OLD-9 at 56 km.", r["body"])
+        self.alerts.since = self.now - 15
+        put("N5WILD-9", 45.0, self.now - 10)                         # 1,668 km once: not believed
+        self.assertNotIn("record", self.kinds())
+
     def test_zero_turns_one_off(self):
         self.cfg["alerts"]["gust_kmh"] = 0
         self.store.wx_save_obs(11, [obs(self.now - 30, gust=40.0)])

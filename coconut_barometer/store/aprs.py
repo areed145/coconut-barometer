@@ -8,14 +8,19 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 
-from ..aprs.igate import TYPES, details, station_type
+from ..aprs.igate import (CONFIRM, MOVED_KM, PLAUSIBLE_KM, TYPES, UNKNOWN, bin_width, details, digi_hops,
+                          station_type)
 from .db import Database
 
 TRACK_COLS = "ts, lat, lon, altitude, speed, course"
 KM = ("2 * 6371 * asin(sqrt(pow(sin(radians(lat - ?) / 2), 2) + cos(radians(?)) * cos(radians(lat)) "
       "* pow(sin(radians(lon - ?) / 2), 2)))")     # from (?, ?, ? = lat, lat, lon)
+BEARING = ("(degrees(atan2(sin(radians(lon - ?)) * cos(radians(lat)), cos(radians(?)) * sin(radians(lat)) "
+           "- sin(radians(?)) * cos(radians(lat)) * cos(radians(lon - ?)))) + 360) % 360")   # (lon, lat, lat, lon)
+FIXED_SQL = "(substr(symbol, 2, 1) IN ('-', '#', '&', '_') OR symbol = '/y')"    # home, digi, igate, weather
 REGULAR_DAYS, REGULAR_OF = 7, 14                    # a regular: heard on at least 7 of the last 14 days
 PACKET_COLS = "callsign, ts, lat, lon, altitude, speed, course, symbol, comment, path, raw"
 
@@ -165,3 +170,128 @@ class AprsStore(Database):
             "arg_max(lon, altitude) AS lon, arg_max(direct, altitude) AS direct FROM aprs_igate "
             "WHERE igate=? AND ts > ? AND ts <= ? AND lat IS NOT NULL AND altitude >= ? GROUP BY callsign ORDER BY callsign",
             (igate, since, until, metres))]
+
+    def _igate_sectored(self, sectors: int) -> str:
+        """Each packet's distance (km) and sector of bearing from the igate (sector 0 centred on north), for
+        igate_sectors. Takes lat, lat, lon, lon, lat, lat, lon, then igate, start, end, direct."""
+        half = 180 / sectors
+        return (f"SELECT {KM} AS km, CAST(floor((({BEARING}) + {half}) % 360 / {2 * half}) AS INTEGER) AS sector "
+                "FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ? AND lat IS NOT NULL AND (direct OR NOT ?)")
+
+    def igate_sectors(self, at: tuple[float, float], igate: str, start: int, end: int, direct: bool,
+                      sectors: int) -> list[dict]:
+        """Distance by direction (#115): per sector, its packets, median and 99th-percentile distance, and a histogram
+        of its distances ({bin_km, counts, beyond}) binned to its own 99th percentile, as for the whole."""
+        lat, lon = at
+        args = (lat, lat, lon, lon, lat, lat, lon, igate, start, end, direct)
+        sql = self._igate_sectored(sectors)
+        q = {r["sector"]: dict(r) for r in self.db.execute(
+            f"SELECT sector, COUNT(*) AS n, quantile_cont(km, 0.5) AS p50, quantile_cont(km, 0.99) AS p99 "
+            f"FROM ({sql}) GROUP BY 1", args)}
+        widths = [bin_width(q[s]["p99"]) if s in q else 1.0 for s in range(sectors)]
+        hist: dict[int, dict[int, int]] = {}
+        for r in self.db.execute(f"SELECT sector, floor(km / list_extract(?::DOUBLE[], sector + 1)) AS b, COUNT(*) AS n "
+                                 f"FROM ({sql}) GROUP BY 1, 2", (widths, *args)):
+            hist.setdefault(r["sector"], {})[int(r["b"])] = r["n"]
+        out = []
+        for s in range(sectors):
+            row = q.get(s) or {"n": 0, "p50": None, "p99": None}
+            nbins = max(1, math.ceil((row["p99"] or 0) / widths[s] + 1e-9))
+            counts = [hist.get(s, {}).get(i, 0) for i in range(nbins)]
+            out.append({"sector": s, "n": row["n"], "p50_km": row["p50"], "bin_km": widths[s], "counts": counts,
+                        "beyond": row["n"] - sum(counts)})
+        return out
+
+    def igate_digis(self, igate: str, start: int, end: int, edges: int = 300) -> dict:
+        """The RF network feeding the igate over the window (#117), from its packets' paths: each digi with the
+        packets it relayed, its senders (busiest first), when last heard and its share of all the igate gated; how
+        many came direct, through one digi, or more; the links sender → digi → … → igate by packets (the busiest
+        `edges`); and where each station on them last placed itself, when it did."""
+        total = 0
+        hops = {"direct": 0, "one": 0, "more": 0}
+        digis: dict[str, dict] = {}
+        links: dict[tuple[str, str], int] = {}
+        for call, path, n, last in self.db.execute(
+                "SELECT callsign, path, COUNT(*), MAX(ts) FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ? GROUP BY 1, 2",
+                (igate, start, end)).fetchall():
+            relay = digi_hops((path or "").split(","))
+            total += n
+            hops["direct" if not relay else "one" if len(relay) == 1 else "more"] += n
+            for d in dict.fromkeys(relay):
+                x = digis.setdefault(d, {"callsign": d, "packets": 0, "senders": {}, "last_ts": 0})
+                x["packets"] += n
+                x["senders"][call] = x["senders"].get(call, 0) + n
+                x["last_ts"] = max(x["last_ts"], last)
+            chain = [call, *relay, igate]
+            for a, b in zip(chain, chain[1:]):
+                if a != b and UNKNOWN not in (a, b):
+                    links[(a, b)] = links.get((a, b), 0) + n
+        busiest = sorted(links.items(), key=lambda kv: -kv[1])[:edges]
+        named = {c for (a, b), _ in busiest for c in (a, b)} | set(digis) - {UNKNOWN}
+        places = {}
+        if named:
+            for call, lat, lon in self.db.execute(
+                    "SELECT callsign, arg_max(lat, ts), arg_max(lon, ts) FROM aprs_igate WHERE igate=? AND lat IS NOT NULL "
+                    "AND callsign IN (SELECT unnest(?::VARCHAR[])) GROUP BY 1", (igate, sorted(named))).fetchall():
+                places[call] = [lat, lon]
+        rows = sorted(digis.values(), key=lambda x: (-x["packets"], x["callsign"]))
+        for x in rows:
+            x["share"] = x["packets"] / total if total else 0
+            x["sender_count"] = len(x["senders"])
+            x["senders"] = [c for c, _ in sorted(x["senders"].items(), key=lambda kv: -kv[1])[:20]]
+            x["at"] = places.get(x["callsign"])
+        return {"total": total, "hops": hops, "digis": rows, "edges": [[a, b, n] for (a, b), n in busiest], "places": places}
+
+    def igate_long(self, at: tuple[float, float], igate: str, start: int, end: int, limit: int = 25) -> dict:
+        """The long-distance log (#116): the stations heard farthest direct in the window, each at its farthest
+        believable packet (igate.py: PLAUSIBLE_KM, CONFIRM, MOVED_KM), with bearing and path; and how many packets
+        were left out, and why."""
+        lat, lon = at
+        moved = ("2 * 6371 * asin(sqrt(pow(sin(radians(lat - lat_now) / 2), 2) + cos(radians(lat_now)) * cos(radians(lat)) "
+                 "* pow(sin(radians(lon - lon_now) / 2), 2)))")
+        sql = (f"WITH d AS (SELECT callsign, ts, lat, lon, path, symbol, {KM} AS km, {BEARING} AS bearing FROM aprs_igate "
+               "WHERE igate=? AND direct AND lat IS NOT NULL), "
+               "st AS (SELECT callsign, arg_max(lat, ts) AS lat_now, arg_max(lon, ts) AS lon_now, "
+               "arg_max(symbol, ts) FILTER (WHERE symbol IS NOT NULL) AS symbol_now, COUNT(*) FILTER (WHERE km > ?) AS far "
+               "FROM d GROUP BY 1), "
+               f"w AS (SELECT d.*, km > ? AND far < ? AS implausible, coalesce({FIXED_SQL.replace('symbol', 'symbol_now')}, FALSE) "
+               f"AND {moved} > ? AS moved FROM d JOIN st USING (callsign) WHERE ts BETWEEN ? AND ?) ")
+        args = (lat, lat, lon, lon, lat, lat, lon, igate, PLAUSIBLE_KM, PLAUSIBLE_KM, CONFIRM, MOVED_KM, start, end)
+        rows = [dict(r) for r in self.db.execute(
+            sql + "SELECT callsign, max(km) AS km, arg_max(ts, km) AS ts, arg_max(lat, km) AS lat, arg_max(lon, km) AS lon, "
+            "arg_max(bearing, km) AS bearing, arg_max(path, km) AS path, COUNT(*) AS packets FROM w "
+            "WHERE NOT implausible AND NOT moved GROUP BY 1 ORDER BY km DESC LIMIT ?", (*args, limit))]
+        implausible, moved_n = self.db.execute(
+            sql + "SELECT COUNT(*) FILTER (WHERE implausible), COUNT(*) FILTER (WHERE moved AND NOT implausible) FROM w", args).fetchone()
+        return {"rows": rows, "left_out": {"implausible": implausible, "moved": moved_n}}
+
+    def igate_range_series(self, at: tuple[float, float], igate: str, start: int, end: int, step: int,
+                           offset: int = 0) -> dict[int, dict]:
+        """Range over time (#116), per bucket of `step` seconds (local days or hours, UTC + `offset`), keyed by the
+        bucket's start: packets and stations gated, direct packets with a position, their 99th-percentile distance,
+        and a histogram of them (bin_km, counts, beyond) for a fit, as for the whole window."""
+        lat, lon = at
+        b = f"((ts + {int(offset)}) // {step}) * {step} - {int(offset)}"
+        out = {r["b"]: {"packets": r["packets"], "stations": r["stations"], "n": 0, "p99_km": None} for r in self.db.execute(
+            f"SELECT {b} AS b, COUNT(*) AS packets, COUNT(DISTINCT callsign) AS stations FROM aprs_igate "
+            "WHERE igate=? AND ts BETWEEN ? AND ? GROUP BY 1", (igate, start, end))}
+        if not out:
+            return out
+        rows = f"SELECT {b} AS b, {KM} AS km FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ? AND direct AND lat IS NOT NULL"
+        args = (lat, lat, lon, igate, start, end)
+        for r in self.db.execute(f"SELECT b, COUNT(*) AS n, quantile_cont(km, 0.99) AS p99 FROM ({rows}) GROUP BY 1", args):
+            out[r["b"]] |= {"n": r["n"], "p99_km": r["p99"]}
+        first = min(out)
+        widths = [1.0] * ((max(out) - first) // step + 1)
+        for k, v in out.items():
+            if v["p99_km"]:
+                widths[(k - first) // step] = bin_width(v["p99_km"])
+        hist: dict[int, dict[int, int]] = {}
+        for r in self.db.execute(f"SELECT b, floor(km / list_extract(?::DOUBLE[], CAST((b - ?) // {step} AS INTEGER) + 1)) AS i, "
+                                 f"COUNT(*) AS n FROM ({rows}) GROUP BY 1, 2", (widths, first, *args)):
+            hist.setdefault(r["b"], {})[int(r["i"])] = r["n"]
+        for k, v in out.items():
+            w = widths[(k - first) // step]
+            counts = [hist.get(k, {}).get(i, 0) for i in range(max(1, math.ceil((v["p99_km"] or 0) / w + 1e-9)))]
+            v |= {"bin_km": w, "counts": counts, "beyond": v["n"] - sum(counts)}
+        return out
