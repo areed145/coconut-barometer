@@ -531,6 +531,111 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("}, [more, photos.length, total]);", gallery)
         self.assertIn('addEventListener("scroll", near, { passive: true });', gallery)
 
+    def test_lightbox_preloads_neighbours_once_the_photo_is_in(self):
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn("onLoad=${preload}", gallery)
+        self.assertIn("for (const i of [index + step, index - step, index + 2 * step])", gallery)
+        self.assertIn("if (frugal()) return;", gallery)                     # not on Save-Data or 2G
+        self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded
+        self.assertIn("img.src = pick(n.sizes, SHOWN);", gallery)           # never the zoom sizes (Flickr throttles them)
+
+    def test_lightbox_related_strips(self):
+        """#124: nearby and same-day strips; a pick browses that strip until Back; See all is the photostream filtered."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn("api(`/api/photos/${id}/related`)", gallery)
+        self.assertIn('photosLink({ near: r.near?.join(","), sort: "taken" })', gallery)
+        self.assertIn('photosLink({ day: r.day, sort: "oldest" })', gallery)
+        self.assertIn('"on", "day", "near",', gallery[gallery.index("const FILTERS"):])
+        self.assertIn("onRelated=${(photos, index, label) => setAlt({ photos, index, label })}", gallery)
+
+    def test_photostream_timeline(self):
+        """#126: the date sorts get a rail; a jump lands once its page is laid out; photos above load back in with the one on
+        screen kept where it was."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('const DATED = ["newest", "oldest", "taken", "taken_asc"];', gallery)
+        self.assertIn('api("/api/photo-months", { params: query })', gallery)
+        self.assertIn("less(before)", gallery)
+        self.assertIn("if (t) scrollBy(0, t.getBoundingClientRect().top - a.top);", gallery)
+        self.assertIn("useLayoutEffect(() => {                           // only once the page is laid out", gallery)
+        self.assertIn('role="slider" tabindex="0"', gallery)                                  # and the arrow keys
+
+    def test_gear_page_links_to_the_photostream(self):
+        """#127: a public Photos tab; each bar or row opens the photostream filtered to it, and the chips read plainly."""
+        gear = open(os.path.join(STATIC, "js", "gear.js")).read()
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('["gear", "Gear"]', main)
+        self.assertNotIn('"gear"', main[main.index("const PRIVATE_PHOTO_TABS"):main.index("const PRIVATE_TABS")])
+        self.assertIn('go({ setting: `${k}:${r.low}-${r.high ?? ""}` })', gear)
+        self.assertIn('"camera", "lens", "setting",', gallery)
+        if NODE:
+            start = gallery.index("const shutter = ")                         # the chip's formatter, run as it is
+            script = gallery[start:gallery.index("\n}\n", gallery.index("function setting(")) + 3]
+            out = subprocess.run([NODE, "-e", script + 'console.log(JSON.stringify(["focal:24-28", "shutter:0.002-0.004", "iso:6400-", "f:0-1.4"].map(setting)))'],
+                                 capture_output=True, text=True, timeout=60).stdout
+            self.assertEqual(json.loads(out), [["Focal length", "24 mm to 28 mm"], ["Shutter", "1/500 to 1/250"],
+                                               ["ISO", "6400 and over"], ["Aperture", "under f/1.4"]])
+
+    def test_trips_page_and_trip_view(self):
+        """#125: a public Trips tab of cards; a trip is the photostream filtered to it, in the order taken, with a map."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        self.assertIn('["trips", "Trips"]', main)
+        self.assertNotIn('"trips"', main[main.index("const PRIVATE_PHOTO_TABS"):main.index("const PRIVATE_TABS")])
+        self.assertIn('photosLink({ trip: t.id, sort: "taken_asc" })', gallery)
+        self.assertIn("<${PointsMap} points=${tripPoints} />", gallery)
+        self.assertIn("<dt>Part of</dt>", gallery)
+
+    def test_lightbox_slideshow(self):
+        """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('else if (e.key === "s") play(!playing);', gallery)
+        self.assertIn("setTimeout(() => (index < photos.length - 1 ? onIndex(index + 1) : play(false)), secs * 1000)", gallery)
+        self.assertIn("if (!playing || held) return;", gallery)
+        self.assertIn("const vis = () => setHeld(document.hidden);", gallery)
+        self.assertIn("<${PhotoGrid} paged=${paged} slideshow=${slideshow}", gallery)
+        self.assertIn("try { localStorage.setItem(PACE_KEY, n); } catch {}", gallery)     # storage may be blocked
+
+    def test_lightbox_touch_gestures(self):
+        """#129: swipe, pinch and double-tap on the photo; the mouse keeps click-to-zoom; no motion when reduced."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn('<div class=${"stage" + (zoom ? " zoomed" : "")} ...${touch.handlers}>', gallery)
+        self.assertIn("onClick=${() => touch.touched() || setZoom(!zoom)}", gallery)      # a tap isn't a click-to-zoom
+        self.assertIn("onPointerCancel: onPointerUp", gallery)
+        self.assertIn(".lightbox .stage { touch-action: none; }", css)                     # the page behind doesn't scroll
+        self.assertIn("@media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }", css)
+
+    @unittest.skipUnless(NODE, "needs Node")
+    def test_justified_rows_fill_the_width(self):
+        """#128: every full row is exactly the width; the last row stays at the target height; adding photos only adds rows."""
+        script = r"""
+          import { aspect, justify } from "%s";
+          const width = 1000, gap = 6, target = 220;
+          const rnd = (i) => [1.5, 0.67, 1, 1.78, 0.75, 2.4, 1.33][i %% 7];
+          const a = Array.from({ length: 50 }, (_, i) => rnd(i));
+          const rows = justify(a, width, target, gap);
+          const widths = rows.map((r) => a.slice(r.start, r.end).reduce((s, x) => s + x * r.height, 0) + gap * (r.end - r.start - 1));
+          console.log(JSON.stringify({
+            rows, widths, more: justify([...a, ...a], width, target, gap).slice(0, rows.length - 1),
+            covered: rows.map((r) => r.end - r.start).reduce((s, n) => s + n, 0),
+            aspects: [aspect({ width: 4000, height: 3000 }), aspect({ width: 9000, height: 1000 }), aspect({ width: 100, height: 900 }),
+                      aspect({ width: null, height: 10 })],
+            wide: justify([5, 1, 1], 300, 220, 6),
+          }));
+        """ % os.path.join(STATIC, "js", "justify.js")
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual(out["covered"], 50)                                    # every photo, once, in order
+        for r, w in zip(out["rows"][:-1], out["widths"][:-1]):
+            self.assertAlmostEqual(w, 1000, places=6)
+            self.assertLess(abs(r["height"] - 220), 120)                        # near the target
+        self.assertTrue(out["rows"][-1]["last"])
+        self.assertEqual(out["rows"][-1]["height"], 220)
+        self.assertLessEqual(out["widths"][-1], 1000)
+        self.assertEqual(out["more"], out["rows"][:-1])                         # a new page doesn't move rows already shown
+        self.assertEqual(out["aspects"], [4000 / 3000, 3, 0.5, 1])              # panoramas and strips limited; unknown: square
+        self.assertEqual(out["wide"][0], {"start": 0, "end": 1, "height": 60})  # one photo wider than the row: a row of its own
+
 
 if __name__ == "__main__":
     unittest.main()

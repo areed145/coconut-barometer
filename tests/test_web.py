@@ -96,6 +96,132 @@ class WebTest(unittest.TestCase):
         for bad in ("13-01", "10-32", "1023", "10-2"):
             self.assertEqual(self.c.get("/api/photos", params={"on": bad}).status_code, 422, bad)
 
+    def test_related_photos_nearby_and_same_day(self):
+        """#124: nearby is within 500 m, nearest first; same day is the calendar day taken, in time order; visitors
+        get neither private photos nor hidden locations; and the photostream filters to both (`near`, `day`)."""
+        x = self.store.db.execute
+        x("UPDATE photos SET lat=NULL, lon=NULL, date_taken='2001-01-01 00:00:00', geo_public=1, ispublic=1")
+        for pid, lat, lon, taken in [("1", 47.6097, -122.3422, "2026-09-19 09:00:00"),
+                                     ("2", 47.6098, -122.3420, "2026-09-19 18:00:00"),   # ~20 m away, that evening
+                                     ("3", 47.6120, -122.3422, "2026-09-19 08:00:00"),   # ~260 m north
+                                     ("4", 47.6150, -122.3422, "2026-09-20 09:00:00"),   # ~590 m: not nearby; next day
+                                     ("5", 47.6097, -122.3482, "2019-07-17 10:00:00")]:  # ~450 m west (longitude shrinks)
+            x("UPDATE photos SET lat=?, lon=?, date_taken=? WHERE id=?", (lat, lon, taken, pid))
+        self.store.db.commit()
+        r = self.c.get("/api/photos/1/related").json()
+        self.assertEqual([p["id"] for p in r["nearby"]], ["2", "3", "5"])
+        self.assertEqual([p["id"] for p in r["same_day"]], ["3", "2"])                  # in the order taken
+        self.assertEqual((r["day"], r["near"]), ("2026-09-19", [47.6097, -122.3422]))
+        ids = lambda **p: {ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]}
+        self.assertEqual(ids(near="47.6097,-122.3422"), {"1", "2", "3", "5"})
+        self.assertEqual(ids(day="2026-09-19"), {"1", "2", "3"})
+        for bad in ({"near": "91,0"}, {"near": "x"}, {"day": "2026-13-01"}):
+            self.assertEqual(self.c.get("/api/photos", params=bad).status_code, 422, bad)
+        x("UPDATE photos SET ispublic=0 WHERE id='2'")
+        x("UPDATE photos SET geo_public=0 WHERE id='3'")
+        self.store.db.commit()
+        r = self.c.get("/api/photos/1/related").json()                                  # a visitor
+        self.assertEqual([p["id"] for p in r["nearby"]], ["5"])                         # not private, not a hidden location
+        self.assertEqual([p["id"] for p in r["same_day"]], ["3"])                       # a hidden location still has a day
+        self.assertEqual(ids(near="47.6097,-122.3422"), {"1", "5"})
+        self.assertEqual(self.c.get("/api/photos/2/related").status_code, 404)
+        self.assertEqual(self.c.get("/api/photos/3/related").json()["nearby"], [])      # its own location is hidden
+        self.login()
+        self.assertEqual([p["id"] for p in self.c.get("/api/photos/1/related").json()["nearby"]], ["2", "3", "5"])
+
+    def test_photo_months_add_up_to_offsets(self):
+        """#126: photos per month in the sort's own order, under the same filters, so the running total is each month's
+        offset in /api/photos; [] for a sort that isn't by date."""
+        x = self.store.db.execute
+        for pid, taken, up in [("1", "2019-07-17 10:00:00", 1700000000), ("2", "2019-07-01 09:00:00", 1600000000),
+                               ("3", "2024-01-05 00:00:00", 1710000000), ("4", "2019-08-02 00:00:00", 1500000000),
+                               ("5", None, 1720000000)]:
+            x("UPDATE photos SET date_taken=?, date_upload=?, tags=? WHERE id=?", (taken, up, "kept" if pid != "3" else "", pid))
+        self.store.db.commit()
+        self.login()
+        months = lambda **p: [(m["month"], m["count"]) for m in self.c.get("/api/photo-months", params=p).json()]
+        self.assertEqual(months(sort="taken"), [("2024-01", 1), ("2019-08", 1), ("2019-07", 2), (None, 1)])
+        self.assertEqual(months(sort="taken", tag="kept"), [("2019-08", 1), ("2019-07", 2), (None, 1)])   # filtered
+        self.assertEqual(months(sort="oldest"), [("2017-07", 1), ("2020-09", 1), ("2023-11", 1), ("2024-03", 1), ("2024-07", 1)])
+        self.assertEqual(months(sort="views"), [])
+        ids = [p["id"] for p in self.c.get("/api/photos", params={"sort": "taken", "offset": 2}).json()["photos"]]
+        self.assertEqual(ids, ["1", "2", "5"])                    # offset 2 = 1 + 1: where 2019-07 starts
+
+    def test_gear_and_its_filters(self):
+        """#127: per camera and lens (counts, dates, engagement), pairs, and settings parsed from Flickr's clean EXIF
+        strings into buckets that the photostream's `lens` and `setting` filters match exactly."""
+        import json
+        x = self.store.db.execute
+        x("DELETE FROM cameras")
+        for pid, cam, lens, exif in [
+                ("1", "Nikon D90", "Tamron 28-300", {"FocalLengthIn35mmFormat": "450 mm", "FNumber": "f/6.3", "ISO": "200", "ExposureTime": "0.002 sec (1/500)"}),
+                ("2", "Nikon D90", "Tamron 28-300", {"FocalLengthIn35mmFormat": "42 mm", "FNumber": "f/3.5", "ISO": "6400", "ExposureTime": "1/4000 sec"}),
+                ("3", "Apple iPhone X", "iPhone X back", {"FocalLengthIn35mmFormat": "28 mm", "FNumber": "f/1.8", "ISO": "20", "ExposureTime": "2 sec"}),
+                ("4", "", "", {})]:
+            x("INSERT INTO cameras (photo_id, camera, lens, exif) VALUES (?, ?, ?, ?)", (pid, cam, lens, json.dumps(exif)))
+        x("UPDATE photos SET views = CAST(id AS INTEGER) * 10, date_taken = '2019-0' || id || '-01 10:00:00'")
+        x("UPDATE photos SET ispublic=0 WHERE id='3'")
+        self.store.db.commit()
+        g = self.c.get("/api/gear").json()                                              # a visitor: public photos only
+        self.assertEqual([(c["name"], c["photos"], c["first"], c["last"], c["views"]) for c in g["cameras"]],
+                         [("Nikon D90", 2, "2019-01-01", "2019-02-01", 15.0)])
+        self.assertEqual(g["pairs"], [{"camera": "Nikon D90", "lens": "Tamron 28-300", "photos": 2}])
+        bucket = lambda name, label: next(b for b in g["settings"][name] if b["label"] == label)
+        self.assertEqual(bucket("focal", "400 mm and over")["photos"], 1)
+        self.assertEqual(bucket("shutter", "1/500–1/250")["photos"], 1)                 # from the fraction, not 0.002
+        self.assertEqual(bucket("shutter", "faster than 1/4000")["photos"], 0)
+        self.assertEqual(bucket("shutter", "1/4000–1/1000")["photos"], 1)               # "1/4000 sec"
+        self.assertEqual(bucket("iso", "6400 and over")["photos"], 1)
+        ids = lambda **p: {ph["id"] for ph in self.c.get("/api/photos", params=p).json()["photos"]}
+        self.assertEqual(ids(setting="focal:400-"), {"1"})
+        self.assertEqual(ids(setting=f"shutter:{1/500}-{1/250}"), {"1"})
+        self.assertEqual(ids(setting="iso:6400-", camera="Nikon D90"), {"2"})
+        self.assertEqual(ids(lens="Tamron 28-300"), {"1", "2"})
+        for bad in ("nope:1-2", "focal:x", "focal"):
+            self.assertEqual(self.c.get("/api/photos", params={"setting": bad}).status_code, 422, bad)
+        self.login()
+        from coconut_barometer.web.api import gallery
+        gallery._GEAR.clear()
+        g = self.c.get("/api/gear").json()
+        self.assertEqual({c["name"] for c in g["cameras"]}, {"Nikon D90", "Apple iPhone X"})
+        self.assertEqual(next(b for b in g["settings"]["shutter"] if b["label"] == "1 s and longer")["photos"], 1)
+
+    def test_trips(self):
+        """#125: built from the photos (named by the geocoder), newest first; visitors see public photos only and a name
+        from public locations only; the photostream, the map and the lightbox know each photo's trip."""
+        from coconut_barometer import trips
+        x = self.store.db.execute
+        x("UPDATE photos SET date_taken='2001-01-01 00:00:00', lat=NULL, lon=NULL, geo_public=1, ispublic=1")
+        for pid, taken, lat, lon in [("1", "2025-11-01 09:00:00", 35.0, 135.7), ("2", "2025-11-01 12:00:00", 35.0, 135.8),
+                                     ("3", "2025-11-02 10:00:00", 35.0, 135.7),
+                                     ("4", "2024-03-01 09:00:00", 30.27, -97.74), ("5", "2024-03-01 11:00:00", 30.27, -97.74)]:
+            x("UPDATE photos SET date_taken=?, lat=?, lon=?, views=? WHERE id=?", (taken, lat, lon, int(pid) * 10, pid))
+        self.store.db.commit()
+        cfg = self.app.state.runtime.cfg                                                # the app's own: the API's builds agree
+        cfg["trips"]["min_photos"] = 2
+        self.assertTrue(trips.ensure(cfg, self.store, geocoder=fake_geocoder))
+        self.assertFalse(trips.ensure(cfg, self.store, geocoder=fake_geocoder))         # nothing changed: not again
+        got = self.c.get("/api/trips").json()
+        self.assertEqual([(t["id"], t["place"], t["count"], t["first"], t["last"], t["cover"]["id"]) for t in got],
+                         [("1", "Tokyo, Japan", 3, "2025-11-01", "2025-11-02", "3"), ("4", "Austin, Texas", 2, "2024-03-01", "2024-03-01", "5")])
+        self.assertEqual({p["id"] for p in self.c.get("/api/photos", params={"trip": "1"}).json()["photos"]}, {"1", "2", "3"})
+        self.assertEqual({p[0] for p in self.c.get("/api/map/points", params={"trip": "4"}).json()["points"]}, {"4", "5"})
+        self.assertEqual(self.c.get("/api/photos/2").json()["trip"], {"id": "1", "place": "Tokyo, Japan"})
+        x("UPDATE photos SET ispublic=0 WHERE id='3'")                                  # private: not in the visitor's count
+        x("UPDATE photos SET geo_public=0 WHERE id IN ('4', '5')")                      # hidden locations: no name
+        self.store.db.commit()
+        trips.ensure(cfg, self.store, geocoder=fake_geocoder, force=True)
+        got = {t["id"]: t for t in self.c.get("/api/trips").json()}
+        self.assertEqual((got["1"]["count"], got["1"]["cover"]["id"]), (2, "2"))
+        self.assertEqual(got["4"]["place"], "")
+        self.assertEqual(self.c.get("/api/trips/4").json()["count"], 2)
+        self.assertEqual(self.c.get("/api/trips/nope").status_code, 404)
+        x("UPDATE photos SET ispublic=0 WHERE id IN ('4', '5')")                        # no public photos: not theirs to see
+        self.store.db.commit()
+        self.assertEqual(self.c.get("/api/trips/4").status_code, 404)
+        self.login()
+        self.assertEqual(self.c.get("/api/trips/4").json()["place"], "Austin, Texas")
+
     def test_photo_highlights_count_public_photos_for_visitors(self):
         x = self.store.db.execute
         x("UPDATE photos SET date_taken='2023-05-01 10:00:00', date_taken_unknown=0, ispublic=1, views=50, date_upload=2000 WHERE id='1'")

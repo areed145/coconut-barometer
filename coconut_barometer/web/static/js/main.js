@@ -21,6 +21,7 @@ function lazy(load, name) {
 }
 const Photos = lazy(() => import("./gallery.js"), "Photos");
 const Albums = lazy(() => import("./gallery.js"), "Albums");
+const Trips = lazy(() => import("./gallery.js"), "Trips");
 const SinglePhoto = lazy(() => import("./gallery.js"), "SinglePhoto");
 const Reviewer = lazy(() => import("./review.js"), "Reviewer");
 const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
@@ -28,6 +29,7 @@ const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
+const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
 const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
@@ -91,7 +93,8 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
   </div>`;
 }
 
-const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map", "Map"], ["analytics", "Analytics"], ["review", "Review"]];
+const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trips", "Trips"], ["map", "Map"], ["gear", "Gear"],
+                    ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
@@ -133,11 +136,13 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
+  else if (sub === "trips") page = html`<${Trips} />`;
   else if (sub === "analytics") page = html`<${Analytics} tab=${route[2]} />`;
   else if (sub === "review" && route[2] === "bulk") page = html`<${BulkReview} />`;
   else if (sub === "review" && route[2] === "applied") page = html`<${AppliedList} />`;
   else if (sub === "review") page = html`<${Reviewer} onCount=${setPending} targetPhotoId=${route.params.photo_id} />`;
   else if (sub === "map") page = html`<${MapPage} at=${route[2]} />`;
+  else if (sub === "gear") page = html`<${Gear} />`;
   else if (sub === "photo") page = html`<${SinglePhoto} id=${route[2]} />`;
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;
@@ -153,7 +158,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1]))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
-  const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photo" ? "photostream" : sub;
+  const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photostream" && route.params.trip ? "trips"
+    : sub === "photo" ? "photostream" : sub;
   const subtabs = inPhotos ? html`
     <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.filter(([t]) => session || !PRIVATE_PHOTO_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/photos/" + t}
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`

@@ -346,8 +346,7 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .dropzone.disabled { opacity: .55; cursor: not-allowed; }
 .dropzone input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
-/* photos: grid, filters and presets */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+/* photos: tiles, filters and presets */
 .tile { position: relative; aspect-ratio: 1; overflow: hidden; border-radius: var(--r-sm); background: var(--surface-2);
   cursor: zoom-in; padding: 0; border: 0; min-height: 0; display: block; }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
@@ -356,6 +355,24 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .tile:focus-visible .cap { opacity: 1; }
 .tile .vid { position: absolute; top: 6px; right: 6px; font-size: var(--text-2xs); background: var(--scrim); color: var(--on-photo);
   padding: 1px 6px; border-radius: var(--r-sm); }
+/* justified rows (#128): each tile's size is set by the layout, at its photo's aspect ratio */
+.justified { display: flex; flex-direction: column; gap: 6px; }
+.jrow { display: flex; gap: 6px; }
+.jrow .tile { aspect-ratio: auto; flex: 0 1 auto; min-width: 0; }
+.jrow.last .tile { flex-shrink: 0; }
+/* the timeline (#126): a rail down the right edge, beside the photos (over them on phones, while scrolling) */
+.with-timeline { margin-right: 44px; }
+.with-timeline .justified { overflow-anchor: none; }
+.timeline { position: fixed; z-index: 15; right: calc(var(--s1) + var(--safe-r)); top: calc(var(--header-h) + var(--s5)); bottom: var(--s5);
+  width: 40px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: var(--r-sm); }
+.timeline:focus-visible { outline: 2px solid var(--accent); }
+.timeline .yr { position: absolute; right: 4px; transform: translateY(-50%); font-size: var(--text-2xs); color: var(--muted);
+  font-variant-numeric: tabular-nums; pointer-events: none; }
+.timeline .thumb { position: absolute; right: 0; width: 40px; height: 2px; background: var(--accent); pointer-events: none; }
+.timeline .bubble { position: absolute; right: 46px; transform: translateY(-50%); white-space: nowrap; font-size: var(--text-sm);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px var(--s2); box-shadow: var(--shadow-2);
+  pointer-events: none; opacity: 0; transition: opacity .2s; }
+.timeline.active .bubble, .timeline:hover .bubble, .timeline:focus-visible .bubble { opacity: 1; }
 .toplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s2); }
 .toplist .tile { cursor: pointer; }
 .toplist .tile .cap { opacity: 1; }
@@ -363,6 +380,20 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .presets { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s2) var(--s3); margin: calc(-1 * var(--s1)) 0 var(--s3); }
 .pgroup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: var(--s1) 0; }
 .pgroup .why { width: 90px; flex: none; }
+
+/* gear (#127): when each camera was in use, on one scale of years */
+.inuse { display: grid; grid-template-columns: minmax(110px, 26%) minmax(0, 1fr) auto; gap: 6px var(--s2); align-items: center; }
+.inuse .row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; font-size: var(--text-sm);
+  text-align: left; color: inherit; text-decoration: none; }
+.inuse .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inuse .track { position: relative; height: 10px; background: var(--surface-2); border-radius: var(--r-pill); }
+.inuse .span { position: absolute; top: 0; bottom: 0; background: var(--chart-1); border-radius: var(--r-pill); min-width: 4px; }
+.inuse .row:hover .span { background: var(--accent); }
+.inuse .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+.inuse .axis .track { background: none; height: 1.4em; }
+.inuse .axis .track span { position: absolute; transform: translateX(-50%); font-size: var(--text-2xs); color: var(--muted); }
+.card.gear { margin-bottom: var(--s4); }
+.cols.settings4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }   /* two by two, not three and one */
 
 /* albums */
 .albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--s3); }
@@ -382,6 +413,23 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox .stage.zoomed { overflow: auto; display: block; cursor: zoom-out; }
 .lightbox .stage img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; user-select: none; }
 .lightbox .stage.zoomed img { max-width: none; max-height: none; cursor: zoom-out; }
+/* touch (#129): the photo follows the fingers, then eases back into place or on to its new spot */
+.lightbox .stage { touch-action: none; }
+.lightbox .stage.zoomed { touch-action: auto; }
+.lightbox .stage img { transition: transform .2s ease-out, opacity .2s; will-change: transform; }
+.lightbox .stage img.live { transition: none; }
+@media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }
+/* slideshow (#130): the photos fade in; the controls and the cursor go once the pointer is still */
+.lightbox .showbar { position: absolute; left: 50%; bottom: calc(var(--s3) + var(--safe-b)); transform: translateX(-50%); display: flex;
+  gap: var(--s1); align-items: center; padding: 4px; border-radius: var(--r-md); background: rgba(0, 0, 0, .45); z-index: 2; }
+.lightbox .showbar button, .lightbox .showbar select { background: transparent; color: #fff; border: 0; font-size: var(--text-sm); min-height: 36px; }
+.lightbox .showbar select option { color: initial; }
+.lightbox.playing .stage img { animation: fadein .8s ease-out; }
+.lightbox.idle, .lightbox.idle .stage img { cursor: none; }
+.lightbox.idle .navbtn, .lightbox.idle .close, .lightbox.idle .showbar { opacity: 0; pointer-events: none; }
+.lightbox .navbtn, .lightbox .close, .lightbox .showbar { transition: opacity .3s; }
+@keyframes fadein { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lightbox.playing .stage img { animation: none; } }
 .lightbox .navbtn, .lightbox .close { position: absolute; border: 0; background: rgba(0, 0, 0, .45); color: #fff; border-radius: var(--r-sm); padding: 0; }
 .lightbox .navbtn { top: 50%; transform: translateY(-50%); font-size: 28px; width: 46px; height: 64px; }
 .lightbox .navbtn.prev { left: calc(var(--s2) + var(--safe-l)); }
@@ -401,6 +449,13 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox .stats3 span { font-size: var(--text-2xs); color: var(--lb-muted); text-transform: uppercase; letter-spacing: .04em; }
 .lightbox .hint { font-size: var(--text-xs); color: var(--lb-muted); margin-top: var(--s3); }
 .lightbox .comment { border-color: var(--lb-line); }
+.lightbox .related h3 { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--text-sm); margin: var(--s3) 0 6px; }
+.lightbox .related h3 a { font-weight: normal; font-size: var(--text-xs); }
+.lightbox .strip { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.lightbox .strip button { flex: none; width: 64px; height: 64px; padding: 0; border: 0; border-radius: var(--r-sm); overflow: hidden;
+  background: var(--lb-raised); cursor: pointer; }
+.lightbox .strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pointsmap { height: 240px; border-radius: var(--r-md); overflow: hidden; isolation: isolate; margin: 0 0 var(--s3); }
 .minimap { height: 160px; border-radius: var(--r-md); overflow: hidden; isolation: isolate; margin: var(--s3) 0 var(--s1); }
 .maplink { margin: 0 0 var(--s2); font-size: var(--text-sm); }
 
@@ -630,8 +685,13 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
   .qdone th:nth-child(5), .qdone td:nth-child(5) { display: none; }
 }
 @media (max-width: 520px) {
-  .grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
-  .grid .tile { border-radius: 2px; }
+  .jrow .tile { border-radius: 2px; }
+  .with-timeline { margin-right: 0; }
+  .timeline { width: 30px; background: color-mix(in srgb, var(--surface) 80%, transparent); opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .timeline.active { opacity: 1; pointer-events: auto; }
+  .timeline .thumb { width: 30px; }
+  .timeline .yr { right: 2px; }
+  .justified, .jrow { gap: 3px; }
   .albums { grid-template-columns: repeat(2, 1fr); gap: var(--s2); }
   .toplist { grid-template-columns: repeat(3, 1fr); gap: var(--s1); }
   .kpis { grid-template-columns: repeat(2, 1fr); }

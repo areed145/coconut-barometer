@@ -28,13 +28,13 @@ def config(rt=Depends(runtime)):
 
 
 @router.get("/points")
-def points(request: Request, album: str | None = Query(None, max_length=40),
+def points(request: Request, album: str | None = Query(None, max_length=40), trip: str | None = Query(None, max_length=40),
            year_from: int | None = Query(None, ge=1800, le=3000), year_to: int | None = Query(None, ge=1800, le=3000),
            rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     """{points: [[id, lat, lon, server, secret], ...], years, colors, expand_at}. Gzipped here
     (it's the one big response, ~10 bytes a photo compressed); nothing secret is in it."""
     mcfg = rt.cfg["map"]
-    body = json.dumps({"points": db.map_points(album, year_from, year_to, public_only=me is None),
+    body = json.dumps({"points": db.map_points(album, year_from, year_to, public_only=me is None, trip=trip),
                        "years": db.map_years(public_only=me is None),
                        "colors": gradient(rt.cfg), "expand_at": mcfg["expand_at"]},
                       separators=(",", ":")).encode()

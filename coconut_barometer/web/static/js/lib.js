@@ -1,5 +1,5 @@
 // Shared helpers: Preact + htm, the API client, a hash router, formatting, toasts.
-export { html, render, useState, useEffect, useRef, useMemo, useCallback, useContext, createContext }
+export { html, render, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useContext, createContext }
   from "../vendor/preact-htm.module.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.module.js";
 

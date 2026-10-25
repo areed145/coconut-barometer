@@ -55,6 +55,24 @@ export function baseMap({ L, cfg }, el, { labels = false, ...options } = {}) {
   return map;
 }
 
+// A small map of many photos (a trip's): a dot for each, fitted to them all. points: [[id, lat, lon, ...]].
+export function PointsMap({ points, color = "#1dab45" }) {
+  const el = useRef(null);
+  useEffect(() => {
+    let map = null, live = true;
+    if (!points.length) return;
+    leaflet().then((lf) => {
+      if (!live || !el.current) return;
+      const { L } = lf;
+      map = baseMap(lf, el.current, { scrollWheelZoom: false });
+      for (const [, lat, lon] of points) L.circleMarker([lat, lon], { radius: 5, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(map);
+      map.fitBounds(L.latLngBounds(points.map(([, lat, lon]) => [lat, lon])), { padding: [20, 20], maxZoom: 14 });
+    }).catch(() => {});
+    return () => { live = false; map?.remove(); };
+  }, [points]);
+  return points.length ? html`<div class="pointsmap" ref=${el}></div>` : null;
+}
+
 // A small map with one pin (the lightbox).
 export function MiniMap({ lat, lon, color = "#1dab45" }) {
   const el = useRef(null);
