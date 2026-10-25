@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer.aprs.service import AprsService
-from coconut_barometer.aprs.igate import bin_width, details, gated_by, grid_center, parse_location, station_type, weibull_fit
+from coconut_barometer.aprs.igate import bearing, bin_width, details, sector_of, gated_by, grid_center, parse_location, station_type, weibull_fit
 from coconut_barometer.aprs.stream import LOGIN, AprsStream, Hub, callsigns, handle, server_filter
 from coconut_barometer.config import from_dict, validate
 from coconut_barometer.store import SCHEMA_VERSION, Store
@@ -215,6 +215,29 @@ class IgateTest(unittest.TestCase):
         self.assertEqual(sum(new for *_, new in s["days"]), 2)
         self.assertIsNone(self.store.igate_stations(None, GATE, NOW - day, NOW)["stations"][0]["km"])
 
+    def test_bearing_and_sector(self):
+        self.assertAlmostEqual(bearing(30, -97, 31, -97), 0, delta=0.01)
+        self.assertAlmostEqual(bearing(30, -97, 30, -96), 89.75, delta=0.05)     # a great circle starts a little north of east
+        self.assertAlmostEqual(bearing(30, -97, 29, -97), 180, delta=0.01)
+        self.assertAlmostEqual(bearing(30, -97, 30.5, -97.5), 319.3, delta=0.1)
+        self.assertEqual([sector_of(b, 8) for b in (0, 22.4, 22.6, 180, 337.6, 359)], [0, 0, 1, 4, 0, 0])
+        self.assertEqual(sector_of(11.3, 16), 1)
+
+    def test_range_by_direction(self):
+        # The igate at 30N 97W; 60 packets north out to ~60 km, 10 east, and one each way placed by bearing in SQL.
+        for i in range(60):
+            self.store.igate_save(GATE, {"from": f"N{i}", "latitude": 30 + (i + 1) / 111, "longitude": -97.0}, True, NOW + i)
+        for i in range(10):
+            self.store.igate_save(GATE, {"from": f"E{i}", "latitude": 30.0, "longitude": -97 + (i + 1) / 96}, True, NOW + 100 + i)
+        self.store.igate_save(GATE, {"from": "FAR", "latitude": 29.5, "longitude": -97.5}, False, NOW + 200)  # SW, digipeated
+        rows = self.store.igate_sectors((30.0, -97.0), GATE, NOW, NOW + 300, True, 8)
+        self.assertEqual([r["n"] for r in rows], [60, 0, 10, 0, 0, 0, 0, 0])
+        self.assertAlmostEqual(rows[0]["p50_km"], 30.5, delta=1)
+        self.assertEqual(sum(rows[0]["counts"]) + rows[0]["beyond"], 60)
+        everything = self.store.igate_sectors((30.0, -97.0), GATE, NOW, NOW + 300, False, 16)
+        self.assertEqual(everything[10]["n"], 1)                     # 221°: the sector centred on 225
+        self.assertEqual(sector_of(bearing(30, -97, 29.5, -97.5), 16), 10)
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
@@ -274,6 +297,13 @@ class AprsApiTest(unittest.TestCase):
         everything = self.c.get("/api/aprs/igate", params={"hours": 24, "direct": "false", "count": "stations"}).json()
         self.assertEqual((everything["distance"]["n"], round(everything["distance"]["max_km"])), (4, 111))
         self.assertEqual(self.c.get("/api/aprs/igate", params={"cell": "bogus"}).status_code, 422)
+
+    def test_igate_sectors(self):
+        s = self.c.get("/api/aprs/igate/sectors", params={"hours": 24}).json()
+        self.assertEqual((s["sectors"], len(s["rows"]), s["rows"][0]["n"], s["rows"][0]["fit"]), (8, 8, 3, None))
+        self.assertEqual((s["rows"][0]["from_deg"], s["rows"][0]["to_deg"], s["rows"][1]["from_deg"]), (337.5, 22.5, 22.5))
+        self.assertEqual(len(self.c.get("/api/aprs/igate/sectors", params={"sectors": 16}).json()["rows"]), 16)
+        self.assertEqual(self.c.get("/api/aprs/igate/sectors", params={"sectors": 12}).status_code, 422)
 
     def test_igate_stations(self):
         s = self.c.get("/api/aprs/igate/stations", params={"hours": 24}).json()

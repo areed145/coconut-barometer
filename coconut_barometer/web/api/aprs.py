@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ...aprs.igate import bin_width, parse_location, weibull_fit
+from ...aprs.igate import MIN_SECTOR, bin_width, parse_location, weibull_fit
 from ..deps import runtime, store, viewer
 from .weather import _window
 
@@ -121,3 +121,24 @@ def igate_stations(start: int | None = None, end: int | None = None, hours: floa
         return out
     home = igate_home(rt, db, gate)
     return out | db.igate_stations((home["lat"], home["lon"]) if home else None, gate, start, end, _utc_offset(db, end))
+
+
+@router.get("/igate/sectors")
+def igate_sectors(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
+                  direct: bool = True, sectors: int = Query(8, ge=8, le=16, multiple_of=8),
+                  rt=Depends(runtime), db=Depends(store)):
+    """Range by direction (#115): the packets with a position, by bearing from the igate in 8 or 16 sectors (the
+    first centred on north), each with its own Weibull fit; a sector with fewer than MIN_SECTOR has no fit."""
+    gate = rt.aprs.igate()
+    start, end = _window(start, end, hours)
+    out = {"igate": gate, "start": start, "end": end, "sectors": sectors, "min_packets": MIN_SECTOR, "rows": []}
+    home = igate_home(rt, db, gate) if gate else None
+    if not home:
+        return out
+    width = 360 / sectors
+    for r in db.igate_sectors((home["lat"], home["lon"]), gate, start, end, direct, sectors):
+        fit = weibull_fit(r["bin_km"], r["counts"], r["n"]) if r["n"] >= MIN_SECTOR else None
+        out["rows"].append({"sector": r["sector"], "from_deg": (r["sector"] - 0.5) * width % 360, "to_deg": (r["sector"] + 0.5) * width % 360,
+                            "n": r["n"], "p50_km": r["p50_km"],
+                            "fit": {k: fit[k] for k in ("k", "r2", "r50_km", "effective_km")} if fit else None})
+    return out

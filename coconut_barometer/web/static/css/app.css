@@ -882,6 +882,15 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .aprsdot { flex: none; align-self: center; width: 10px; height: 10px; border-radius: 50%; }
 /* APRS → Igate: the density grid's map, with its color scale under it */
 .igatemapbox { margin-bottom: var(--s4); }
+.igatedirs { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+@media (max-width: 720px) { .igatedirs { grid-template-columns: minmax(0, 1fr); } }
+.igatepolar { width: 100%; max-width: 340px; height: auto; display: block; }
+.igatepolar .ring { fill: none; stroke: var(--line); }
+.igatepolar .tick { fill: var(--muted); font-size: 10px; }
+.igatepolar .compass { fill: var(--muted); font-size: 12px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+.igatepolar .wedge { fill: var(--chart-1); fill-opacity: .55; stroke: var(--chart-1); stroke-width: 1; }
+.igatepolar .wedge.thin { fill: var(--muted); fill-opacity: .12; stroke: var(--line); }
+.igatepolar .half { fill: none; stroke: var(--chart-2); stroke-width: 2; stroke-dasharray: 5 4; }
 .igatemap { height: min(60dvh, 560px); }
 .igatescale { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); font-size: var(--text-xs); color: var(--muted); }
 .igatescale i { flex: 0 1 160px; height: 8px; border-radius: 4px; }

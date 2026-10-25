@@ -8,14 +8,17 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 
-from ..aprs.igate import TYPES, details, station_type
+from ..aprs.igate import TYPES, bin_width, details, station_type
 from .db import Database
 
 TRACK_COLS = "ts, lat, lon, altitude, speed, course"
 KM = ("2 * 6371 * asin(sqrt(pow(sin(radians(lat - ?) / 2), 2) + cos(radians(?)) * cos(radians(lat)) "
       "* pow(sin(radians(lon - ?) / 2), 2)))")     # from (?, ?, ? = lat, lat, lon)
+BEARING = ("(degrees(atan2(sin(radians(lon - ?)) * cos(radians(lat)), cos(radians(?)) * sin(radians(lat)) "
+           "- sin(radians(?)) * cos(radians(lat)) * cos(radians(lon - ?)))) + 360) % 360")   # (lon, lat, lat, lon)
 REGULAR_DAYS, REGULAR_OF = 7, 14                    # a regular: heard on at least 7 of the last 14 days
 PACKET_COLS = "callsign, ts, lat, lon, altitude, speed, course, symbol, comment, path, raw"
 
@@ -165,3 +168,34 @@ class AprsStore(Database):
             "arg_max(lon, altitude) AS lon, arg_max(direct, altitude) AS direct FROM aprs_igate "
             "WHERE igate=? AND ts > ? AND ts <= ? AND lat IS NOT NULL AND altitude >= ? GROUP BY callsign ORDER BY callsign",
             (igate, since, until, metres))]
+
+    def _igate_sectored(self, sectors: int) -> str:
+        """Each packet's distance (km) and sector of bearing from the igate (sector 0 centred on north), for
+        igate_sectors. Takes lat, lat, lon, lon, lat, lat, lon, then igate, start, end, direct."""
+        half = 180 / sectors
+        return (f"SELECT {KM} AS km, CAST(floor((({BEARING}) + {half}) % 360 / {2 * half}) AS INTEGER) AS sector "
+                "FROM aprs_igate WHERE igate=? AND ts BETWEEN ? AND ? AND lat IS NOT NULL AND (direct OR NOT ?)")
+
+    def igate_sectors(self, at: tuple[float, float], igate: str, start: int, end: int, direct: bool,
+                      sectors: int) -> list[dict]:
+        """Distance by direction (#115): per sector, its packets, median and 99th-percentile distance, and a histogram
+        of its distances ({bin_km, counts, beyond}) binned to its own 99th percentile, as for the whole."""
+        lat, lon = at
+        args = (lat, lat, lon, lon, lat, lat, lon, igate, start, end, direct)
+        sql = self._igate_sectored(sectors)
+        q = {r["sector"]: dict(r) for r in self.db.execute(
+            f"SELECT sector, COUNT(*) AS n, quantile_cont(km, 0.5) AS p50, quantile_cont(km, 0.99) AS p99 "
+            f"FROM ({sql}) GROUP BY 1", args)}
+        widths = [bin_width(q[s]["p99"]) if s in q else 1.0 for s in range(sectors)]
+        hist: dict[int, dict[int, int]] = {}
+        for r in self.db.execute(f"SELECT sector, floor(km / list_extract(?::DOUBLE[], sector + 1)) AS b, COUNT(*) AS n "
+                                 f"FROM ({sql}) GROUP BY 1, 2", (widths, *args)):
+            hist.setdefault(r["sector"], {})[int(r["b"])] = r["n"]
+        out = []
+        for s in range(sectors):
+            row = q.get(s) or {"n": 0, "p50": None, "p99": None}
+            nbins = max(1, math.ceil((row["p99"] or 0) / widths[s] + 1e-9))
+            counts = [hist.get(s, {}).get(i, 0) for i in range(nbins)]
+            out.append({"sector": s, "n": row["n"], "p50_km": row["p50"], "bin_km": widths[s], "counts": counts,
+                        "beyond": row["n"] - sum(counts)})
+        return out

@@ -2,6 +2,7 @@
 // lat/lon grid (color on a log scale, as on the photo map), with the igate and its effective range; a chart counts
 // them by distance from the igate, with the Weibull fit whose 90% distance is that effective range (igate.py).
 // Distance is from direct packets by default: a digipeated one says where the sender was, not how far the igate hears.
+// By direction (#115): the same fit per sector of bearing, as an outline on the map and a polar chart.
 // Below, who it heard (#118): stations per day, new and regular, and what kind each one is (from its symbol).
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
@@ -35,7 +36,30 @@ function cellName(lat, lon, cell, cells) {
   return `${lat.toFixed(2)}…${(lat + cells.dlat).toFixed(2)}, ${lon.toFixed(2)}…${(lon + cells.dlon).toFixed(2)}`;
 }
 
-function IgateMap({ d, cell }) {
+// The point `km` from (lat, lon) along bearing `deg` (great circle).
+function ahead(lat, lon, deg, km) {
+  const r = Math.PI / 180, d = km / 6371, b = deg * r, p1 = lat * r, l1 = lon * r;
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(b));
+  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return [p2 / r, l2 / r];
+}
+
+// Each fitted sector's arc at radius pick(row), joined to its neighbours' where they're fitted too: [[from°, km], …] runs.
+function outline(rows, pick) {
+  const n = rows.length, width = 360 / n, runs = [];
+  const start = rows.findIndex((r) => !pick(r));       // begin after a gap, so no run wraps past north half-drawn
+  for (let k = 0; k < n; k++) {
+    const r = rows[(start + 1 + k + n) % n], km = pick(r);
+    if (!km) { runs.push([]); continue; }
+    if (!runs.length) runs.push([]);
+    const from = (r.sector - 0.5) * width, steps = Math.max(2, Math.ceil(width / 5));
+    for (let i = 0; i <= steps; i++) runs[runs.length - 1].push([from + (width * i) / steps, km]);
+  }
+  const closed = start < 0;
+  return { runs: runs.filter((x) => x.length), closed };
+}
+
+function IgateMap({ d, cell, sectors }) {
   const wrap = useRef(null), box = useRef(null), map = useRef(null), layer = useRef(null), fitted = useRef("");
   const [ready, setReady] = useState(false);
   const { fullscreen } = useMapTools(map, ready, wrap);       // ⌖ and ⛶, as on the other maps (#82)
@@ -78,6 +102,14 @@ function IgateMap({ d, cell }) {
       if (fit) {
         L.circle([d.home.lat, d.home.lon], { radius: fit.effective_km * 1000, color: css("--fg"), weight: 1.5, dashArray: "6 6", fill: false, interactive: false }).addTo(group);
       }
+      const rows = sectors?.rows;
+      if (rows?.some((r) => r.fit)) {
+        const { runs, closed } = outline(rows, (r) => r.fit?.effective_km);
+        for (const run of runs) {
+          const pts = run.map(([deg, km]) => ahead(d.home.lat, d.home.lon, deg, km));
+          (closed ? L.polygon : L.polyline)(pts, { color: css("--chart-2"), weight: 2, fill: false, interactive: false }).addTo(group);
+        }
+      }
       const face = el("div", "aprspin"), dot = el("i");
       dot.hidden = true;
       face.append(dot, el("b", null, d.igate));
@@ -95,7 +127,7 @@ function IgateMap({ d, cell }) {
       fitted.current = key;
       map.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 11 });
     }
-  }, [ready, d, cell, theme]);
+  }, [ready, d, cell, theme, sectors]);
   const top = d.cells.rows.reduce((m, r) => Math.max(m, r[2]), 0);
   return html`<div ref=${wrap} class=${mapboxClass(fullscreen, "igatemapbox")}>
     <div class="mapwrap igatemap" ref=${box}></div>
@@ -205,6 +237,62 @@ function Stations({ hours, units }) {
   </div>`;
 }
 
+const COMPASS16 = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+const direction = (sector, n) => COMPASS16[(sector * 16) / n];
+
+// One wedge per sector out to its effective range, a dashed line at its 50%, and sectors without enough packets
+// greyed out to the edge. North up, clockwise.
+function Polar({ s, units }) {
+  const size = 320, c = size / 2, R = c - 22, n = s.rows.length, w = 360 / n;
+  const k = units === "imperial" ? MI : 1, unit = units === "imperial" ? "mi" : "km";
+  const top = Math.max(...s.rows.map((r) => r.fit?.effective_km || 0), 1) * k;
+  const step = [1, 2, 5].flatMap((m) => [1, 10, 100, 1000].map((p) => m * p)).sort((a, b) => a - b).find((x) => top / x <= 4);
+  const max = Math.ceil(top / step) * step, scale = (km) => (km * k * R) / max;
+  const xy = (deg, r) => [c + r * Math.sin((deg * Math.PI) / 180), c - r * Math.cos((deg * Math.PI) / 180)];
+  const wedge = (from, r) => {
+    const [x1, y1] = xy(from, r), [x2, y2] = xy(from + w, r);
+    return `M${c},${c} L${x1.toFixed(1)},${y1.toFixed(1)} A${r.toFixed(1)},${r.toFixed(1)} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z`;
+  };
+  const half = outline(s.rows, (r) => r.fit?.r50_km);
+  const line = (run) => run.map(([deg, km], i) => `${i ? "L" : "M"}${xy(deg, scale(km)).map((v) => v.toFixed(1)).join(",")}`).join(" ")
+    + (half.closed ? " Z" : "");
+  return html`<svg class="igatepolar" viewBox=${`0 0 ${size} ${size}`} role="img" aria-label="Effective range by direction">
+    ${Array.from({ length: max / step }, (_, i) => (i + 1) * step).map((v) => html`<g key=${v}>
+      <circle cx=${c} cy=${c} r=${(v * R) / max} class="ring" />
+</g>`)}
+    ${s.rows.map((r) => html`<path key=${r.sector} d=${wedge((r.sector - 0.5) * w, r.fit ? scale(r.fit.effective_km) : R)}
+      class=${r.fit ? "wedge" : "wedge thin"}><title>${direction(r.sector, n)}: ${r.fit
+        ? `effective range ${len(units, r.fit.effective_km)}, ${num(r.n)} packets` : `not enough data (${num(r.n)} packets)`}</title></path>`)}
+    ${half.runs.map((run, i) => html`<path key=${i} d=${line(run)} class="half" />`)}
+    ${Array.from({ length: max / step }, (_, i) => (i + 1) * step).map((v) => html`<text key=${v} x=${c + 3}
+      y=${c - (v * R) / max + 11} class="tick">${v} ${unit}</text>`)}
+    ${[["N", 0], ["E", 90], ["S", 180], ["W", 270]].map(([t, deg]) => {
+      const [x, y] = xy(deg, R + 12);
+      return html`<text key=${t} x=${x} y=${y} class="compass">${t}</text>`;
+    })}
+  </svg>`;
+}
+
+function Directions({ s, units, n, setN }) {
+  const fitted = s.rows.filter((r) => r.fit).length;
+  return html`<div class="card">
+    <h2>Range by direction</h2>
+    <div class="toolbar"><span class="seg" aria-label="Sectors">${[8, 16].map((v) => html`<button key=${v}
+      class=${v === n ? "primary" : ""} onClick=${() => setN(v)}>${v} sectors</button>`)}</span></div>
+    ${s.rows.length ? html`<div class="igatedirs">
+      <div><${Polar} s=${s} units=${units} />
+        <p class="muted small">Filled: each sector's effective range (90% of its fit), also outlined on the map. Dashed: half
+          within. Grey: fewer than ${s.min_packets} packets, not enough for a fit.</p></div>
+      <div class="tablewrap"><table class="data"><thead><tr><th>Direction</th><th class="num">Packets</th><th class="num">Median</th>
+        <th class="num">Effective range</th></tr></thead><tbody>
+        ${s.rows.map((r) => html`<tr key=${r.sector}><td>${direction(r.sector, n)}</td><td class="num">${num(r.n)}</td>
+          <td class="num">${len(units, r.p50_km)}</td>
+          <td class="num">${r.fit ? len(units, r.fit.effective_km) : html`<span class="muted">not enough data</span>`}</td></tr>`)}
+      </tbody></table></div></div>` : html`<p class="muted">Directions wait for the igate's position.</p>`}
+    ${s.rows.length > 0 && !fitted && html`<p class="muted small">No sector has ${s.min_packets} packets yet in this window: try a longer one.</p>`}
+  </div>`;
+}
+
 const Tile = ({ label, value, note }) => html`<div class="kpi"><span>${label}</span><b>${value}</b>${note && html`<small> ${note}</small>`}</div>`;
 
 export function Igate() {
@@ -214,6 +302,15 @@ export function Igate() {
   const [cell, setCell] = useState("0.1");
   const [d, setD] = useState(null);
   const [err, setErr] = useState("");
+  const [n, setN] = useState(8);
+  const [sectors, setSectors] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api("/api/aprs/igate/sectors", { params: { hours, direct, sectors: n } })
+      .then((x) => alive && setSectors(x)).catch(() => {});
+    const stop = every(load, 60000);
+    return () => { alive = false; stop(); };
+  }, [hours, direct, n]);
   useEffect(() => {
     let alive = true;
     const load = () => api("/api/aprs/igate", { params: { hours, direct, count, cell } })
@@ -251,7 +348,7 @@ export function Igate() {
     </div>
     ${!d.home && html`<p class="muted">Distances wait for ${d.igate}'s own position: it shows up when it next beacons,
       or set its location under Settings → APRS.</p>`}
-    <${IgateMap} d=${d} cell=${cell} />
+    <${IgateMap} d=${d} cell=${cell} sectors=${sectors} />
     ${dist && html`<div class="card">
       <h2>Count by distance</h2>
       <p class="muted small">${num(dist.n)} ${what}${direct ? " heard direct" : ""}, ${len(d.units, dist.bin_km, 1)} bins
@@ -260,6 +357,7 @@ export function Igate() {
       ${fit && html`<p class="muted small">Weibull fit to the cumulative share: shape ${fit.k}, scale ${len(d.units, fit.scale_km)},
         R² ${fit.r2}. Effective range is the distance it puts 90% within; 95% within ${len(d.units, fit.r95_km)}.</p>`}
     </div>`}
+    ${sectors && d.home && html`<${Directions} s=${sectors} units=${d.units} n=${n} setN=${setN} />`}
     ${d.farthest?.length > 0 && html`<div class="card">
       <h2>Heard farthest</h2>
       <div class="aprspackets"><table><tbody>
