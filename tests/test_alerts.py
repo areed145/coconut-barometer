@@ -147,6 +147,24 @@ class AlertsTest(Base):
         self.alerts.since = self.now - 60
         self.assertEqual(self.kinds()["igate"]["key"], "igate:beacon-back")
 
+    def test_the_igate_hears_farther_than_ever(self):
+        gate = "WA5DTR-15"
+        self.alerts.igate = lambda: gate
+        self.cfg["alerts"]["igate_record_days"] = 30
+        self.cfg["aprs"]["igate_location"] = "30.0, -97.0"
+        put = lambda call, lat, ts: self.store.igate_save(gate, {"from": call, "latitude": lat, "longitude": -97.0}, True, ts)
+        put("N5OLD-9", 30.5, self.now - 5 * 86400)                  # 56 km, five days ago
+        put("N5NEW-9", 30.4, self.now - 30)                          # nearer: no record
+        self.assertNotIn("record", self.kinds())
+        self.alerts.since = self.now - 60
+        put("N5NEW-9", 30.9, self.now - 20)                          # 100 km
+        r = self.kinds()["record"]
+        self.assertEqual(r["title"], "Farthest in 30 days: N5NEW-9 at 100 km")
+        self.assertIn("The farthest before was N5OLD-9 at 56 km.", r["body"])
+        self.alerts.since = self.now - 15
+        put("N5WILD-9", 45.0, self.now - 10)                         # 1,668 km once: not believed
+        self.assertNotIn("record", self.kinds())
+
     def test_zero_turns_one_off(self):
         self.cfg["alerts"]["gust_kmh"] = 0
         self.store.wx_save_obs(11, [obs(self.now - 30, gust=40.0)])

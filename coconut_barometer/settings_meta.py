@@ -257,6 +257,9 @@ META = {
                                      "it usually gates 10 packets an hour or more, gating well under its usual for 3 "
                                      "hours, or its own beacon stopping; and a notice when it's back. Not while the "
                                      "app's own APRS-IS connection is down. 0 turns it off.", group="APRS"),
+    "alerts.igate_record_days": _m("alerts", "Igate's farthest in (days)", "A station heard direct farther away than any "
+                                   "in this many days: 30 for a monthly record, 3650 for all time. Unbelievable "
+                                   "positions are left out, as in the long-distance log. 0 turns it off.", group="APRS"),
     "alerts.igate_altitude_km": _m("alerts", "Igate heard a station above (km)", "A packet the igate gated from this "
                                    "high: usually a pico balloon or a high-altitude flight. 5 km is about 16,000 ft. "
                                    "0 turns it off.", group="APRS"),

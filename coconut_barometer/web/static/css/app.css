@@ -884,6 +884,7 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .igatemapbox { margin-bottom: var(--s4); }
 .igatedot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); vertical-align: middle; }
 .igatedot.digi { width: 12px; height: 12px; background: var(--chart-2); border: 1.5px solid var(--fg); }
+.igatescatter { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--s4); }
 .igatedirs { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: var(--s4); align-items: start; }
 @media (max-width: 720px) { .igatedirs { grid-template-columns: minmax(0, 1fr); } }
 .igatepolar { width: 100%; max-width: 340px; height: auto; display: block; }

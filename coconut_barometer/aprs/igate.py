@@ -11,6 +11,9 @@ distance holding a share q of the packets is λ·(-ln(1 - q))^(1/k). Effective r
 The digis that relayed a packet (#117) are read from its path before the q construct: everything up to the last
 hop marked "*" was used. A callsign there is a digi (one tracing a WIDEn-N puts its call before the alias it used);
 a used generic alias with no callsign before it is a digi that didn't say who it was.
+The long-distance log (#116) leaves out what can't be believed: a distance past PLAUSIBLE_KM unless the station
+sent CONFIRM or more that far, and a fixed station's (home, weather, digi, igate) position more than MOVED_KM from
+where it now says it is (an old position, from before it moved).
 By direction (#115), the same fit for each sector of bearing from the igate, sector 0 centred on north.
 
 What kind of station a sender is comes from its symbol (table + code): the code alone for the ones any table
@@ -28,7 +31,9 @@ DIGI = re.compile(r"^(?=.*\d)[A-Z0-9]{3,6}(-\d{1,2})?$")
 UNKNOWN = "?"
 GRID = re.compile(r"^[A-R]{2}[0-9]{2}([A-X]{2})?$", re.I)
 EFFECTIVE = 0.9
-MIN_SECTOR = 30         # packets a sector needs for a fit of its own
+MIN_FIT = 30            # packets a sector (or a day, an hour) needs for a fit of its own
+MIN_SECTOR = MIN_FIT
+PLAUSIBLE_KM, CONFIRM, MOVED_KM = 400, 3, 50
 HIGHEST_M = 60_000      # an altitude above this is a typo or a broken encoder, not a balloon
 
 # Station types, in the order the page lists them.
@@ -105,6 +110,17 @@ def sector_of(deg: float, sectors: int) -> int:
     """Which of `sectors` equal sectors a bearing falls in, sector 0 centred on north."""
     width = 360 / sectors
     return int(((deg + width / 2) % 360) // width)
+
+
+def home(cfg: dict, store, gate: str) -> dict | None:
+    """Where the igate is, for distances: the location in Settings → APRS, else its own last beacon."""
+    try:
+        fixed = parse_location(cfg["aprs"]["igate_location"])
+    except ValueError:
+        fixed = None
+    beacon = store.igate_placed(gate)
+    return ({"lat": fixed[0], "lon": fixed[1], "source": "setting"} if fixed
+            else {"lat": beacon["lat"], "lon": beacon["lon"], "source": "beacon", "ts": beacon["ts"]} if beacon else None)
 
 
 def gated_by(path: list[str]) -> tuple[str, bool] | None:

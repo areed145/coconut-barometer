@@ -392,6 +392,29 @@ class WeatherStore(Database):
             grid[i][bisect.bisect_right(edges, v) - 1] += 1
         return {"bands": list(edges), "counts": grid, "calm": calm, "total": len(rows)}
 
+    def wx_buckets(self, device_id: int, start: int, end: int, step: int, offset: int = 0) -> dict[int, dict]:
+        """Sea-level pressure, temperature and dew point averaged per bucket of `step` seconds (local, UTC +
+        `offset`), keyed by the bucket's start, for setting beside other series (the igate's range, #116)."""
+        b = f"((o.ts + {int(offset)}) // {step}) * {step} - {int(offset)}"
+        return {r["b"]: {"pressure": r["pressure"], "temp": r["temp"], "dew_point": r["dew_point"]} for r in self.db.execute(
+            f"SELECT {b} AS b, AVG({SEA_LEVEL_SQL}) AS pressure, AVG(o.temp) AS temp, AVG({DEW_SQL}) AS dew_point "
+            "FROM wx_obs o JOIN wx_devices d ON d.device_id = o.device_id JOIN wx_stations s ON s.station_id = d.station_id "
+            "WHERE o.device_id = ? AND o.ts BETWEEN ? AND ? GROUP BY 1", (device_id, start, end))}
+
+    def wx_overnight(self, device_id: int, start: int, end: int, offset: int = 0) -> dict[int, float]:
+        """How far the temperature fell overnight, by the local day it fell into: the warmest hour from 15:00 to 21:00
+        the day before less the coolest from 03:00 to 08:00 (hourly means). Keyed by that day's local midnight."""
+        hours = dict(self.db.execute(
+            f"SELECT (ts + {int(offset)}) // 3600 AS h, AVG(temp) FROM wx_obs WHERE device_id=? AND ts BETWEEN ? AND ? "
+            "AND temp IS NOT NULL GROUP BY 1", (device_id, start - 86400, end + 86400)).fetchall())
+        out = {}
+        for day in range((start + offset) // 86400, (end + offset) // 86400 + 1):
+            evening = [hours[h] for h in range(day * 24 - 9, day * 24 - 2) if h in hours]
+            morning = [hours[h] for h in range(day * 24 + 3, day * 24 + 9) if h in hours]
+            if evening and morning:
+                out[day * 86400 - offset] = max(evening) - min(morning)
+        return out
+
 
 def _num(v) -> str:
     """A number as an SQL literal (NULL for missing or not a finite number). Only numbers get through."""
