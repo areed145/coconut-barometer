@@ -34,9 +34,11 @@ function usePaged(fetchPage, deps) {
   return { photos, total, loading, more };
 }
 
-export function PhotoGrid({ paged }) {
+export function PhotoGrid({ paged, slideshow = 0 }) {
   const { photos, total, loading, more } = paged;
   const [open, setOpen] = useState(null);           // index into photos
+  const [autoplay, setAutoplay] = useState(false);
+  useEffect(() => { if (slideshow && photos.length) { setAutoplay(true); setOpen(0); } }, [slideshow]);   // a click on Slideshow
   const sentinel = useRef(null);
   const box = useRef(null);
   const [width, setWidth] = useState(0);
@@ -87,8 +89,8 @@ export function PhotoGrid({ paged }) {
     </div>
     <div class="sentinel" ref=${sentinel}></div>
     <div class="more">${loading ? "Loading…" : total !== null && `${num(photos.length)} of ${num(total)}`}</div>
-    ${open !== null && html`<${Lightbox} photos=${photos} index=${open} onIndex=${setOpen}
-        onClose=${() => setOpen(null)} onNearEnd=${more} />`}`;
+    ${open !== null && html`<${Lightbox} photos=${photos} index=${open} onIndex=${setOpen} autoplay=${autoplay}
+        onClose=${() => { setOpen(null); setAutoplay(false); }} onNearEnd=${more} />`}`;
 }
 
 const SORTS = [["newest", "Newest uploads"], ["oldest", "Oldest uploads"], ["taken", "Date taken"], ["views", "Most viewed"],
@@ -105,6 +107,7 @@ export function Photos({ params = {} }) {
   const [years, setYears] = useState([]);
   const [presets, setPresets] = useState([]);
   const [showPresets, setShowPresets] = useState(!!f.is);
+  const [slideshow, setSlideshow] = useState(0);
   const active = f.is ? f.is.split(",").filter(Boolean) : [];
   const togglePreset = (id) => set({ is: (active.includes(id) ? active.filter((x) => x !== id) : [...active, id]).join(",") });
   useEffect(() => setQ(f.q), [f.q]);
@@ -147,6 +150,7 @@ export function Photos({ params = {} }) {
               title="Photos taken on today's date, any year">On this day</button>
       <button class=${showPresets || active.length ? "on" : ""} onClick=${() => setShowPresets(!showPresets)}
               aria-expanded=${showPresets}>Presets${active.length ? ` (${active.length})` : ""}</button>
+      <button onClick=${() => setSlideshow((n) => n + 1)} disabled=${!paged.total} title="Play these photos as a slideshow">▶ Slideshow</button>
       <span class="muted">${paged.total !== null && `${num(paged.total)} items`}</span>
     </div>
     ${showPresets && presets.length > 0 && html`<div class="presets">${groups.map((g) => html`<div class="pgroup" key=${g}>
@@ -160,7 +164,7 @@ export function Photos({ params = {} }) {
       ${active.map((id) => html`<span class="chip on" key=${"is" + id}>${label[id] || id}
         <button class="link" onClick=${() => togglePreset(id)} aria-label=${`Remove ${label[id] || id}`}>✕</button></span>`)}
       ${chips.length + active.length > 1 && html`<button class="link" onClick=${() => location.replace(photosLink({ sort: f.sort }))}>Clear all</button>`}</div>`}
-    <${PhotoGrid} paged=${paged} />`;
+    <${PhotoGrid} paged=${paged} slideshow=${slideshow} />`;
 }
 
 export function Albums() {
@@ -265,8 +269,19 @@ function useTouch({ onPrev, onNext, onClose, reset, off }) {
   return { tf, touched: () => g.current.touch, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp } };
 }
 
-export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
+// Slideshow (#130): how long each photo stays, remembered on this device.
+const PACES = [3, 5, 10];
+const PACE_KEY = "cb-slideshow-secs";
+const savedPace = () => { try { return PACES.find((n) => n === +localStorage.getItem(PACE_KEY)) || 5; } catch { return 5; } };
+
+export function Lightbox({ photos, index, onIndex, onClose, onNearEnd, autoplay = false }) {
   const p = photos[index];
+  const root = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [held, setHeld] = useState(false);          // paused for now: the pointer is on the controls, or the tab is hidden
+  const [secs, setSecs] = useState(savedPace);
+  const [idle, setIdle] = useState(false);          // controls hidden while playing, until the pointer moves
+  const full = useRef(false);                       // whether the slideshow went full screen (and so leaves it)
   const was = useRef(index);              // the index before, for the direction of travel
   const [detail, setDetail] = useState(null);
   const [timeline, setTimeline] = useState(null);
@@ -297,11 +312,42 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       else if (e.key === "ArrowLeft" && index > 0) onIndex(index - 1);
       else if (e.key === "z") setZoom((z) => !z);
       else if (e.key === "i") setInfo((v) => !v);
+      else if (e.key === "s") play(!playing);
+      else if (e.key === " " && playing) { e.preventDefault(); setHeld(false); play(false); }
     };
     document.addEventListener("keydown", key);
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", key); document.body.style.overflow = ""; };
-  }, [index, photos.length]);
+  }, [index, photos.length, playing]);
+
+  // The slideshow: the next photo after `secs`, from when this one is shown (so ← → restart the wait); at the end, it stops.
+  const play = (on) => {
+    setPlaying(on); setIdle(false);
+    if (!on && full.current) { full.current = false; document.fullscreenElement && document.exitFullscreen().catch(() => {}); }
+  };
+  useEffect(() => { if (autoplay) play(true); }, []);
+  useEffect(() => () => { full.current && document.fullscreenElement && document.exitFullscreen().catch(() => {}); }, []);
+  useEffect(() => {
+    if (!playing || held) return;
+    const t = setTimeout(() => (index < photos.length - 1 ? onIndex(index + 1) : play(false)), secs * 1000);
+    return () => clearTimeout(t);
+  }, [playing, held, index, secs, photos.length]);
+  useEffect(() => {
+    const vis = () => setHeld(document.hidden);
+    document.addEventListener("visibilitychange", vis);
+    return () => document.removeEventListener("visibilitychange", vis);
+  }, []);
+  useEffect(() => {                                 // hide the controls after a moment's stillness
+    if (!playing || idle) return;
+    const t = setTimeout(() => setIdle(true), 2500);
+    return () => clearTimeout(t);
+  });
+  const wake = () => idle && setIdle(false);
+  const pace = (n) => { setSecs(n); try { localStorage.setItem(PACE_KEY, n); } catch {} };
+  const fullScreen = () => {
+    if (document.fullscreenElement) { full.current = false; document.exitFullscreen().catch(() => {}); return; }
+    root.current?.requestFullscreen?.().then(() => { full.current = true; }).catch(() => {});
+  };
   const touch = useTouch({ onPrev: index > 0 && (() => onIndex(index - 1)), onNext: index < photos.length - 1 && (() => onIndex(index + 1)),
                           onClose, reset: p.id, off: zoom });
   const { tf } = touch;
@@ -324,7 +370,8 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   };
   const d = detail, e = d?.engagement;
   const daily = timeline?.daily || [];
-  return html`<div class=${"lightbox" + (info ? "" : " noinfo")} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
+  return html`<div class=${"lightbox" + (info && !playing ? "" : " noinfo") + (playing ? " playing" : "") + (idle ? " idle" : "")}
+      ref=${root} onPointerMove=${wake} onPointerDown=${wake} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
     <div class=${"stage" + (zoom ? " zoomed" : "")} ...${touch.handlers}>
       <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => touch.touched() || setZoom(!zoom)} onLoad=${preload}
            onError=${fallback(p.sizes, prefs)} class=${tf.live ? "live" : ""}
@@ -333,8 +380,14 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>
       ${index > 0 && html`<button class="navbtn prev" onClick=${() => onIndex(index - 1)} aria-label="Previous">‹</button>`}
       ${index < photos.length - 1 && html`<button class="navbtn next" onClick=${() => onIndex(index + 1)} aria-label="Next">›</button>`}
+      <div class="showbar" onPointerEnter=${() => setHeld(true)} onPointerLeave=${() => setHeld(document.hidden)}>
+        <button onClick=${() => play(!playing)} aria-pressed=${playing} title="Slideshow (S)">${playing ? "❚❚ Pause" : "▶ Slideshow"}</button>
+        ${playing && html`<select value=${secs} onChange=${(e) => pace(+e.target.value)} aria-label="Seconds per photo">
+            ${PACES.map((n) => html`<option value=${n}>${n} s</option>`)}</select>
+          ${document.fullscreenEnabled && html`<button onClick=${fullScreen} title="Full screen">⛶</button>`}`}
+      </div>
     </div>
-    ${info && html`<aside>
+    ${info && !playing && html`<aside>
       <h2>${p.title || "Untitled"}</h2>
       ${d?.description && html`<p class="desc">${plain(d.description)}</p>`}
       <div class="stats3"><div><b>${num(p.views)}</b><span>views</span></div><div><b>${num(p.faves)}</b><span>faves</span></div>
@@ -361,7 +414,7 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       ${d && html`<p>${p.ispublic === 1 && html`<button onClick=${() => share(`/p/${p.id}`, p.title || "Photo")}>Share</button> `}
         <a href=${d.url} target="_blank" rel="noopener noreferrer">Open on Flickr ↗</a></p>`}
       ${signedIn() && html`<p><button onClick=${sendToReview} disabled=${sending}>${sending ? "Sending…" : "Send to Review"}</button></p>`}
-      <p class="hint"><kbd>←</kbd> <kbd>→</kbd> browse · <kbd>Z</kbd> zoom · <kbd>I</kbd> info · <kbd>Esc</kbd> close</p>
+      <p class="hint"><kbd>←</kbd> <kbd>→</kbd> browse · <kbd>Z</kbd> zoom · <kbd>I</kbd> info · <kbd>S</kbd> slideshow · <kbd>Esc</kbd> close</p>
     </aside>`}
   </div>`;
 }

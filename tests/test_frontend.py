@@ -539,6 +539,16 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded
         self.assertIn("img.src = pick(n.sizes, SHOWN);", gallery)           # never the zoom sizes (Flickr throttles them)
 
+    def test_lightbox_slideshow(self):
+        """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('else if (e.key === "s") play(!playing);', gallery)
+        self.assertIn("setTimeout(() => (index < photos.length - 1 ? onIndex(index + 1) : play(false)), secs * 1000)", gallery)
+        self.assertIn("if (!playing || held) return;", gallery)
+        self.assertIn("const vis = () => setHeld(document.hidden);", gallery)
+        self.assertIn("<${PhotoGrid} paged=${paged} slideshow=${slideshow} />", gallery)
+        self.assertIn("try { localStorage.setItem(PACE_KEY, n); } catch {}", gallery)     # storage may be blocked
+
     def test_lightbox_touch_gestures(self):
         """#129: swipe, pinch and double-tap on the photo; the mouse keeps click-to-zoom; no motion when reduced."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()

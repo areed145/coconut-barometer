@@ -392,6 +392,17 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox .stage img { transition: transform .2s ease-out, opacity .2s; will-change: transform; }
 .lightbox .stage img.live { transition: none; }
 @media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }
+/* slideshow (#130): the photos fade in; the controls and the cursor go once the pointer is still */
+.lightbox .showbar { position: absolute; left: 50%; bottom: calc(var(--s3) + var(--safe-b)); transform: translateX(-50%); display: flex;
+  gap: var(--s1); align-items: center; padding: 4px; border-radius: var(--r-md); background: rgba(0, 0, 0, .45); z-index: 2; }
+.lightbox .showbar button, .lightbox .showbar select { background: transparent; color: #fff; border: 0; font-size: var(--text-sm); min-height: 36px; }
+.lightbox .showbar select option { color: initial; }
+.lightbox.playing .stage img { animation: fadein .8s ease-out; }
+.lightbox.idle, .lightbox.idle .stage img { cursor: none; }
+.lightbox.idle .navbtn, .lightbox.idle .close, .lightbox.idle .showbar { opacity: 0; pointer-events: none; }
+.lightbox .navbtn, .lightbox .close, .lightbox .showbar { transition: opacity .3s; }
+@keyframes fadein { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lightbox.playing .stage img { animation: none; } }
 .lightbox .navbtn, .lightbox .close { position: absolute; border: 0; background: rgba(0, 0, 0, .45); color: #fff; border-radius: var(--r-sm); padding: 0; }
 .lightbox .navbtn { top: 50%; transform: translateY(-50%); font-size: 28px; width: 46px; height: 64px; }
 .lightbox .navbtn.prev { left: calc(var(--s2) + var(--safe-l)); }
