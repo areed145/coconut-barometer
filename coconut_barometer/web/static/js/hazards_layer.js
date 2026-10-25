@@ -96,8 +96,8 @@ const MORE = 3;                      // alerts listed in one popup; the rest are
 
 // A tap's popup (built as elements, for the CSP): each alert there, what it is and until when; the most important's
 // area and what to do, fetched with text(id) -> {area, sender, instruction}; and weather.gov's page for that spot,
-// which has every alert there in full.
-export function hazardPopup(hits, lat, lon, text) {
+// which has every alert there in full. loaded() is called once that text is in.
+export function hazardPopup(hits, lat, lon, text, loaded) {
   const box = el("div", "wxpop wxhazpop");
   for (const a of hits.slice(0, MORE)) {
     const head = el("b", "wxhaz");
@@ -113,6 +113,7 @@ export function hazardPopup(hits, lat, lon, text) {
   text(hits[0].id).then((d) => {
     if (d.area) more.append(el("div", null, d.area));
     if (d.instruction) more.append(el("p", null, d.instruction.replace(/\s+/g, " ").slice(0, 400) + (d.instruction.length > 400 ? "…" : "")));
+    loaded?.();
   }).catch(() => {});
   const link = el("a", null, "Full text on weather.gov →");
   link.href = `https://forecast.weather.gov/MapClick.php?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
