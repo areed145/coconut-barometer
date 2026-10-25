@@ -8,7 +8,8 @@ import { html, useState, useEffect, useRef, num, api, every, HealthPanel } from 
 const SOURCES = {
   flickr: ["Flickr API", "--chart-1"], cdn: ["Photo downloads", "--chart-3"], vision: ["Vision model", "--chart-2"],
   weatherflow: ["WeatherFlow REST", "--accent"], "wx-stream": ["WeatherFlow stream", "--warn"], aprs: ["APRS-IS", "--ok"],
-  imagery: ["Satellite", "--muted"], radar: ["Radar (MRMS, storm cells)", "--chart-2"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
+  imagery: ["Satellite", "--muted"], radar: ["Radar (MRMS, storm cells)", "--chart-2"], qc: ["Station QC", "--chart-3"],
+  geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
 };
 const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
                wx: "WeatherFlow sync", replan: "Re-plan review" };

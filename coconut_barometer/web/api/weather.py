@@ -342,6 +342,26 @@ def glm_shapes(bbox: str = Query(..., max_length=100), zoom: float | None = Quer
     return _with_shapes({"colors": rt.cfg["theme"]["lightning_colors"]}, glm.shapes(t or time.time(), box, zoom))
 
 
+@router.get("/qc")
+def station_qc(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
+    """Weather → QC (#105): each station's checks (their newest results, and since when they've said so), and how
+    the reference sampling is going."""
+    from ...weather.qc.suites import SUITES
+
+    return {"units": _units(rt), "enabled": rt.cfg["qc"]["enabled"], "window_days": rt.cfg["qc"]["window_days"],
+            "suites": [{"id": k, "title": title} for k, (title, _) in SUITES.items()],
+            "stations": [{**{k: s[k] for k in ("device_id", "name", "elevation")}, "checks": db.qc_latest(s["device_id"])}
+                         for s in db.qc_stations()],
+            "sampled": db.qc_sampled(), "errors": rt.qc.errors, "backfill": rt.qc.backfill,
+            "backfill_days": rt.cfg["qc"]["backfill_days"]}
+
+
+@router.post("/qc/run")
+def station_qc_run(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
+    """Run every check now, rather than at the next hourly round."""
+    return {"results": rt.qc.run_checks(db)}
+
+
 @router.get("/temperature")
 def surface_temperature(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
     """The Map tab's temperature: the newest RTMA analysis of the air 2 m up (°C, weather/rtma.py) on a lat/lon grid,

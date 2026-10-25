@@ -95,7 +95,8 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["map"
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["igate", "Igate"]];
-const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"]];
+const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"], ["qc", "QC"]];
+const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
 
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
   const route = useRoute();
@@ -148,7 +149,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "alerts") page = session ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`   // where an alert opens (#73)
     : html`<${Login} onLogin=${onLogin} />`;
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
-  else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))))
+  else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))
+    || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1]))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
   const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photo" ? "photostream" : sub;
@@ -156,7 +158,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     <nav class="subtabs" aria-label="Photos">${PHOTO_TABS.filter(([t]) => session || !PRIVATE_PHOTO_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/photos/" + t}
       class=${t === subSection ? "on" : ""}>${label}${t === "review" && pending ? html`<span class="badge">${pending}</span>` : ""}</a>`)}</nav>`
     : tab === "weather" ? html`
-    <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.map(([t, label]) => html`<a href=${"#/weather/" + t}
+    <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.filter(([t]) => session || !PRIVATE_WEATHER_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/weather/" + t}
       class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>`
     : tab === "aprs" ? html`
     <nav class="subtabs" aria-label="APRS">${APRS_TABS.map(([t, label]) => html`<a href=${"#/aprs/" + t}

@@ -67,11 +67,7 @@ def message(grib: bytes) -> dict:
         elif sec == 4:
             out["field"] = (discipline, s[9], s[10])
         elif sec == 5:
-            template = _u(s, 9, 2)
-            if template not in (0, 41):
-                raise ValueError(f"packing template 5.{template} isn't read here")
-            out["pack"] = {"template": template, "ref": struct.unpack(">f", s[11:15])[0], "e": 2.0 ** _s(s, 15, 2),
-                           "d": 10.0 ** _s(s, 17, 2), "bits": s[19], "n": _u(s, 5)}
+            out["pack"] = _pack(s)
         elif sec == 6:
             if s[5] != 255:
                 raise ValueError("a bitmap isn't read here")
@@ -79,6 +75,71 @@ def message(grib: bytes) -> dict:
             out["data"] = s[5:]
         i += n
     return out
+
+
+def head(prefix: bytes) -> dict:
+    """The start of one simple-packed GRIB2 message (its sections up to 7's header: a few hundred bytes) ->
+    {t, grid, field, pack, data_at}: data_at is where section 7's values start, counted from the message's start, so
+    single values can be read with a Range request (point_bytes()) instead of the whole field (station QC, #105)."""
+    if prefix[:4] != b"GRIB" or prefix[7] != 2:
+        raise ValueError("not a GRIB2 message")
+    out, discipline, i = {}, prefix[6], 16
+    while True:
+        if i + 5 > len(prefix):
+            raise ValueError("the prefix ends before section 7")
+        n, sec = _u(prefix, i), prefix[i + 4]
+        if sec == 7:
+            out["data_at"] = i + 5
+            break
+        s = prefix[i:i + n]
+        if len(s) < n:
+            raise ValueError("the prefix ends before section 7")
+        if sec == 1:
+            y, mo, d, h, mi, se = struct.unpack(">H5B", s[12:19])
+            out["t"] = calendar.timegm((y, mo, d, h, mi, se, 0, 0, 0))
+        elif sec == 3:
+            out["grid"] = _grid(s)
+        elif sec == 4:
+            out["field"] = (discipline, s[9], s[10])
+        elif sec == 5:
+            out["pack"] = _pack(s)
+        elif sec == 6 and s[5] != 255:
+            raise ValueError("a bitmap isn't read here")
+        i += n
+    if out["pack"]["template"] != 0:
+        raise ValueError("single values are read from simple packing (5.0) only")
+    return out
+
+
+def point_bytes(h: dict, first: int, last: int) -> tuple[int, int]:
+    """The byte range (from the message's start, both ends included) holding values `first` to `last` (indexes in
+    the file's order) of a head()."""
+    bits = h["pack"]["bits"]
+    return h["data_at"] + first * bits // 8, h["data_at"] + ((last + 1) * bits + 7) // 8 - 1
+
+
+def point_values(h: dict, data: bytes, start: int, indexes) -> np.ndarray:
+    """Values at `indexes` from `data`, the bytes of a head()'s message from offset `start` (point_bytes()'s)."""
+    p, bits = h["pack"], h["pack"]["bits"]
+    raw = bytes(data) + b"\0\0\0\0"
+    out = []
+    for k in indexes:
+        at = k * bits - (start - h["data_at"]) * 8
+        if bits == 0:
+            x = 0
+        else:
+            word = int.from_bytes(raw[at >> 3:(at >> 3) + 4], "big")
+            x = (word >> (32 - bits - (at & 7))) & ((1 << bits) - 1)
+        out.append((p["ref"] + x * p["e"]) / p["d"])
+    return np.array(out, dtype=np.float64)
+
+
+def _pack(s: bytes) -> dict:
+    template = _u(s, 9, 2)
+    if template not in (0, 41):
+        raise ValueError(f"packing template 5.{template} isn't read here")
+    return {"template": template, "ref": struct.unpack(">f", s[11:15])[0], "e": 2.0 ** _s(s, 15, 2),
+            "d": 10.0 ** _s(s, 17, 2), "bits": s[19], "n": _u(s, 5)}
 
 
 def _grid(s: bytes) -> dict:

@@ -26,6 +26,15 @@ DEFAULTS: dict[str, Any] = {
         "token": None,
         "backfill_days": 7,          # history fetched from REST: forward from the newest stored, back this many days
     },
+    "qc": {                          # station QC (#104): each station checked against RTMA, radar, GLM and more
+        "enabled": True,              # sample the references at the stations and run the checks
+        "backfill_days": 30,          # the past filled in from NOAA's archives (RTMA, hourly) on first run
+        "keep_days": 365,             # reference samples and check results kept this long
+        "window_days": 30,            # each check looks at this much
+        "min_pairs": 96,              # fewer readings to compare than this: "not enough data" (a day of RTMA)
+        "temp_bias_warn": 1.5,        # temperature vs RTMA, °C either way (after the height difference)
+        "temp_bias_fail": 3.0,
+    },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {
         "callsigns": ["KJ4TFD-10"],   # tracked on the APRS page, heard live from APRS-IS
@@ -164,7 +173,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
           ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "cooldown_minutes"): (5, 24 * 60),
           ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
-          ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30)}
+          ("alerts", "rain_minutes"): (0, 120), ("alerts", "storm_max_kmh"): (30, 300), ("alerts", "radar_per_hour"): (1, 30),
+          ("qc", "backfill_days"): (0, 365), ("qc", "keep_days"): (30, 3650), ("qc", "window_days"): (1, 365),
+          ("qc", "min_pairs"): (1, 10000), ("qc", "temp_bias_warn"): (0.1, 20), ("qc", "temp_bias_fail"): (0.1, 30)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).
