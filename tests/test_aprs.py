@@ -278,6 +278,50 @@ class IgateTest(unittest.TestCase):
                          {("N5A-9", GATE): 1, ("K5WH-2", GATE): 4, ("N5B-9", "K5WH-2"): 2, ("N5C-9", "N5LUY-2"): 1,
                           ("N5LUY-2", "K5WH-2"): 1})
 
+    def test_the_long_distance_log_leaves_out_what_cant_be_believed(self):
+        put = lambda call, lat, lon, ts, symbol=">", direct=True: self.store.igate_save(
+            GATE, {"from": call, "latitude": lat, "longitude": lon, "symbol_table": "/", "symbol": symbol}, direct, ts)
+        put("N5NEAR-9", 30.5, -97.0, NOW)                           # ~56 km north
+        put("N5FAR-9", 31.0, -97.0, NOW + 1)                        # ~111 km
+        put("N5FAR-9", 30.9, -97.0, NOW + 2)
+        put("N5DIGI", 31.5, -97.0, NOW + 3, "-")                   # 167 km, from the house it has since left
+        put("N5DIGI", 30.1, -97.0, NOW + 400, "-")
+        put("N5WILD-9", 40.0, -97.0, NOW + 4)                       # 1,100 km once: a bad position
+        for i in range(3):                                          # 600 km three times: a duct, believed
+            put("N5DUCT-9", 35.4, -97.0, NOW + 10 + i)
+        put("N5VIA-9", 32.0, -97.0, NOW + 20, direct=False)         # digipeated: not how far the igate hears
+        log = self.store.igate_long((30.0, -97.0), GATE, NOW, NOW + 100)
+        self.assertEqual([r["callsign"] for r in log["rows"]], ["N5DUCT-9", "N5FAR-9", "N5NEAR-9"])
+        far = log["rows"][1]
+        self.assertEqual((round(far["km"]), far["ts"], far["packets"], round(far["bearing"])), (111, NOW + 1, 2, 0))
+        self.assertEqual(log["left_out"], {"implausible": 1, "moved": 1})
+        self.assertEqual([r["callsign"] for r in self.store.igate_long((30.0, -97.0), GATE, NOW, NOW + 3, 1)["rows"]], ["N5FAR-9"])
+
+    def test_range_over_time_and_the_weather_beside_it(self):
+        day = 86400
+        for d in range(2):
+            for i in range(40):                                     # 40 a day, out to 4 km then 8 km
+                self.store.igate_save(GATE, {"from": f"N{i % 5}", "latitude": 30 + (i + 1) * (d + 1) / 1110,
+                                             "longitude": -97.0}, True, NOW + d * day + i * 60)
+        s = self.store.igate_range_series((30.0, -97.0), GATE, NOW, NOW + 2 * day, day)
+        days = sorted(s)
+        self.assertEqual([(s[t]["packets"], s[t]["stations"], s[t]["n"]) for t in days], [(40, 5, 40), (40, 5, 40)])
+        self.assertAlmostEqual(s[days[1]]["p99_km"] / s[days[0]]["p99_km"], 2, delta=0.05)
+        self.assertEqual(sum(s[days[0]]["counts"]) + s[days[0]]["beyond"], 40)
+
+    def test_the_weather_beside_the_range(self):
+        self.store.wx_save_stations([{"station_id": 7, "name": "Backyard", "latitude": 30.0, "longitude": -97.0, "timezone": "UTC",
+                                      "station_meta": {"elevation": 0}, "devices": [{"device_id": 11, "device_type": "ST", "serial_number": "ST-1"}]}])
+        day = NOW // 86400 * 86400 + 86400                                  # a UTC midnight
+        ob = lambda ts, temp: [ts, 1.0, 3.0, 5.0, 90.0, 3, 1013.0, temp, 50.0, 10000, 2.0, 300.0, 0.0, 0, 0, 0, 2.7, 1]
+        self.store.wx_save_obs(11, [ob(day - 6 * 3600, 25.0), ob(day - 5 * 3600, 24.0),   # 18:00, 19:00 the evening before
+                                    ob(day + 5 * 3600, 15.0), ob(day + 7 * 3600, 16.0)])  # 05:00, 07:00
+        w = self.store.wx_buckets(11, day - 86400, day + 86400, 86400)
+        self.assertEqual(sorted(w), [day - 86400, day])
+        self.assertAlmostEqual(w[day]["temp"], 15.5)
+        self.assertAlmostEqual(w[day]["pressure"], 1013.0)
+        self.assertEqual(self.store.wx_overnight(11, day, day + 3600), {day: 10.0})
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
@@ -348,6 +392,15 @@ class AprsApiTest(unittest.TestCase):
     def test_igate_digis(self):
         d = self.c.get("/api/aprs/igate/digis", params={"hours": 24}).json()
         self.assertEqual((d["total"], d["hops"], [x["callsign"] for x in d["digis"]]), (4, {"direct": 3, "one": 1, "more": 0}, ["KJ4TFD-3"]))
+
+    def test_igate_long_and_range(self):
+        g = self.c.get("/api/aprs/igate/long", params={"hours": 24}).json()
+        self.assertEqual([r["callsign"] for r in g["window"]["rows"]], ["N5XY2", "N5XY1", "N5XY0"])
+        self.assertEqual(len(g["ever"]["rows"]), 3)
+        r = self.c.get("/api/aprs/igate/range", params={"hours": 48, "step": "hour"}).json()
+        self.assertEqual((sum(r["stations"]), sum(r["direct"]), r["effective_km"], r["overnight_drop"]), (4, 3, [None], None))
+        self.assertEqual(self.c.get("/api/aprs/igate/range", params={"hours": 24 * 40, "step": "hour"}).status_code, 422)
+        self.assertEqual(len(self.c.get("/api/aprs/igate/range", params={"hours": 24 * 40}).json()["overnight_drop"]), 1)
 
     def test_igate_stations(self):
         s = self.c.get("/api/aprs/igate/stations", params={"hours": 24}).json()

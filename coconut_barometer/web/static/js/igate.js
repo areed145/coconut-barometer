@@ -4,6 +4,7 @@
 // Distance is from direct packets by default: a digipeated one says where the sender was, not how far the igate hears.
 // By direction (#115): the same fit per sector of bearing, as an outline on the map and a polar chart.
 // The map can show instead the digipeaters its packets came through (#117), from their paths.
+// Then the long-distance log, and range over time beside the station's weather (#116).
 // Below, who it heard (#118): stations per day, new and regular, and what kind each one is (from its symbol).
 import uPlot from "../vendor/uPlot.esm.js";
 import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
@@ -12,6 +13,7 @@ import { grid } from "./aprs.js";
 import { useMapTools, mapboxClass } from "./wx_controls.js";
 import { Bars, Table } from "./viz.js";
 import { Chart } from "./chart.js";
+import { unitsFor, compass } from "./units.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const WINDOWS = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365], ["All", 24 * 3650]];
@@ -348,6 +350,138 @@ function Digis({ net, units }) {
   </div>`;
 }
 
+// The stations heard farthest direct, each at its farthest believable packet, in the window or ever.
+function LongLog({ hours, win, units }) {
+  const [g, setG] = useState(null);
+  const [ever, setEver] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api("/api/aprs/igate/long", { params: { hours } }).then((x) => alive && setG(x)).catch(() => {});
+    const stop = every(load, 60000);
+    return () => { alive = false; stop(); };
+  }, [hours]);
+  if (!g?.window) return null;
+  const log = ever ? g.ever : g.window, out = log.left_out;
+  const cols = [
+    { key: "callsign", label: "Station", fmt: (c) => aprsfi(c) },
+    { key: "km", label: "Distance", num: true, fmt: (km) => len(units, km) },
+    { key: "bearing", label: "Direction", num: true, fmt: (b) => `${compass(b)} · ${Math.round(b) % 360}°` },
+    { key: "ts", label: "Heard", num: true, fmt: (t) => when(t) },
+    { key: "path", label: "Path", fmt: (p) => html`<span class="mono small">${(p || "").split(",qA")[0] || "direct"}</span>` },
+  ];
+  return html`<div class="card">
+    <h2>Long-distance log</h2>
+    <div class="toolbar"><span class="seg" aria-label="Over">${[[false, `In ${win}`], [true, "Ever"]].map(([v, label]) => html`<button
+      key=${label} class=${ever === v ? "primary" : ""} onClick=${() => setEver(v)}>${label}</button>`)}</span></div>
+    ${log.rows.length ? html`<${Table} rows=${log.rows} cols=${cols} initial="km" />` : html`<p class="muted">Nothing heard direct with a position.</p>`}
+    <p class="muted small">Heard direct only, each station at its farthest.${out.implausible || out.moved ? ` Left out as unbelievable:
+      ${[out.implausible && `${num(out.implausible)} packet${out.implausible === 1 ? "" : "s"} past 400 km from stations that never sent three that far`,
+         out.moved && `${num(out.moved)} from fixed stations more than 50 km from where they now say they are`].filter(Boolean).join("; ")}.` : ""}</p>
+  </div>`;
+}
+
+const pearson = (pairs) => {
+  const n = pairs.length;
+  if (n < 3) return null;
+  const mx = pairs.reduce((s, p) => s + p[0], 0) / n, my = pairs.reduce((s, p) => s + p[1], 0) / n;
+  const sxy = pairs.reduce((s, p) => s + (p[0] - mx) * (p[1] - my), 0);
+  const sxx = pairs.reduce((s, p) => s + (p[0] - mx) ** 2, 0), syy = pairs.reduce((s, p) => s + (p[1] - my) ** 2, 0);
+  return sxx && syy ? sxy / Math.sqrt(sxx * syy) : null;
+};
+
+// A uPlot that sizes itself to its box and redraws on a theme switch. make(width) -> [opts, data].
+function Plot({ make, deps, height = 220 }) {
+  const box = useRef(null);
+  const theme = useThemeTick();
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const [opts, data] = make();
+    const plot = new uPlot({ ...opts, width: el.clientWidth, height }, data, el);
+    const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }));
+    ro.observe(el);
+    return () => { ro.disconnect(); plot.destroy(); };
+  }, [...deps, theme]);
+  return html`<div class="chart" ref=${box}></div>`;
+}
+
+// Range over time (each day's or hour's own fit) over the station's weather, and how range goes with pressure and
+// with how far it cooled overnight. Long-distance days (the top tenth by 99th-percentile distance) stand out.
+function RangeWeather({ hours, units }) {
+  const [step, setStep] = useState("day");
+  const [r, setR] = useState(null);
+  const hourly = hours <= 24 * 31;
+  const want = hourly ? step : "day";
+  useEffect(() => {
+    let alive = true;
+    const load = () => api("/api/aprs/igate/range", { params: { hours, step: want } }).then((x) => alive && setR(x)).catch(() => {});
+    const stop = every(load, 300000);
+    return () => { alive = false; stop(); };
+  }, [hours, want]);
+  if (!r?.t || r.t.length < 2) return null;
+  const U = unitsFor(units), k = units === "imperial" ? MI : 1, dl = units === "imperial" ? "mi" : "km";
+  const conv = (kind, v) => (v == null ? null : U[kind][1](v));
+  const cut = [...r.p99_km].filter((v) => v != null).sort((a, b) => a - b);
+  const top = cut.length >= 10 ? cut[Math.floor(cut.length * 0.9)] : Infinity;
+  const long = r.p99_km.map((v) => v != null && v >= top);
+  const axis = () => ({ stroke: css("--muted"), grid: { stroke: css("--line"), width: 1 }, ticks: { stroke: css("--line") } });
+  const sync = { key: "igate-range" };
+  const line = (label, color, scale, extra = {}) => ({ label, stroke: css(color), width: 2, scale, spanGaps: false, points: { show: r.t.length < 60 }, ...extra });
+  const rangeChart = () => [{
+    cursor: { sync }, legend: { live: true }, scales: { x: { time: true }, d: { range: (u, mn, mx) => [0, Math.max(1, mx) * 1.08] }, n: { range: (u, mn, mx) => [0, Math.max(1, mx) * 1.1] } },
+    axes: [axis(), { ...axis(), scale: "d", size: 52, label: dl, labelSize: 14 }, { ...axis(), scale: "n", side: 1, size: 44, grid: { show: false } }],
+    series: [{}, { label: "Stations heard", stroke: css("--muted"), fill: css("--line"), scale: "n", width: 0, points: { show: false },
+      paths: uPlot.paths.bars({ size: [0.6, 30] }) },
+      line("Effective range (90%)", "--chart-1", "d"), line("99% heard within", "--chart-2", "d", { dash: [5, 4] })],
+    hooks: { drawClear: [(u) => {          // long-distance days: a faint band behind
+      const { ctx, bbox } = u, w = Math.max(2, (u.valToPos(r.t[1], "x", true) - u.valToPos(r.t[0], "x", true)) * 0.9);
+      ctx.save(); ctx.fillStyle = css("--chart-2") + "22";
+      r.t.forEach((t, i) => long[i] && ctx.fillRect(u.valToPos(t, "x", true) - w / 2, bbox.top, w, bbox.height));
+      ctx.restore();
+    }] },
+  }, [r.t, r.stations, r.effective_km.map((v) => v && v * k), r.p99_km.map((v) => v && v * k)]];
+  const weatherChart = () => [{
+    cursor: { sync }, legend: { live: true }, scales: { x: { time: true }, p: { auto: true }, t: { auto: true } },
+    axes: [axis(), { ...axis(), scale: "p", size: 56, label: U.pressure[0], labelSize: 14 }, { ...axis(), scale: "t", side: 1, size: 44, grid: { show: false } }],
+    series: [{}, line("Pressure (sea level)", "--chart-3", "p"), line(`Temperature (${U.temp[0]})`, "--chart-1", "t"),
+      line(`Dew point (${U.temp[0]})`, "--chart-2", "t", { dash: [5, 4] })],
+  }, [r.t, r.pressure.map((v) => conv("pressure", v)), r.temp.map((v) => conv("temp", v)), r.dew_point.map((v) => conv("temp", v))]];
+  // x against effective range, ordinary days and long-distance days as two point series.
+  const scatter = (xs, xlabel) => () => {
+    const pts = r.t.map((_, i) => [xs[i], r.effective_km[i] && r.effective_km[i] * k, long[i]]).filter((p) => p[0] != null && p[1] != null)
+      .sort((a, b) => a[0] - b[0]);
+    return [{
+      mode: 1, legend: { show: false }, cursor: { drag: { x: false, y: false } }, scales: { x: { time: false }, y: { range: (u, mn, mx) => [0, Math.max(1, mx) * 1.08] } },
+      axes: [{ ...axis(), label: xlabel, labelSize: 16 }, { ...axis(), size: 48, label: `Effective range (${dl})`, labelSize: 14 }],
+      series: [{}, { stroke: css("--chart-1"), paths: () => null, points: { show: true, size: 6, fill: css("--chart-1") } },
+        { stroke: css("--chart-2"), paths: () => null, points: { show: true, size: 8, fill: css("--chart-2") } }],
+    }, [pts.map((p) => p[0]), pts.map((p) => (p[2] ? null : p[1])), pts.map((p) => (p[2] ? p[1] : null))]];
+  };
+  const pressures = r.pressure.map((v) => conv("pressure", v));
+  const drops = r.overnight_drop?.map((v) => (v == null ? null : units === "imperial" ? v * 1.8 : v));
+  const rOf = (xs) => pearson(r.t.map((_, i) => [xs[i], r.effective_km[i]]).filter((p) => p[0] != null && p[1] != null));
+  const rp = rOf(pressures), rd = drops && rOf(drops), fitted = r.effective_km.filter((v) => v != null).length;
+  const say = (x) => (x == null ? "not enough days with both yet" : `r = ${x.toFixed(2)}`);
+  return html`<div class="card">
+    <h2>Range over time</h2>
+    <div class="toolbar"><span class="seg" aria-label="Per">${[["day", "Per day"], ["hour", "Per hour"]].map(([v, label]) => html`<button key=${v}
+      class=${want === v ? "primary" : ""} disabled=${v === "hour" && !hourly} title=${v === "hour" && !hourly ? "For windows up to 31 days" : ""}
+      onClick=${() => setStep(v)}>${label}</button>`)}</span></div>
+    <p class="muted small">Each ${want}'s effective range is its own fit (${r.min_packets}+ direct packets: ${num(fitted)} of ${num(r.t.length)} have one).
+      More stations sending means more chances to hear a far one, so they're drawn too.${long.some(Boolean) ? " Shaded: long-distance " + want + "s (the top tenth by 99% distance)." : ""}</p>
+    <${Plot} make=${rangeChart} deps=${[r, units]} />
+    ${r.station ? html`<h3>Weather at ${r.station}</h3><${Plot} make=${weatherChart} deps=${[r, units]} height=${180} />`
+      : html`<p class="muted">No weather station to set beside it.</p>`}
+    ${r.station && html`<div class="igatescatter">
+      <div><h3>Range against pressure</h3><${Plot} make=${scatter(pressures, `Pressure (${U.pressure[0]})`)} deps=${[r, units]} height=${200} />
+        <p class="muted small">${say(rp)}. VHF tends to carry farther under high pressure.</p></div>
+      ${drops && html`<div><h3>Range against the overnight cooling</h3><${Plot} make=${scatter(drops, `Fell overnight (${U.temp[0]})`)} deps=${[r, units]} height=${200} />
+        <p class="muted small">${say(rd)}. Warmest of the evening before less coolest of the morning: clear, calm nights
+          cool most, and can bend VHF farther.</p></div>`}
+    </div>`}
+  </div>`;
+}
+
 const Tile = ({ label, value, note }) => html`<div class="kpi"><span>${label}</span><b>${value}</b>${note && html`<small> ${note}</small>`}</div>`;
 
 export function Igate() {
@@ -425,14 +559,8 @@ export function Igate() {
         R² ${fit.r2}. Effective range is the distance it puts 90% within; 95% within ${len(d.units, fit.r95_km)}.</p>`}
     </div>`}
     ${sectors && d.home && html`<${Directions} s=${sectors} units=${d.units} n=${n} setN=${setN} />`}
-    ${d.farthest?.length > 0 && html`<div class="card">
-      <h2>Heard farthest</h2>
-      <div class="aprspackets"><table><tbody>
-        ${d.farthest.map((f) => html`<tr key=${f.callsign}><td><a href=${`https://aprs.fi/info/a/${encodeURIComponent(f.callsign)}`}
-          target="_blank" rel="noopener">${f.callsign}</a></td><td>${len(d.units, f.km)}</td><td class="mono">${grid(f.lat, f.lon)}</td>
-          <td class="muted">${when(f.ts)}${f.direct ? "" : " · digipeated"}</td></tr>`)}
-      </tbody></table></div>
-    </div>`}
+    <${LongLog} hours=${hours} win=${win} units=${d.units} />
+    <${RangeWeather} hours=${hours} units=${d.units} />
     <${Digis} net=${net} units=${d.units} />
     <${Stations} hours=${hours} units=${d.units} />
     <p class="muted small">Counted from when the app started listening${t.first_ts ? ` (${when(t.first_ts)})` : ""}: APRS-IS keeps no history.

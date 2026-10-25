@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ...aprs.igate import MIN_SECTOR, bin_width, parse_location, weibull_fit
+from ...aprs.igate import MIN_FIT, MIN_SECTOR, bin_width, weibull_fit
+from ...aprs.igate import home as where
 from ..deps import runtime, store, viewer
 from .weather import _window
 
@@ -57,14 +58,8 @@ CELLS = {"0.02": (0.02, 0.02), "0.05": (0.05, 0.05), "0.1": (0.1, 0.1), "0.25": 
 
 
 def igate_home(rt, db, gate: str) -> dict | None:
-    """Where the igate is, for distances: the location in Settings → APRS, else its own last beacon."""
-    try:
-        fixed = parse_location(rt.cfg["aprs"]["igate_location"])
-    except ValueError:
-        fixed = None
-    beacon = db.igate_placed(gate)
-    return ({"lat": fixed[0], "lon": fixed[1], "source": "setting"} if fixed
-            else {"lat": beacon["lat"], "lon": beacon["lon"], "source": "beacon", "ts": beacon["ts"]} if beacon else None)
+    """Where the igate is, for distances (igate.home)."""
+    return where(rt.cfg, db, gate)
 
 
 @router.get("/igate")
@@ -152,3 +147,50 @@ def igate_digis(start: int | None = None, end: int | None = None, hours: float =
     start, end = _window(start, end, hours)
     out = {"igate": gate, "start": start, "end": end}
     return out | db.igate_digis(gate, start, end) if gate else out
+
+
+@router.get("/igate/long")
+def igate_long(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
+               rt=Depends(runtime), db=Depends(store)):
+    """The long-distance log (#116): the stations heard farthest direct over the window, and ever, each at its
+    farthest believable packet, and what was left out as unbelievable."""
+    gate = rt.aprs.igate()
+    start, end = _window(start, end, hours)
+    out = {"igate": gate, "units": rt.cfg["display"]["units"], "start": start, "end": end}
+    at = igate_home(rt, db, gate) if gate else None
+    if not at:
+        return out
+    at = (at["lat"], at["lon"])
+    return out | {"window": db.igate_long(at, gate, start, end), "ever": db.igate_long(at, gate, 0, end)}
+
+
+@router.get("/igate/range")
+def igate_range(start: int | None = None, end: int | None = None, hours: float = Query(24 * 30, gt=0, le=24 * 3650),
+                step: str = Query("day", pattern="^(day|hour)$"), rt=Depends(runtime), db=Depends(store)):
+    """Range over time against the weather (#116), per local day or hour (hours for windows up to 31 days):
+    effective range (each bucket's own Weibull fit, with MIN_FIT direct packets or more), the 99th-percentile
+    direct distance, the stations heard (range rises with how many are sending), and the first weather station's
+    sea-level pressure, temperature and dew point; per day also how far it cooled overnight."""
+    gate = rt.aprs.igate()
+    start, end = _window(start, end, hours)
+    if step == "hour" and end - start > 31 * 86400:
+        raise HTTPException(422, "hourly is for windows up to 31 days")
+    seconds, offset = (86400 if step == "day" else 3600), _utc_offset(db, end)
+    out = {"igate": gate, "units": rt.cfg["display"]["units"], "start": start, "end": end, "step": step, "min_packets": MIN_FIT,
+           "t": []}
+    at = igate_home(rt, db, gate) if gate else None
+    if not at:
+        return out
+    series = db.igate_range_series((at["lat"], at["lon"]), gate, start, end, seconds, offset)
+    station = next((s for s in db.wx_stations() if s["last_ts"]), None)
+    wx = db.wx_buckets(station["device_id"], start, end, seconds, offset) if station else {}
+    drop = db.wx_overnight(station["device_id"], start, end, offset) if station and step == "day" else {}
+    ts = sorted(series)
+    fits = {t: weibull_fit(series[t]["bin_km"], series[t]["counts"], series[t]["n"]) if series[t]["n"] >= MIN_FIT else None for t in ts}
+    col = lambda f: [f(t) for t in ts]
+    return out | {"t": ts, "station": station and station["name"],
+                  "effective_km": col(lambda t: fits[t] and fits[t]["effective_km"]), "p99_km": col(lambda t: series[t]["p99_km"]),
+                  "direct": col(lambda t: series[t]["n"]), "stations": col(lambda t: series[t]["stations"]),
+                  "pressure": col(lambda t: (wx.get(t) or {}).get("pressure")), "temp": col(lambda t: (wx.get(t) or {}).get("temp")),
+                  "dew_point": col(lambda t: (wx.get(t) or {}).get("dew_point")),
+                  "overnight_drop": col(lambda t: drop.get(t)) if step == "day" else None}
