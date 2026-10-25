@@ -66,12 +66,15 @@ DEFAULTS: dict[str, Any] = {
         "passcode": None,             # APRS-IS passcode for the callsign: only for sending (CWOP weather reports)
         "cwop": {},                   # station name -> the callsign-SSID it reports to CWOP as; none: nothing sent
         "cwop_minutes": 10,           # how often each reports (CWOP asks for 5-10 minutes, no more often than 5)
+        "places": [],                 # named circles: {name, lat, lon, radius_m (200)}, for arrive/leave alerts and stops
     },
     "alerts": {                       # notifications to the devices turned on in Settings → Alerts; 0 turns one off
         "lightning_km": 15,           # a strike this close to a station
         "gust_kmh": 60,               # a gust this strong
         "pressure_drop_hpa": 2.0,     # pressure down this much in 3 hours (a storm sign)
         "callsign_quiet_hours": 6,    # a tracked callsign heard after this long without a packet
+        "places": [],                 # {callsign, place, on: arrive | leave | both, quiet: "22:00-07:00" (optional)}
+        "place_dwell_minutes": 5,     # a single position in (or out of) a place counts once it has stood this long
         "igate_quiet_minutes": 60,    # the igate gating nothing this long when it usually would, or its beacon stopped
         "igate_record_days": 0,       # the igate heard a station direct farther than any in this many days (0: off)
         "igate_altitude_km": 0,       # a packet the igate gated from this high up: a balloon or a flight (0: off)
@@ -205,6 +208,7 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("alerts", "lightning_km"): (0, 40), ("alerts", "gust_kmh"): (0, 300), ("alerts", "pressure_drop_hpa"): (0, 20),
           ("alerts", "callsign_quiet_hours"): (0, 24 * 30), ("alerts", "igate_altitude_km"): (0, 50),
           ("alerts", "igate_quiet_minutes"): (0, 24 * 60),
+          ("alerts", "place_dwell_minutes"): (1, 24 * 60),
           ("alerts", "igate_record_days"): (0, 3650),
           ("alerts", "cooldown_minutes"): (5, 24 * 60),
           ("alerts", "storm_km"): (0, 100), ("alerts", "storm_minutes"): (5, 180), ("alerts", "storm_dbz"): (20, 75),
@@ -275,6 +279,8 @@ def retire(raw: dict) -> dict:
 
 
 ITEM_KEYS = {("geo", "cities"): ({"album", "lat", "lon"}, {"radius_km", "name", "tag"}),
+             ("aprs", "places"): ({"name", "lat", "lon"}, {"radius_m"}),
+             ("alerts", "places"): ({"callsign", "place", "on"}, {"quiet"}),
              ("standard_tags", "camera", "albums"): ({"match", "album"}, set())}
 
 
@@ -381,6 +387,35 @@ def _check_values(cfg: dict, errors: list[str], warnings: list[str]) -> None:
                                                for k in ("lat", "lon", "radius_km")):
                 errors.append(f"geo.cities[{i}]: lat, lon and radius_km should be numbers")
     checks.append(city_numbers)
+
+    def places():
+        from .aprs.places import EVENTS, quiet_minutes
+
+        names = set()
+        for i, p in enumerate(get(("aprs", "places"))):
+            if not isinstance(p, dict):
+                continue
+            nums = [p.get(k, 0) for k in ("lat", "lon", "radius_m")]
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in nums):
+                errors.append(f"aprs.places[{i}]: lat, lon and radius_m should be numbers")
+            elif not (-90 <= p.get("lat", 0) <= 90 and -180 <= p.get("lon", 0) <= 180 and 0 <= p.get("radius_m", 1) <= 100_000):
+                errors.append(f"aprs.places[{i}]: lat, lon or radius_m out of range")
+            name = str(p.get("name", "")).strip().lower()
+            if not name or name in names:
+                errors.append(f"aprs.places[{i}].name: {p.get('name')!r} should be a name no other place has")
+            names.add(name)
+        for i, r in enumerate(get(("alerts", "places"))):
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("place", "")).strip().lower() not in names:
+                errors.append(f"alerts.places[{i}].place: {r.get('place')!r} isn't one of Settings → APRS → Places")
+            if r.get("on") not in EVENTS:
+                errors.append(f"alerts.places[{i}].on: {r.get('on')!r} should be arrive, leave or both")
+            try:
+                quiet_minutes(r.get("quiet") or "")
+            except ValueError:
+                errors.append(f"alerts.places[{i}].quiet: {r.get('quiet')!r} should be like 22:00-07:00, or empty")
+    checks.append(places)
 
     def regexes():
         patterns = [(f"standard_tags.camera.albums[{i}].match", r.get("match", ""))

@@ -165,6 +165,52 @@ class AlertsTest(Base):
         put("N5WILD-9", 45.0, self.now - 10)                         # 1,668 km once: not believed
         self.assertNotIn("record", self.kinds())
 
+    def test_arriving_at_and_leaving_a_place_without_flapping(self):
+        # Home at 30N 97W, 200 m; leaving counts past 240 m. One degree of latitude is ~111 km: 0.001° ≈ 111 m.
+        self.cfg["aprs"]["places"] = [{"name": "Home", "lat": 30.0, "lon": -97.0, "radius_m": 200}]
+        self.cfg["alerts"]["places"] = [{"callsign": "KK6GPV-9", "place": "home", "on": "both"}]
+        t = self.now - 3600
+        at = lambda lat, ts: self.store.aprs_save({"from": "KK6GPV-9", "latitude": lat, "longitude": -97.0}, ts)
+        check = lambda when: [x for x in self.alerts.check(self.store, when) if x["key"].startswith("place:")]
+        at(30.05, t)                                                 # away, when first seen: no alert
+        self.assertEqual(check(t + 10), [])
+        at(30.0005, t + 60)                                          # one position in: not yet
+        self.assertEqual(check(t + 70), [])
+        at(30.0003, t + 120)                                         # a second: arrived, as of the first
+        a = check(t + 130)
+        self.assertEqual([(x["key"], x["title"], x["evidence"]["observed_at"]) for x in a],
+                         [("place:KK6GPV-9:home:arrive", "KK6GPV-9 arrived at Home", t + 60)])
+        for i, lat in enumerate((30.0020, 30.0019, 30.0021, 30.0020)):   # 210-235 m: jitter at the edge, no leave
+            at(lat, t + 200 + i * 60)
+        self.assertEqual(check(t + 500), [])
+        at(30.01, t + 600)                                           # 1.1 km: leaving, once it has stood 5 minutes
+        self.assertEqual(check(t + 610), [])
+        self.assertEqual([x["key"] for x in check(t + 600 + 5 * 60)], ["place:KK6GPV-9:home:leave"])
+        self.assertEqual(check(t + 1000), [])
+
+    def test_place_alerts_follow_the_rule_and_its_quiet_hours(self):
+        self.cfg["aprs"]["places"] = [{"name": "Work", "lat": 30.0, "lon": -97.0}]
+        self.cfg["alerts"]["places"] = [{"callsign": "KK6GPV-9", "place": "Work", "on": "leave", "quiet": "00:00-23:59"}]
+        t = self.now - 3600
+        at = lambda lat, ts: self.store.aprs_save({"from": "KK6GPV-9", "latitude": lat, "longitude": -97.0}, ts)
+        at(30.05, t)
+        self.alerts.check(self.store, t + 1)
+        at(30.0, t + 60)
+        at(30.0, t + 120)
+        self.assertEqual([x for x in self.alerts.check(self.store, t + 130) if x["key"].startswith("place:")], [])   # arrive: not asked for
+        self.cfg["alerts"]["places"][0]["quiet"] = ""
+        at(30.05, t + 200)
+        at(30.06, t + 260)
+        self.assertEqual([x["title"] for x in self.alerts.check(self.store, t + 270) if x["key"].startswith("place:")], ["KK6GPV-9 left Work"])
+
+    def test_places_are_checked(self):
+        from coconut_barometer.config import validate
+        bad = {"aprs": {"places": [{"name": "Home", "lat": 30, "lon": -97}, {"name": "home", "lat": 95, "lon": 0}]},
+               "alerts": {"places": [{"callsign": "KK6GPV-9", "place": "Cabin", "on": "sometimes", "quiet": "late"}]}}
+        errors, _ = validate(bad, from_dict({**CFG, **bad}))
+        self.assertEqual(sorted(e.split(":")[0] for e in errors if "places" in e),
+                         ["alerts.places[0].on", "alerts.places[0].place", "alerts.places[0].quiet", "aprs.places[1]", "aprs.places[1].name"])
+
     def test_zero_turns_one_off(self):
         self.cfg["alerts"]["gust_kmh"] = 0
         self.store.wx_save_obs(11, [obs(self.now - 30, gust=40.0)])

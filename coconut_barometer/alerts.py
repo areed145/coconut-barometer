@@ -7,6 +7,8 @@ streams have already stored, and sent with push.py to the devices turned on.
     pressure    sea-level pressure down alerts.pressure_drop_hpa or more over 3 hours (the newest observation
                 against the one 3 hours before it, as the Live card shows)
     callsign    a callsign from Settings → APRS heard after alerts.callsign_quiet_hours without a packet
+    place       a tracked callsign arriving at or leaving a place (Settings → APRS → Places; aprs/places.py), per
+                the rules in alerts.places, outside their quiet hours
     igate       the igate quiet or gating far less than usual, or its beacon stopped (aprs/health.py), and back
     record      the igate heard a station direct farther than any in alerts.igate_record_days (the long-distance log)
     altitude    a packet the igate gated from alerts.igate_altitude_km up or higher (a balloon, a flight), per callsign
@@ -24,16 +26,19 @@ import math
 import time
 from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from . import push
 from .aprs.health import DEGRADED_HOURS, health
 from .aprs.igate import home
+from .aprs import places as pl
 from .weather import radar as rd
 
 CHECK_EVERY = 60
 STALE = 15 * 60          # pressure: only from an observation this fresh
 SENT_META = "alerts_sent"
 STORMS_META, RADAR_META, NOTED_META = "alerts_storms", "alerts_radar", "alerts_noted"
+PLACES_META = "alerts_places"   # per callsign: the last position read, and in or out of each place
 IGATE_META = "alerts_igate"     # which igate troubles have been alerted and not yet seen to clear
 RAIN_FIT = 0.7           # how well the rain's distance must fit a steady approach (R²) to alert
 
@@ -131,6 +136,8 @@ class Alerts:
                                 "body": f"Its first packet in {_hours(first - before)}.",
                                 "evidence": {"callsign": call, "first_packet_at": first, "previous_packet_at": before,
                                              "quiet_seconds": first - before}})
+        if a["places"]:
+            out += self._places(store, now, units)
         gate = self.igate()
         if a["igate_quiet_minutes"] and gate:
             out += self._igate(store, gate, now, units)
@@ -145,6 +152,61 @@ class Alerts:
                             "evidence": {"callsign": h["callsign"], "igate": gate, "altitude_m": h["altitude"], "observed_at": h["ts"],
                                          "latitude": h["lat"], "longitude": h["lon"], "direct": h["direct"],
                                          "threshold_km": a["igate_altitude_km"], "window_start": since, "window_end": now}})
+        return out
+
+    def _places(self, store, now: int, units: str) -> list[dict]:
+        """Arrive and leave alerts (#121). Each tracked callsign with a rule has its positions since the last check
+        read in order through aprs/places.step for each place its rules name; a change waiting on a second position
+        holds once it has stood alerts.place_dwell_minutes. Where each callsign is is kept (PLACES_META) so a
+        restart picks up where it was, and the first position ever only sets it."""
+        a = self.cfg["alerts"]
+        where = {p["name"].lower(): p for p in pl.places(self.cfg)}
+        tracked = set(self.callsigns())
+        rules = [r for r in a["places"] if str(r["callsign"]).strip().upper() in tracked and str(r["place"]).strip().lower() in where]
+        if not rules:
+            return []
+        zone = next((s["timezone"] for s in store.wx_stations() if s.get("timezone")), None) or "UTC"
+        saved, out = json.loads(store.get_meta(PLACES_META) or "{}"), []
+        for call in sorted({str(r["callsign"]).strip().upper() for r in rules}):
+            mine = [r for r in rules if str(r["callsign"]).strip().upper() == call]
+            names = sorted({str(r["place"]).strip().lower() for r in mine})
+            st = saved.get(call) or {"ts": None, "places": {}}
+            rows = store.db.execute(
+                "SELECT ts, lat, lon FROM aprs_positions WHERE callsign=? AND ts <= ? ORDER BY ts DESC LIMIT 1" if st["ts"] is None
+                else "SELECT ts, lat, lon FROM aprs_positions WHERE callsign=? AND ts > ? AND ts <= ? ORDER BY ts",
+                (call, now) if st["ts"] is None else (call, st["ts"], now)).fetchall()
+            events = []
+            for ts, lat, lon in rows:
+                for name in names:
+                    state, ev = pl.step(st["places"].get(name), pl.verdict(where[name], lat, lon), ts, [lat, lon])
+                    if ev:
+                        events.append((name, ev, st["places"][name]["pending"]))
+                    st["places"][name] = state
+                st["ts"] = ts
+            for name in names:
+                s = st["places"].get(name)
+                if s and s.get("pending") and now - s["pending"]["first"] >= a["place_dwell_minutes"] * 60:
+                    p = s["pending"]
+                    st["places"][name], ev = pl.settle(s)
+                    events.append((name, ev, p))
+            saved[call] = st
+            for name, ev, p in events:
+                place, (lat, lon) = where[name], p["at"]
+                local = datetime.fromtimestamp(p["first"], ZoneInfo(zone))
+                for r in mine:
+                    if str(r["place"]).strip().lower() != name or r["on"] not in (ev, "both"):
+                        continue
+                    if pl.is_quiet(r.get("quiet") or "", local.hour * 60 + local.minute):
+                        continue
+                    d = pl.distance_m(place, lat, lon)
+                    far = f"{d:.0f} m" if units != "imperial" else f"{d * 3.28084:.0f} ft"
+                    out.append({"key": f"place:{call}:{name}:{ev}", "url": "/#/aprs",
+                                "title": f"{call} {'arrived at' if ev == 'arrive' else 'left'} {place['name']}",
+                                "body": f"At {local.strftime('%-I:%M %p').lower()}, {far} from its center.",
+                                "evidence": {"callsign": call, "place": place["name"], "event": ev, "observed_at": p["first"],
+                                             "latitude": lat, "longitude": lon, "distance_m": round(d), "radius_m": place["radius_m"]}})
+                    break
+        store.set_meta(PLACES_META, json.dumps(saved))
         return out
 
     def _igate(self, store, gate: str, now: int, units: str) -> list[dict]:
