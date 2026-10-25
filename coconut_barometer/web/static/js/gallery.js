@@ -1,9 +1,10 @@
 // Photos (one page for every filtered view: album, tag, year, camera, search), albums, and the lightbox.
-import { html, useState, useEffect, useRef, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share, today, dayLabel } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, useCallback, api, num, day, plain, pick, fallback, photosLink, toast, signedIn, share, today, dayLabel } from "./lib.js";
 
 const THUMB = ["n", "w", "m", "q"];
 import { Chart } from "./chart.js";
 import { MiniMap } from "./leaflet.js";
+import { aspect, justify } from "./justify.js";
 
 const PAGE = 60;
 
@@ -37,6 +38,22 @@ export function PhotoGrid({ paged }) {
   const { photos, total, loading, more } = paged;
   const [open, setOpen] = useState(null);           // index into photos
   const sentinel = useRef(null);
+  const box = useRef(null);
+  const [width, setWidth] = useState(0);
+  // The grid's width, at most once a frame while resizing.
+  useEffect(() => {
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => box.current && setWidth(Math.floor(box.current.clientWidth)));
+    });
+    if (box.current) ro.observe(box.current);
+    return () => { ro.disconnect(); cancelAnimationFrame(frame); };
+  }, [total === 0]);
+  // Rows depend only on the photos before them, so a new page only adds rows (and refills the last one).
+  const narrow = width && width < 520;
+  const gap = narrow ? 3 : 6;
+  const rows = useMemo(() => (width ? justify(photos.map(aspect), width, narrow ? 120 : 220, gap) : []), [photos, width]);
   // An observer only reports changes: if it fired while a page was loading (ignored) and the sentinel is still
   // within the margin once the page lands, nothing fires again and scrolling stalls. So re-arm after every page
   // (a fresh observer always reports the current state), and back it with a plain scroll/resize check.
@@ -52,15 +69,21 @@ export function PhotoGrid({ paged }) {
   }, [more, photos.length, total]);
   if (total === 0) return html`<div class="empty">No photos here.</div>`;
   return html`
-    <div class="grid">
-      ${photos.map((p, i) => html`<button class="tile" key=${p.id} onClick=${() => setOpen(i)}
-          aria-label=${p.title || "Untitled photo"}>
-        <img loading="lazy" decoding="async" alt="" src=${pick(p.sizes, THUMB)} onError=${fallback(p.sizes, THUMB)}
-             srcset=${[p.sizes.n && p.sizes.n + " 320w", p.sizes.w && p.sizes.w + " 400w", p.sizes.z && p.sizes.z + " 640w"].filter(Boolean).join(", ")}
-             sizes="(max-width: 520px) 34vw, 200px" />
-        ${p.media === "video" && html`<span class="vid">video</span>`}
-        <span class="cap">${p.title || "Untitled"}<br />${num(p.views)} views · ${num(p.faves)} faves</span>
-      </button>`)}
+    <div class="justified" ref=${box}>
+      ${rows.map((r) => html`<div class=${"jrow" + (r.last ? " last" : "")} key=${photos[r.start].id}>
+        ${photos.slice(r.start, r.end).map((p, j) => {
+          const w = aspect(p) * r.height;
+          return html`<button class="tile" key=${p.id} onClick=${() => setOpen(r.start + j)} aria-label=${p.title || "Untitled photo"}
+              style=${{ width: `${w}px`, height: `${r.height}px` }}>
+            <img loading="lazy" decoding="async" alt="" src=${pick(p.sizes, THUMB)} onError=${fallback(p.sizes, THUMB)}
+                 srcset=${[p.sizes.n && p.sizes.n + " 320w", p.sizes.w && p.sizes.w + " 400w", p.sizes.z && p.sizes.z + " 640w",
+                           p.sizes.c && p.sizes.c + " 800w"].filter(Boolean).join(", ")}
+                 sizes=${`${Math.ceil(w)}px`} />
+            ${p.media === "video" && html`<span class="vid">video</span>`}
+            <span class="cap">${p.title || "Untitled"}<br />${num(p.views)} views · ${num(p.faves)} faves</span>
+          </button>`;
+        })}
+      </div>`)}
     </div>
     <div class="sentinel" ref=${sentinel}></div>
     <div class="more">${loading ? "Loading…" : total !== null && `${num(photos.length)} of ${num(total)}`}</div>

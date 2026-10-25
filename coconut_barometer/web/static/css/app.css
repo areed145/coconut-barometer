@@ -346,8 +346,7 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .dropzone.disabled { opacity: .55; cursor: not-allowed; }
 .dropzone input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
-/* photos: grid, filters and presets */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+/* photos: tiles, filters and presets */
 .tile { position: relative; aspect-ratio: 1; overflow: hidden; border-radius: var(--r-sm); background: var(--surface-2);
   cursor: zoom-in; padding: 0; border: 0; min-height: 0; display: block; }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
@@ -356,6 +355,11 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .tile:focus-visible .cap { opacity: 1; }
 .tile .vid { position: absolute; top: 6px; right: 6px; font-size: var(--text-2xs); background: var(--scrim); color: var(--on-photo);
   padding: 1px 6px; border-radius: var(--r-sm); }
+/* justified rows (#128): each tile's size is set by the layout, at its photo's aspect ratio */
+.justified { display: flex; flex-direction: column; gap: 6px; }
+.jrow { display: flex; gap: 6px; }
+.jrow .tile { aspect-ratio: auto; flex: 0 1 auto; min-width: 0; }
+.jrow.last .tile { flex-shrink: 0; }
 .toplist { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s2); }
 .toplist .tile { cursor: pointer; }
 .toplist .tile .cap { opacity: 1; }
@@ -630,8 +634,8 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
   .qdone th:nth-child(5), .qdone td:nth-child(5) { display: none; }
 }
 @media (max-width: 520px) {
-  .grid { grid-template-columns: repeat(3, 1fr); gap: 3px; }
-  .grid .tile { border-radius: 2px; }
+  .jrow .tile { border-radius: 2px; }
+  .justified, .jrow { gap: 3px; }
   .albums { grid-template-columns: repeat(2, 1fr); gap: var(--s2); }
   .toplist { grid-template-columns: repeat(3, 1fr); gap: var(--s1); }
   .kpis { grid-template-columns: repeat(2, 1fr); }
