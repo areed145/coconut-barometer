@@ -186,7 +186,11 @@ export function WxMap({ show, unitsFor, compass }) {
         const hits = layer.at(e.latlng);
         if (!hits.length) return;
         const text = (id) => api(`/api/wx/hazards/alert?id=${encodeURIComponent(id)}`);
-        lf.L.popup({ maxWidth: 300 }).setLatLng(e.latlng).setContent(hazardPopup(hits, e.latlng.lat, e.latlng.lng, text)).openOn(m);
+        // Taller than the map allows scrolls inside (#100), panned clear of the Layers button and the loop bar, and
+        // laid out again when the alert's text arrives, since that's what makes it long.
+        const h = m.getSize().y, pop = lf.L.popup({ maxWidth: 300, maxHeight: Math.max(100, Math.min(h * 0.6, h - 160)),
+          autoPanPaddingTopLeft: [10, 56], autoPanPaddingBottomRight: [10, 80] });
+        pop.setLatLng(e.latlng).setContent(hazardPopup(hits, e.latlng.lat, e.latlng.lng, text, () => pop.isOpen() && pop.update())).openOn(m);
       });
       const moved = () => {
         setView((v) => (inside(v, map.current) ? v : viewFor(map.current)));
