@@ -4,6 +4,7 @@ Keyed by the Tempest device (wx_obs's key), each at its station's place. Times a
 its analysis's valid time, a radar sample at its frame's, a GLM flash at its file's start."""
 from __future__ import annotations
 
+import bisect
 import json
 
 from .db import Database
@@ -96,6 +97,34 @@ class QcStore(Database):
             f"GROUP BY r.ts, {', '.join('r.' + k for k in RTMA)} ORDER BY r.ts", (within, within, device_id, start, end)).fetchall()
         names = ("ts", *RTMA, "s_temp", "s_dew", "s_humidity", "s_pressure", "s_wind", "s_gust", "s_solar", "s_wind_e", "s_wind_n")
         return [dict(zip(names, r)) for r in rows]
+
+    def qc_glm_flashes(self, device_id: int, start: int, end: int) -> list[tuple]:
+        """The GLM flashes kept for the station in [start, end]: (ts, km, bearing), oldest first."""
+        return [tuple(r) for r in self.db.execute("SELECT ts, km, bearing FROM qc_glm WHERE device_id = ? AND ts BETWEEN ? AND ? "
+                                                  "ORDER BY ts", (device_id, start, end)).fetchall()]
+
+    def qc_strikes(self, device_id: int, start: int, end: int, within: int = 60) -> list[tuple]:
+        """The station's lightning strikes in [start, end]: (ts, km), oldest first. Each strike the live stream sent,
+        and the minutes with strikes from the station's history where the stream has none (not connected then):
+        a minute's count of them at its average distance."""
+        events = [(r[0], r[1]) for r in self.db.execute(
+            "SELECT ts, value FROM wx_events WHERE device_id = ? AND kind = 'strike' AND ts BETWEEN ? AND ? AND value > 0 "
+            "ORDER BY ts", (device_id, start, end)).fetchall()]
+        times = [t for t, _ in events]
+        out = list(events)
+        for ts, km, n in self.db.execute(
+                "SELECT ts, strike_dist, strike_count FROM wx_obs WHERE device_id = ? AND ts BETWEEN ? AND ? "
+                "AND strike_count > 0 AND strike_dist > 0", (device_id, start, end)).fetchall():
+            k = bisect.bisect_left(times, ts - within)
+            if k < len(times) and times[k] <= ts + within:
+                continue
+            out += [(ts, km)] * int(n)
+        return sorted(out)
+
+    def qc_front_analyses(self, start: int, end: int) -> list[tuple[int, dict]]:
+        """The WPC analyses kept, valid in [start, end]: (valid, {fronts, centers}), oldest first."""
+        return [(r[0], json.loads(r[1])) for r in self.db.execute(
+            "SELECT valid, analysis FROM qc_fronts WHERE valid BETWEEN ? AND ? ORDER BY valid", (start, end)).fetchall()]
 
     # ---- results ----------------------------------------------------------------------------------------------
     def qc_save_run(self, device_id: int, suite: str, run_at: int, start: int, end: int, result: dict) -> None:

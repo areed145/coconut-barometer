@@ -19,6 +19,7 @@ function shown(value, kind, imperial) {
   if (kind === "hpa") return imperial ? `${signed(value * 0.02953, 2)} inHg` : `${signed(value, 1)} hPa`;
   if (kind === "ms") return imperial ? `${(value * 2.23694).toFixed(1)} mph` : `${value.toFixed(1)} m/s`;
   if (kind === "m") return imperial ? `${signed(value * 3.28084, 0)} ft` : `${signed(value, 0)} m`;
+  if (kind === "km") return imperial ? `${signed(value * 0.621371, 1)} mi` : `${signed(value, 1)} km`;
   if (kind === "deg") return `${signed(value, 0)}°`;
   if (kind === "pct") return `${Math.round(value)}%`;
   if (kind === "ratio") return `×${value.toFixed(2)}`;

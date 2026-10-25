@@ -2,7 +2,7 @@
 
 A check returns {status, metrics}: status is pass, warn, fail, or insufficient (not enough to go on), and metrics are
 its numbers, with `show`: the few that sum it up, as [label, value, kind] for the scorecard to put in the viewer's
-units (kind: tempd a temperature difference, tempspread one with no sign (an RMSE), temp, hpa, ms, deg, pct, m,
+units (kind: tempd a temperature difference, tempspread one with no sign (an RMSE), temp, hpa, ms, deg, pct, m, km,
 count, ratio, number, signed). A check may also return `flags`: (start, end, what) for the periods it found. Thresholds
 come from Settings → Weather → Station QC (cfg["qc"]). run() runs every check for every station and keeps the results
 and flags.
@@ -11,15 +11,17 @@ The checks, added issue by issue (#106-#112, #122-#123):
     temperature, dewpoint, sun, drift                against RTMA at the station's cell (rtma_checks.py, #106)
     wind_dir, wind_speed                             the same, for wind (#107)
     pressure                                         the same, for pressure (#110)
+    lightning                                        strikes against GOES-East GLM's flashes (lightning.py, #109)
+    fronts                                           WPC fronts crossing the station (passages.py, #111)
     range, steps, stuck, coverage, solar, battery    the station's own readings (internal.py, #112)"""
 from __future__ import annotations
 
 import time
 
-from . import internal, rtma_checks
+from . import internal, lightning, passages, rtma_checks
 
 # name -> (title, check), in the order the scorecard shows them
-SUITES = {**rtma_checks.SUITES, **internal.SUITES}
+SUITES = {**rtma_checks.SUITES, **lightning.SUITES, **passages.SUITES, **internal.SUITES}
 
 
 def run(store, cfg: dict, now: float | None = None) -> list[dict]:

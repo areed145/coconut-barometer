@@ -52,6 +52,11 @@ DEFAULTS: dict[str, Any] = {
         "pressure_fail": 2.5,
         "pressure_drift_warn": 0.5,   # hPa the last week's pressure offset has moved from the rest of the window's
         "pressure_drift_fail": 1.0,
+        "lightning_false_warn": 0.3,  # share of the station's strikes with no GLM lightning in reach (interference) ...
+        "lightning_false_fail": 0.6,
+        "lightning_miss_warn": 0.5,   # share of the periods GLM saw lightning within 20 km that the station heard none
+        "lightning_miss_fail": 0.8,
+        "fronts_warn": 0.5,           # share of front passages with the expected wind shift, pressure and temperature
     },
     "display": {"units": "metric"},  # how Weather and APRS show values; always stored metric
     "aprs": {
@@ -205,7 +210,9 @@ RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"):
           ("qc", "coverage_warn"): (0, 100), ("qc", "coverage_fail"): (0, 100), ("qc", "solar_warn"): (0, 1.5),
           ("qc", "solar_fail"): (0, 1.5), ("qc", "wind_dir_warn"): (1, 180), ("qc", "wind_dir_fail"): (1, 180),
           ("qc", "wind_sector_warn"): (0, 1), ("qc", "wind_sector_fail"): (0, 1), ("qc", "pressure_warn"): (0.1, 20),
-          ("qc", "pressure_fail"): (0.1, 50), ("qc", "pressure_drift_warn"): (0.1, 10), ("qc", "pressure_drift_fail"): (0.1, 20)}
+          ("qc", "pressure_fail"): (0.1, 50), ("qc", "pressure_drift_warn"): (0.1, 10), ("qc", "pressure_drift_fail"): (0.1, 20),
+          ("qc", "lightning_false_warn"): (0, 1), ("qc", "lightning_false_fail"): (0, 1), ("qc", "lightning_miss_warn"): (0, 1),
+          ("qc", "lightning_miss_fail"): (0, 1), ("qc", "fronts_warn"): (0, 1)}
 COLORS = {("theme", "color_low"), ("theme", "color_mid"), ("theme", "color_high")}   # #rrggbb
 
 # Settings the environment can set (API keys can't: they go in Settings, encrypted).

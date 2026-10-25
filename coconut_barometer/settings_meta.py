@@ -213,6 +213,17 @@ META = {
     "qc.pressure_drift_warn": _m("weather", "Pressure drift: warn at (hPa)", "How far the last week's pressure "
                                  "difference from RTMA has moved from the rest of the window's.", group="Station QC"),
     "qc.pressure_drift_fail": _m("weather", "Pressure drift: fail at (hPa)", group="Station QC"),
+    "qc.lightning_false_warn": _m("weather", "Lightning, nothing there: warn at (share)", "The share of the station's "
+                                  "strikes with no lightning from GOES-East within 50 km and 10 minutes: interference "
+                                  "(a motor, a fence charger, a vibration).", group="Station QC"),
+    "qc.lightning_false_fail": _m("weather", "Lightning, nothing there: fail at (share)", group="Station QC"),
+    "qc.lightning_miss_warn": _m("weather", "Lightning missed: warn at (share)", "The share of the 15-minute periods "
+                                 "GOES-East saw lightning within 20 km in which the station heard none. GLM sees "
+                                 "in-cloud flashes too, so some are expected.", group="Station QC"),
+    "qc.lightning_miss_fail": _m("weather", "Lightning missed: fail at (share)", group="Station QC"),
+    "qc.fronts_warn": _m("weather", "Front passages: warn under (share)", "The share of fronts crossing the station "
+                         "that brought the wind shift, pressure and temperature change expected. Analyzed fronts are "
+                         "approximate, so this only warns.", group="Station QC"),
 
     # ---- APRS
     "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "
