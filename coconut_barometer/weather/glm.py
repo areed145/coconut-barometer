@@ -11,7 +11,9 @@ for a map) and kept for KEEP, long enough for the loop with the satellite on (it
 Fetched while the map asks: each round lists what's new since the last and fetches only the files not yet held,
 newest first, a few at a time, published as they come (a first fill after the map has been closed takes a few
 seconds). A file THREDDS doesn't have yet is tried again the next round. A Feed (feed.py), in the background.
-view() counts the flashes in a box per minute and per cell, the cells coarser zoomed out. One per process (`glm`)."""
+view() counts the flashes in a box per minute and per cell, the cells coarser zoomed out (the map's newest flashes,
+and its dots and blobs); shapes() traces them as smooth shapes, as the radar's are (#101, below). One per process
+(`glm`)."""
 from __future__ import annotations
 
 import calendar
@@ -78,6 +80,7 @@ class Lightning(Feed):
         self._files: dict[str, tuple[int, np.ndarray, np.ndarray]] = {}    # name -> (start, lat, lon in 1/Q°)
         self._last: dict[str, str] = {}                                     # hour prefix -> newest name listed
         self._missing: set[str] = set()                                     # listed, not on THREDDS yet (or failed)
+        self._shapes: dict[tuple, str] = {}                                 # shapes(): kept frames' texts
 
     # ---- fetching -----------------------------------------------------------------------------------------------
     def _list(self, now: float) -> list[str]:
@@ -179,6 +182,130 @@ class Lightning(Feed):
             flat = np.column_stack([cells[rows, 1], cells[rows, 2], counts[rows]]).ravel()
             out["minutes"].append([int(m), flat.tolist()])
         return out
+
+    # ---- smooth shapes, as radar's (#101) --------------------------------------------------------------------------
+    def shapes(self, t: float, bbox: tuple, zoom: float | None) -> str:
+        """shapes_text() for the minute `t` is in, the view and its level, kept (SHAPES_KEPT). A frame that reaches the
+        newest file is kept only until a newer one comes in: its last minute is still filling."""
+        level = "fine" if zoom is not None and zoom >= FINE_ZOOM else "coarse"
+        minute = int(t) // 60 * 60
+        with self._lock:
+            data = self.data
+            newest = data and data["newest"]
+            key = (minute, level, tuple(bbox), newest if newest is not None and minute + 60 > newest else None)
+            if key in self._shapes:
+                return self._shapes[key]
+        text = shapes_text(data, minute + 60, bbox, level)
+        with self._lock:
+            self._shapes[key] = text
+            for k in list(self._shapes)[:-SHAPES_KEPT]:
+                del self._shapes[k]
+        return text
+
+
+# ---- smooth shapes (#101) -----------------------------------------------------------------------------------------
+# For the map's time t, the flashes of the TRAIL before it in the view (and a margin) are counted onto a grid and each
+# spread over SIGMA_KM (a Gaussian), giving how much lightning there was around each point (its density) and how long
+# ago, each flash's age weighted toward the newest (HALF_LIFE), so a storm still going is "now" even if it began 15
+# minutes ago. Where there was lightning is where the density is at least EDGE of a lone flash's peak, so a lone strike
+# still shows. That's traced (contourpy) as radar's levels are (shapes.py's format):
+#   bands  FRESH levels of how recent, oldest first, each where there was lightning at least that recent, every one
+#          cut by the same edge; colored in the browser from Settings → Display → Lightning colors at its `age`
+#   cores  where flashes crowd: CORES times a lone flash's peak, drawn lighter over the bands
+# Both fields are smooth, so each level is traced on min(one, the other) rather than one masked by the other: no edge
+# steps along the grid. Zoomed out the grid is coarser and the spread wider, as radar's coarse level is.
+TRAIL = 15 * 60                         # the map's: seconds of lightning shown up to its time
+GRID = {"fine": 0.01, "coarse": 0.04}   # degrees per density cell: ~1 km zoomed in, ~4 km out
+SHAPE_Q = {"fine": 1000, "coarse": 200}
+SIGMA_KM = {"fine": 8, "coarse": 20}    # a flash's spread: about a GLM pixel; wider zoomed out, where that's under a pixel
+EDGE = 0.4                              # where there was lightning: this much of a lone flash's peak density
+CORES = (3, 10)                         # ... and where it crowds, in lone flashes' peaks
+FRESH = 8                               # freshness levels, oldest to newest
+HALF_LIFE = 60                          # an older flash counts half as much toward a place's age every minute
+SHAPES_KEPT = 120
+
+
+def _traced(field: np.ndarray, xs: np.ndarray, ys: np.ndarray, bbox: tuple, q: int, min_area: float) -> list[str]:
+    """Where `field` >= 0, as shapes.py polys' texts touching bbox; rings smaller than a cell left out."""
+    import contourpy
+
+    from . import shapes
+
+    gen = contourpy.contour_generator(xs, ys, field, fill_type=contourpy.FillType.OuterOffset)
+    points, offsets = gen.filled(0.0, np.inf)
+    polys = []
+    for pts, offs in zip(points, offsets):
+        rings = []
+        for i, (lo, hi) in enumerate(zip(offs[:-1], offs[1:])):
+            ring = pts[lo:hi]
+            qi = None if hi - lo < 4 or _area(ring) < min_area else shapes.ring(ring, q)
+            if qi is None:
+                if i == 0:
+                    break                      # no outer ring: none of its holes either
+                continue
+            rings.append(qi)
+        if rings:
+            p = shapes.poly(rings)
+            if shapes.in_view(p, bbox, q):
+                polys.append(p[4])
+    return polys
+
+
+def shapes_text(data: dict | None, t: float, bbox: tuple, level: str) -> str:
+    """The lightning of the TRAIL up to `t` in `bbox` (west, south, east, north) at `level`, as JSON text:
+    {t, level, q, bands: [{age, polys}] (oldest first), cores: [{core, polys}] (the lightest first)}."""
+    from scipy import ndimage
+
+    q, res = SHAPE_Q[level], GRID[level]
+    head = f'{{"t":{int(t)},"level":"{level}","q":{q},'
+    empty = head + '"bands":[],"cores":[]}'
+    if not data or not len(data["t"]):
+        return empty
+    w, s, e, n = bbox
+    stretch = 1 / max(0.2, np.cos(np.radians((s + n) / 2)))   # a degree of longitude is shorter
+    sigma = SIGMA_KM[level] / 111.2
+    sy, sx, pad = sigma / res, sigma * stretch / res, 4 * sigma * stretch
+    age = t - data["t"]
+    lat, lon = data["lat"] / Q, data["lon"] / Q
+    keep = (age >= 0) & (age < TRAIL) & (lat >= s - pad) & (lat <= n + pad) & (lon >= w - pad) & (lon <= e + pad)
+    if not keep.any():
+        return empty
+    nx, ny = int(np.ceil((e - w + 2 * pad) / res)) + 1, int(np.ceil((n - s + 2 * pad) / res)) + 1
+    x0, y0 = w - pad, s - pad
+    ix = np.clip(((lon[keep] - x0) / res).astype(np.int64), 0, nx - 1)
+    iy = np.clip(((lat[keep] - y0) / res).astype(np.int64), 0, ny - 1)
+    a = age[keep].astype(np.float64)
+    weight = 0.5 ** (a / HALF_LIFE)
+    fields = []
+    for v in (np.ones_like(a), weight, weight * a):            # density; the weighted age's sums
+        g = np.zeros((ny, nx), dtype=np.float32)
+        np.add.at(g, (iy, ix), v)
+        fields.append(ndimage.gaussian_filter(g, (sy, sx), truncate=3.0))
+    density, wsum, asum = fields
+    impulse = np.zeros((int(8 * sy) | 1, int(8 * sx) | 1), dtype=np.float32)
+    impulse[impulse.shape[0] // 2, impulse.shape[1] // 2] = 1
+    lone = float(ndimage.gaussian_filter(impulse, (sy, sx), truncate=3.0).max())
+    with np.errstate(invalid="ignore", divide="ignore"):
+        fresh = 1 - np.where(wsum > 1e-9, asum / wsum, TRAIL) / TRAIL   # 1 now, 0 at the trail's end
+    there = density / (EDGE * lone) - 1                        # >= 0 where there was lightning
+    xs, ys, min_area = x0 + np.arange(nx) * res, y0 + np.arange(ny) * res, res * res
+    bands = []
+    for k in range(FRESH):
+        r = k / FRESH
+        polys = _traced(np.minimum(there, (fresh - r) * 4) if k else there, xs, ys, bbox, q, min_area)
+        if polys:
+            bands.append(f'{{"age":{round((1 - r) * TRAIL)},"polys":[{",".join(polys)}]}}')
+    cores = []
+    for i, c in enumerate(CORES):
+        polys = _traced(density / (c * lone) - 1, xs, ys, bbox, q, min_area)
+        if polys:
+            cores.append(f'{{"core":{i + 1},"polys":[{",".join(polys)}]}}')
+    return head + f'"bands":[{",".join(bands)}],"cores":[{",".join(cores)}]}}'
+
+
+def _area(ring: np.ndarray) -> float:
+    x, y = ring[:, 0], ring[:, 1]
+    return abs(float(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))) / 2
 
 
 glm = Lightning()

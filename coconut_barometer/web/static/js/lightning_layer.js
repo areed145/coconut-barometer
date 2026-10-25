@@ -9,6 +9,9 @@
 //          density is worked out on a grid of CELL screen pixels, only around the flashes, and scaled up smoothly.
 //          The last NEW_S seconds' flashes are marked on top as small crosses, exactly where they were.
 //   dots   a dot per cell and minute, bigger the more flashes, the newest on top.
+//   smooth the server's shapes (weather/glm.py shapes()), drawn as the radar's are (radar_layer.js); this layer then
+//          only marks the last NEW_S seconds' flashes on top: solid dots in the newest color, no border, a little
+//          bigger where there were more.
 
 import { mapCanvas } from "./map_canvas.js";
 import { rampColor, rampRGB, rampGradient } from "./ramp.js";
@@ -148,6 +151,21 @@ export function lightningCanvas(L, pane, attribution) {
       };
       const shown = this._shown();
       ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+      if (style === "smooth") {
+        // Small zoomed out, where a storm is a few px and its flashes would cover it; bigger in.
+        const [base, grow] = zoom >= 8 ? [4, 2] : zoom >= 6 ? [3.5, 1.5] : zoom >= 5 ? [2.5, 1] : [1.75, 0.5];
+        ctx.fillStyle = rampColor(stops, 0);
+        ctx.beginPath();
+        for (const [, cells] of shown.filter(([age]) => age < NEW_S)) {
+          each(cells, (x, y, n) => {
+            const r = base + Math.min(grow, (Math.sqrt(n) - 1) / 2);
+            ctx.moveTo(x + r, y);
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+          });
+        }
+        ctx.fill();
+        return;
+      }
       if (style === "dots") {
         const base = zoom >= 8 ? 2.5 : zoom >= 6 ? 2 : 1.5;
         ctx.lineWidth = 0.75;
