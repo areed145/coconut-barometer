@@ -22,15 +22,22 @@ function shown(value, kind, imperial) {
   if (kind === "deg") return `${signed(value, 0)}°`;
   if (kind === "pct") return `${Math.round(value)}%`;
   if (kind === "ratio") return `×${value.toFixed(2)}`;
+  if (kind === "number") return value.toFixed(2);
+  if (kind === "signed") return signed(value, 3);
   return num(value);
 }
 
-function Check({ title, run, imperial }) {
+const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const span = (f) => (f.end - f.start < 60 ? when(f.start) : `${when(f.start)} – ${when(f.end)}`);
+
+function Check({ title, run, flags, imperial }) {
   if (!run) return html`<li class="health-row off"><i class="health-dot off"></i><b>${title}</b><span class="muted">not run yet</span></li>`;
   const facts = (run.metrics.show || []).map(([label, v, kind]) => `${shown(v, kind, imperial)} ${label}`).join(" · ");
   return html`<li class=${"health-row " + LEVEL[run.status]}>
     <i class=${"health-dot " + LEVEL[run.status]} aria-label=${SAID[run.status]}></i><b>${title}</b>
-    <span>${SAID[run.status]}${facts ? ` · ${facts}` : ""} <span class="muted">· since ${day(run.since)}</span></span></li>`;
+    <span>${SAID[run.status]}${facts ? ` · ${facts}` : ""} <span class="muted">· since ${day(run.since)}</span>
+      ${flags?.count > 0 && html`<span class="qcflags">${flags.newest.map((f) => html`<small key=${f.start}>${f.what}: ${span(f)}</small>`)}
+        ${flags.count > flags.newest.length && html`<small class="muted">and ${flags.count - flags.newest.length} more</small>`}</span>`}</span></li>`;
 }
 
 export function StationQc() {
@@ -54,7 +61,7 @@ export function StationQc() {
     <div class="toolbar"><button onClick=${runNow} disabled=${running}>${running ? "Running…" : "Run checks now"}</button></div>
     ${!d.stations.length && html`<p class="muted">No stations with a location yet.</p>`}
     ${d.stations.map((s) => html`<section class="card" key=${s.device_id}><h2>${s.name}</h2>
-      <ul class="health-rows">${d.suites.map((c) => html`<${Check} key=${c.id} title=${c.title} run=${s.checks[c.id]} imperial=${imperial} />`)}</ul>
+      <ul class="health-rows">${d.suites.map((c) => html`<${Check} key=${c.id} title=${c.title} run=${s.checks[c.id]} flags=${s.flags?.[c.id]} imperial=${imperial} />`)}</ul>
     </section>`)}
     <section class="card"><h2>Reference samples</h2>
       <ul class="health-rows">${SOURCES.map(([k, label]) => {

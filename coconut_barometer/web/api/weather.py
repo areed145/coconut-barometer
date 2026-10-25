@@ -350,7 +350,8 @@ def station_qc(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
 
     return {"units": _units(rt), "enabled": rt.cfg["qc"]["enabled"], "window_days": rt.cfg["qc"]["window_days"],
             "suites": [{"id": k, "title": title} for k, (title, _) in SUITES.items()],
-            "stations": [{**{k: s[k] for k in ("device_id", "name", "elevation")}, "checks": db.qc_latest(s["device_id"])}
+            "stations": [{**{k: s[k] for k in ("device_id", "name", "elevation")}, "checks": db.qc_latest(s["device_id"]),
+                          "flags": db.qc_flags(s["device_id"], int(time.time() - rt.cfg["qc"]["window_days"] * 86400))}
                          for s in db.qc_stations()],
             "sampled": db.qc_sampled(), "errors": rt.qc.errors, "backfill": rt.qc.backfill,
             "backfill_days": rt.cfg["qc"]["backfill_days"]}

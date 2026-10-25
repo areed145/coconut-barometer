@@ -291,6 +291,8 @@ main.page { padding: var(--s4) calc(var(--gutter) + var(--safe-r)) calc(var(--s6
 .health-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
 .health-dot.ok { background: var(--ok); } .health-dot.warn { background: var(--warn); } .health-dot.bad { background: var(--no); }
 .health-dot.off { background: transparent; border: 1.5px solid var(--muted); }
+.qcflags { display: flex; flex-direction: column; margin-top: var(--s1); }
+.qcflags small { color: var(--muted); }
 header.top .brand .health-dot { margin-left: var(--s1); }
 .localmode { margin-left: var(--s2); padding: 1px 6px; border: 1px dashed var(--muted); border-radius: 4px; font-size: var(--text-xs);
   color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }

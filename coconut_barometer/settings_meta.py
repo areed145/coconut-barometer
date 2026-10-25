@@ -175,6 +175,12 @@ META = {
                             "after allowing for the height difference between the station and the analysis.",
                             group="Station QC"),
     "qc.temp_bias_fail": _m("weather", "Temperature: fail at (°C)", group="Station QC"),
+    "qc.coverage_warn": _m("weather", "Reporting: warn under (%)", "The share of minutes the station reported over "
+                           "the window, from its first reading in it.", group="Station QC"),
+    "qc.coverage_fail": _m("weather", "Reporting: fail under (%)", group="Station QC"),
+    "qc.solar_warn": _m("weather", "Solar: warn under (share of clear sky)", "On clear days, the station's solar peak "
+                        "over the clear-sky model's. A dirty or shaded sensor reads low.", group="Station QC"),
+    "qc.solar_fail": _m("weather", "Solar: fail under (share of clear sky)", group="Station QC"),
 
     # ---- APRS
     "aprs.callsigns": _m("aprs", "Callsigns", "With the SSID if it has one, e.g. KJ4TFD-10. A change reconnects "

@@ -43,7 +43,7 @@ Tables
   wx_stations, wx_devices, wx_obs, wx_events  WeatherFlow stations, their devices, 1-minute observations, strikes
   qc_rtma, qc_radar, qc_glm, qc_alerts  station QC's reference samples at each station (RTMA every 15 minutes,
                    radar every frame, GLM flashes within reach, NWS alerts covering it); qc_fronts: WPC's analyses
-                   near the stations; qc_runs: each check's results (weather/qc/)
+                   near the stations; qc_runs: each check's results, qc_flags: the periods they flagged (weather/qc/)
   aprs_positions   each position packet heard from a tracked callsign
   aprs_igate       each packet APRS-IS credits the igate with gating: who, where (if it said), heard direct or not
   site_hits        each page view of this site (no IPs: a visitor is a hash salted per day), for visitors.keep_days

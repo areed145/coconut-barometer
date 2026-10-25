@@ -3,15 +3,19 @@
 A check returns {status, metrics}: status is pass, warn, fail, or insufficient (not enough to go on), and metrics are
 its numbers, with `show`: the few that sum it up, as [label, value, kind] for the scorecard to put in the viewer's
 units (kind: tempd a temperature difference, tempspread one with no sign (an RMSE), temp, hpa, ms, deg, pct, m,
-count, ratio). Thresholds come from Settings → Weather → Station QC (cfg["qc"]). run() runs every check for every
-station and keeps the results.
+count, ratio, number, signed). A check may also return `flags`: (start, end, what) for the periods it found. Thresholds
+come from Settings → Weather → Station QC (cfg["qc"]). run() runs every check for every station and keeps the results
+and flags.
 
 The checks, added issue by issue (#106-#112, #122-#123):
-    temperature   the station's temperature against RTMA's at its cell, allowing for the height between them"""
+    temperature   the station's temperature against RTMA's at its cell, allowing for the height between them
+    range, steps, stuck, coverage, solar, battery   the station's own readings (internal.py, #112)"""
 from __future__ import annotations
 
 import math
 import time
+
+from . import internal
 
 LAPSE = 0.0065               # °C per m: the standard atmosphere's, for the height between the station and RTMA's cell
 
@@ -46,7 +50,7 @@ def temperature(store, station: dict, start: int, end: int, cfg: dict) -> dict:
 
 
 # name -> (title, check), in the order the scorecard shows them
-SUITES = {"temperature": ("Temperature vs RTMA", temperature)}
+SUITES = {"temperature": ("Temperature vs RTMA", temperature), **internal.SUITES}
 
 
 def run(store, cfg: dict, now: float | None = None) -> list[dict]:
@@ -58,5 +62,7 @@ def run(store, cfg: dict, now: float | None = None) -> list[dict]:
         for name, (_, check) in SUITES.items():
             result = check(store, station, start, now, cfg)
             store.qc_save_run(station["device_id"], name, now, start, now, result)
-            out.append({"device_id": station["device_id"], "suite": name, **result})
+            store.qc_save_flags(station["device_id"], name, start, now, result.get("flags") or [])
+            out.append({"device_id": station["device_id"], "suite": name, **{k: v for k, v in result.items() if k != "flags"},
+                        "flags": len(result.get("flags") or [])})
     return out

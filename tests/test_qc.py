@@ -223,6 +223,9 @@ class TemperatureCheckTest(unittest.TestCase):
         suites.run(self.store, self.cfg, now=T + 90000)
         latest = self.store.qc_latest(11)["temperature"]
         self.assertEqual((latest["status"], latest["since"], latest["run_at"]), ("pass", T + 86400, T + 90000))
+        self.store.db.execute("DELETE FROM qc_rtma")
+        suites.run(self.store, self.cfg, now=T + 90000)                  # run again the same second: what it says now
+        self.assertEqual(self.store.qc_latest(11)["temperature"]["status"], "insufficient")
 
 
 class ApiTest(unittest.TestCase):
@@ -241,9 +244,119 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(set(d["sampled"]), {"rtma", "radar", "glm", "alerts", "fronts"})
         csrf = c.get("/api/auth/session").json()["csrf"]
         ran = c.post("/api/wx/qc/run", headers={"X-CSRF-Token": csrf}).json()["results"]
-        self.assertEqual([(r["suite"], r["status"]) for r in ran], [("temperature", "insufficient")])
+        self.assertEqual({(r["suite"], r["status"]) for r in ran}, {(k, "insufficient") for k in suites.SUITES})
         self.assertEqual(c.get("/api/wx/qc").json()["stations"][0]["checks"]["temperature"]["status"], "insufficient")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- #112: the internal checks ----------------------------------------------------------------------------------
+from coconut_barometer.store.weather import clear_sky  # noqa: E402
+from coconut_barometer.weather.qc import internal  # noqa: E402
+
+DAY0 = 1_792_800_000 // 86400 * 86400                      # a UTC midnight in late October 2026
+
+
+def minute(ts, temp=15.0, humidity=60.0, pressure=800.0, wind=2.0, gust=3.0, solar=0.0, uv=0.0, rain=0.0, battery=2.6):
+    return [ts, 1.0, wind, gust, 180.0, 3, pressure, temp, humidity, 10000, uv, solar, rain, 0, 0, 0, battery, 1]
+
+
+class InternalChecksTest(unittest.TestCase):
+    """Synthetic minutes at the Colorado station: a clean baseline (every check passes) with one thing wrong at a time."""
+
+    def setUp(self):
+        self.store = make_store()
+        self.cfg = from_dict(CFG)
+        self.station = self.store.qc_stations()[0]
+
+    def days(self, n=2, every=60, **change):
+        """n days of minutes, a little natural variation; change: {name: fn(ts, i) -> value} overrides."""
+        rows = []
+        for i, ts in enumerate(range(DAY0, DAY0 + n * 86400, every)):
+            kw = {"temp": 15 + 5 * np.sin(i / 300), "pressure": 800 + 2 * np.sin(i / 90), "humidity": 60 + 10 * np.sin(i / 400),
+                  "wind": 2 + abs(np.sin(i / 50)), "solar": 0.9 * clear_sky(38.3, -105.7, ts)}
+            for k, fn in change.items():
+                v = fn(ts, i)
+                if v is not None:
+                    kw[k] = v
+            rows.append(minute(ts, **{k: round(float(v), 1) for k, v in kw.items()}))
+        self.store.wx_save_obs(11, rows)
+        return DAY0, DAY0 + n * 86400 - 60
+
+    def check(self, name, start, end):
+        return internal.SUITES[name][1](self.store, dict(self.station), start, end, self.cfg)
+
+    def test_a_clean_station_passes(self):
+        start, end = self.days()
+        for name in ("range", "steps", "stuck", "coverage", "battery"):
+            r = self.check(name, start, end)
+            self.assertEqual((name, r["status"], r["flags"]), (name, "pass", []))
+
+    def test_out_of_range_and_jumps(self):
+        start, end = self.days(temp=lambda ts, i: 70.0 if i == 500 else None,               # one impossible reading
+                               pressure=lambda ts, i: 820.0 if i == 900 else None)           # a 20 hPa spike for a minute
+        r = self.check("range", start, end)
+        self.assertEqual((r["status"], r["metrics"]["by"]), ("warn", {"temp": 1, "dew": 1}))   # its dewpoint too
+        s = self.check("steps", start, end)
+        self.assertEqual(s["status"], "warn")
+        self.assertIn("pressure_spike", s["metrics"]["by"])
+        self.assertTrue(any("pressure changed more than 15" in f[2] for f in s["flags"]))  # 20 hPa above an hour before
+
+    def test_stuck_sensors_and_a_vane_at_zero_in_wind(self):
+        stuck_from = DAY0 + 3600
+        start, end = self.days(temp=lambda ts, i: 12.3 if stuck_from <= ts < stuck_from + 9 * 3600 else None,
+                               wind=lambda ts, i: 0.0 if DAY0 + 86400 <= ts < DAY0 + 86400 + 7 * 3600 else None)
+        for k in range(0, 8):                                      # RTMA had wind through the vane's zeros
+            self.store.qc_save_rtma(11, DAY0 + 86400 + k * 3600, {"u": 4.0, "v": 0.0})
+        r = self.check("stuck", start, end)
+        self.assertEqual((r["status"], r["metrics"]["by"]), ("warn", {"temp": 1, "wind": 1}))
+        self.assertEqual(r["flags"][0][:2], (stuck_from, stuck_from + 9 * 3600 - 60))
+        # Calm by RTMA too: zero wind is just calm. And stuck to the end of the window: fail.
+        self.store.db.execute("UPDATE qc_rtma SET u = 0.5")
+        self.store.db.execute("DELETE FROM wx_obs")
+        start, end = self.days(temp=lambda ts, i: 9.9 if ts >= DAY0 + 86400 else None)
+        r = self.check("stuck", start, end)
+        self.assertEqual((r["status"], r["metrics"]["ongoing"], r["metrics"]["by"]), ("fail", True, {"temp": 1}))
+
+    def test_gaps_and_a_station_gone_quiet(self):
+        rows = [minute(ts) for ts in range(DAY0, DAY0 + 86400, 60) if not DAY0 + 3600 <= ts < DAY0 + 4 * 3600]
+        self.store.wx_save_obs(11, rows)
+        r = self.check("coverage", DAY0 - 30 * 86400, DAY0 + 86400 - 60)      # from its first reading, not the window's start
+        self.assertEqual((r["status"], round(r["metrics"]["pct"]), r["metrics"]["gaps"]), ("fail", 88, 1))
+        self.assertEqual(r["flags"], [(DAY0 + 3540, DAY0 + 4 * 3600, "no readings")])
+        r = self.check("coverage", DAY0, DAY0 + 2 * 86400)                    # and quiet since: the gap runs to the end
+        self.assertEqual(r["metrics"]["gaps"], 2)
+
+    def test_solar_against_clear_sky_on_clear_days(self):
+        def clear_days(n, cover):
+            for d in range(n):
+                for h in range(15, 22):                            # 9-15 local (MDT) in UTC hours
+                    self.store.qc_save_rtma(11, DAY0 + d * 86400 + h * 3600, {"tcdc": cover})
+        clear_days(4, 0.0)
+        start, end = self.days(n=4, every=300, solar=lambda ts, i: 0.5 * clear_sky(38.3, -105.7, ts))   # dirty: half
+        r = self.check("solar", start, end)
+        self.assertEqual((r["status"], r["metrics"]["clear_days"]), ("fail", 4))
+        self.assertAlmostEqual(r["metrics"]["ratio"], 0.5, delta=0.03)
+        self.store.db.execute("DELETE FROM wx_obs")
+        start, end = self.days(n=4, every=300)                                 # 90% of clear sky: fine
+        self.assertEqual(self.check("solar", start, end)["status"], "pass")
+        self.store.db.execute("UPDATE qc_rtma SET tcdc = 80")                  # cloudy: nothing to judge by
+        self.assertEqual(self.check("solar", start, end)["status"], "insufficient")
+
+    def test_battery(self):
+        start, end = self.days(battery=lambda ts, i: 2.39 if i > 2000 else 2.6)
+        self.assertEqual(self.check("battery", start, end)["status"], "warn")
+        self.store.db.execute("UPDATE wx_obs SET battery = 2.3 WHERE ts > ?", (DAY0 + 86400,))
+        r = self.check("battery", start, end)
+        self.assertEqual((r["status"], r["metrics"]["low"]), ("fail", 2.3))
+
+    def test_run_keeps_the_flags_and_replaces_them_each_time(self):
+        self.days(temp=lambda ts, i: 70.0 if i == 500 else None)
+        suites.run(self.store, self.cfg, now=DAY0 + 2 * 86400)
+        suites.run(self.store, self.cfg, now=DAY0 + 2 * 86400 + 3600)        # the same flag, not twice
+        flags = self.store.qc_flags(11, 0)
+        self.assertEqual(flags["range"]["count"], 2)                        # temperature and its dewpoint, once each
+        self.assertEqual({f["what"] for f in flags["range"]["newest"]}, {"temp out of range", "dew out of range"})
+        self.assertEqual(set(self.store.qc_latest(11)), set(suites.SUITES))
