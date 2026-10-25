@@ -232,6 +232,10 @@ META = {
                      "Empty: none. A change reconnects; packets already counted stay under the igate that gated them."),
     "aprs.igate_location": _m("aprs", "Igate location", "Where it is, for distances: \"lat, lon\" (30.27, -97.74) or "
                               "a grid locator (EM10dg). Empty: wherever its own position beacons put it."),
+    "aprs.trip_stop_minutes": _m("aprs", "A stop is at least (minutes)", "Staying within 100 m this long ends a trip on "
+                                 "the APRS page's Trips. Shorter (a traffic light) is part of the trip.", group="Trips"),
+    "aprs.trip_gap_minutes": _m("aprs", "A gap is at least (minutes)", "Nothing heard this long while it moved: the trip "
+                                "ends there and the next begins, shown as a gap rather than a stop.", group="Trips"),
     "aprs.places": _m("aprs", "Places", "Named circles for the arrive and leave alerts (Settings → Alerts) and for naming "
                       "where a trip stopped: Home, Work, Cabin. Click the map to put the selected place there, or take "
                       "a tracked callsign's position. Only you see them.", group="Places"),

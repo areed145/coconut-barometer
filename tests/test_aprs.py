@@ -337,6 +337,40 @@ class IgateTest(unittest.TestCase):
         s, ev = step(s, False, 4)
         self.assertEqual((s["in"], ev, s["since"]), (False, "leave", 3))
 
+    def test_trips_between_stops_and_gaps(self):
+        from coconut_barometer.aprs.trips import split, stats
+        pts, t = [], NOW
+        def at(lat, lon=-97.0, dt=60, speed=None, alt=None):
+            nonlocal t
+            t += dt
+            pts.append({"ts": t, "lat": lat, "lon": lon, "speed": speed, "altitude": alt})
+        for _ in range(3):                                           # parked at A for 20 minutes
+            at(30.0, dt=600, speed=0)
+        for i in range(1, 11):                                       # 10 km north, a minute a km
+            at(30.0 + i * 0.009, speed=16.7)
+            if i == 5:
+                at(30.0 + i * 0.009, dt=120, speed=0)                # a traffic light: two minutes, part of the trip
+            if i == 7:
+                at(40.0, dt=1)                                       # a bad position: left out
+        for _ in range(4):                                           # parked at B for 30 minutes
+            at(30.09, dt=600, speed=0)
+        at(30.6, dt=3 * 3600)                                        # three hours later, 57 km on: a gap
+        for i in range(1, 4):
+            at(30.6 + i * 0.01, speed=18)
+        out = split(pts, 10 * 60, 30 * 60, lambda lat, lon: "Home" if abs(lat - 30.0) < 0.001 else None)
+        self.assertEqual(len(out["trips"]), 2)
+        first, second = out["trips"]
+        self.assertEqual((first["from_place"], first["to_place"]), ("Home", None))
+        self.assertAlmostEqual(first["km"], 10, delta=0.2)
+        self.assertEqual((first["start_ts"], first["end_ts"]), (pts[2]["ts"], pts[14]["ts"]))
+        self.assertAlmostEqual(first["top_ms"], 16.7)
+        self.assertEqual([(s["place"], s["to_ts"] - s["from_ts"]) for s in out["stops"]], [("Home", 1200), (None, 2400)])   # B: from arriving
+        self.assertEqual(len(out["gaps"]), 1)
+        self.assertEqual(second["start_ts"], out["gaps"][0]["to_ts"])
+        self.assertAlmostEqual(second["km"], 3.3, delta=0.1)
+        climb = stats([{"ts": i, "lat": 30, "lon": -97, "altitude": a} for i, a in enumerate((100, 101, 99, 110, 105, 120))])
+        self.assertEqual((climb["climb_m"], climb["km"], climb["avg_ms"]), (26, 0, None))
+
     def test_weibull_fit_recovers_its_range(self):
         # A Weibull with k=2, λ=30 km, binned at 2 km: its 90% distance is 30·ln(10)^(1/2) ≈ 45.5 km.
         k, lam, total, width = 2.0, 30.0, 100_000, bin_width(70)
@@ -416,6 +450,17 @@ class AprsApiTest(unittest.TestCase):
         self.assertEqual((sum(r["stations"]), sum(r["direct"]), r["effective_km"], r["overnight_drop"]), (4, 3, [None], None))
         self.assertEqual(self.c.get("/api/aprs/igate/range", params={"hours": 24 * 40, "step": "hour"}).status_code, 422)
         self.assertEqual(len(self.c.get("/api/aprs/igate/range", params={"hours": 24 * 40}).json()["overnight_drop"]), 1)
+
+    def test_trips(self):
+        visitor = self.c.get("/api/aprs/trips", params={"callsign": CALL, "hours": 24 * 7}).json()
+        self.assertEqual((visitor["callsign"], visitor["positions"]), (CALL, 3))
+        self.assertEqual(self.c.get("/api/aprs/trips", params={"callsign": "W1AW"}).status_code, 404)
+        self.c.app.state.runtime.cfg["aprs"]["places"] = [{"name": "Home", "lat": 30.27, "lon": -97.74, "radius_m": 500}]
+        self.c.app.state.runtime.cfg["aprs"]["trip_stop_minutes"] = 1
+        stops = lambda: self.c.get("/api/aprs/trips", params={"callsign": CALL, "hours": 24 * 7}).json()["stops"]
+        self.assertEqual({s["place"] for s in stops()}, {None})                  # visitors: no place names
+        self.login()
+        self.assertIn("Home", {s["place"] for s in stops()})
 
     def test_igate_stations(self):
         s = self.c.get("/api/aprs/igate/stations", params={"hours": 24}).json()

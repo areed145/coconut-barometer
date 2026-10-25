@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...aprs.igate import MIN_FIT, MIN_SECTOR, bin_width, weibull_fit
 from ...aprs.igate import home as where
+from ...aprs.places import named
+from ...aprs.trips import split
 from ..deps import runtime, store, viewer
 from .weather import _window
 
@@ -50,6 +52,31 @@ def packets(callsign: str, limit: int = Query(25, ge=1, le=500), rt=Depends(runt
     """The newest position packets, newest first, raw text included."""
     call = _tracked(rt, callsign)
     return {"callsign": call, "packets": db.aprs_packets(call, limit)}
+
+
+_trips: dict[tuple, dict] = {}      # a few recent splits: the page asks again every minute
+
+
+@router.get("/trips")
+def trips(callsign: str, start: int | None = None, end: int | None = None, hours: float = Query(24 * 7, gt=0, le=24 * 365),
+          rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """A tracked callsign's trips over the window (#120), newest first, with the stops between them and the gaps
+    where nothing was heard (aprs/trips.py). Stops and the ends of trips are named after Settings → APRS → Places
+    for a signed-in viewer only. A trip's positions are /track over its start and end."""
+    call = _tracked(rt, callsign)
+    start, end = _window(start, end, hours)
+    a = rt.cfg["aprs"]
+    points = db.aprs_track(call, start, end)
+    key = (rt.db_path, call, start // 60, end // 60, len(points), points[-1]["ts"] if points else 0, me is None,
+           a["trip_stop_minutes"], a["trip_gap_minutes"], repr(a.get("places")))
+    if key not in _trips:
+        if len(_trips) > 32:
+            _trips.clear()
+        name = (lambda lat, lon: named(rt.cfg, lat, lon)) if me is not None else (lambda lat, lon: None)
+        out = split(points, a["trip_stop_minutes"] * 60, a["trip_gap_minutes"] * 60, name)
+        _trips[key] = {k: v[::-1] for k, v in out.items()}
+    return {"callsign": call, "units": rt.cfg["display"]["units"], "start": start, "end": end, "positions": len(points),
+            "first_ts": points[0]["ts"] if points else None, **_trips[key]}
 
 
 # Grid cells for the igate map, (lat, lon) degrees: plain sizes, and Maidenhead subsquares and squares.
