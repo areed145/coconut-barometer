@@ -537,6 +537,17 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("for (const i of [index + step, index - step, index + 2 * step])", gallery)
         self.assertIn("if (frugal()) return;", gallery)                     # not on Save-Data or 2G
         self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded
+        self.assertIn("img.src = pick(n.sizes, SHOWN);", gallery)           # never the zoom sizes (Flickr throttles them)
+
+    def test_lightbox_touch_gestures(self):
+        """#129: swipe, pinch and double-tap on the photo; the mouse keeps click-to-zoom; no motion when reduced."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn('<div class=${"stage" + (zoom ? " zoomed" : "")} ...${touch.handlers}>', gallery)
+        self.assertIn("onClick=${() => touch.touched() || setZoom(!zoom)}", gallery)      # a tap isn't a click-to-zoom
+        self.assertIn("onPointerCancel: onPointerUp", gallery)
+        self.assertIn(".lightbox .stage { touch-action: none; }", css)                     # the page behind doesn't scroll
+        self.assertIn("@media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }", css)
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_justified_rows_fill_the_width(self):

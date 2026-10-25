@@ -203,6 +203,67 @@ function photoDetail(id) {
 }
 // On a metered or slow connection, don't fetch what may never be looked at.
 const frugal = () => { const c = navigator.connection; return !!c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || "")); };
+// The lightbox's image sizes, best first: as shown, and zoomed in.
+const SHOWN = ["b", "l", "c", "z", "w", "n"], ZOOMED = ["k", "h", "l", "b", "c", "z", "w", "n"];
+
+// Touch on the lightbox's photo (#129): swipe left or right for the next or previous photo and down to close; pinch or
+// double-tap to zoom, and drag to pan while zoomed. Returns the photo's transform. The mouse keeps click-to-zoom.
+const SWIPE = 60, CLOSE = 90, TAP = 10, DOUBLE = 300, MAX = 6;
+function useTouch({ onPrev, onNext, onClose, reset, off }) {
+  const [tf, setTf] = useState({ s: 1, x: 0, y: 0, live: false });
+  const g = useRef({ pts: new Map(), tf: { s: 1, x: 0, y: 0 }, tap: 0, touch: false });
+  const set = (t, live = false) => { g.current.tf = t; setTf({ ...t, live }); };
+  useEffect(() => set({ s: 1, x: 0, y: 0 }), [reset]);
+  const begin = (el) => {          // a gesture starts again whenever a finger is added or lifted
+    const s = g.current, r = el.getBoundingClientRect();
+    s.start = { pts: [...s.pts.values()].map((q) => ({ ...q })), tf: s.tf, c: { x: r.left + r.width / 2, y: r.top + r.height / 2 } };
+  };
+  const onPointerDown = (e) => {
+    g.current.touch = e.pointerType !== "mouse";
+    if (!g.current.touch || off || e.target.closest("button")) return;   // off: the mouse's zoom, which scrolls
+    e.currentTarget.setPointerCapture(e.pointerId);
+    g.current.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    g.current.moved = g.current.pts.size > 1;
+    begin(e.currentTarget);
+  };
+  const onPointerMove = (e) => {
+    const s = g.current;
+    if (!s.pts.has(e.pointerId)) return;
+    s.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [a, b] = s.pts.values(), [a0, b0] = s.start.pts, t0 = s.start.tf, c = s.start.c;
+    if (Math.hypot(a.x - a0.x, a.y - a0.y) > TAP) s.moved = true;
+    if (b && b0) {                 // pinch: scale about the point between the fingers, which follows them
+      const sc = Math.min(MAX, Math.max(1, t0.s * Math.hypot(b.x - a.x, b.y - a.y) / Math.max(1, Math.hypot(b0.x - a0.x, b0.y - a0.y))));
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, m0 = { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 };
+      set({ s: sc, x: m.x - c.x - (m0.x - c.x - t0.x) * sc / t0.s, y: m.y - c.y - (m0.y - c.y - t0.y) * sc / t0.s }, true);
+    } else if (t0.s > 1) set({ s: t0.s, x: t0.x + a.x - a0.x, y: t0.y + a.y - a0.y }, true);   // pan
+    else {                         // swipe: follow the finger along whichever way it's going
+      const dx = a.x - a0.x, dy = a.y - a0.y;
+      set(Math.abs(dx) > Math.abs(dy) ? { s: 1, x: dx, y: 0 } : { s: 1, x: 0, y: Math.max(0, dy) }, true);
+    }
+  };
+  const onPointerUp = (e) => {
+    const s = g.current;
+    if (!s.pts.delete(e.pointerId)) return;
+    if (s.pts.size) return begin(e.currentTarget);
+    const t = s.tf;
+    if (!s.moved) {                // a tap: two in quick succession zoom in on that point, or back out
+      const now = Date.now();
+      if (now - s.tap < DOUBLE) {
+        s.tap = 0;
+        const c = s.start.c, k = 2.5;
+        set(t.s > 1 ? { s: 1, x: 0, y: 0 } : { s: k, x: (e.clientX - c.x) * (1 - k), y: (e.clientY - c.y) * (1 - k) });
+      } else s.tap = now;
+      return;
+    }
+    if (t.s > 1.02) return set(t);                            // stays zoomed where it was left
+    if (t.x <= -SWIPE && onNext) onNext();
+    else if (t.x >= SWIPE && onPrev) onPrev();
+    else if (t.y >= CLOSE) return onClose();
+    set({ s: 1, x: 0, y: 0 });                                // too short: back into place
+  };
+  return { tf, touched: () => g.current.touch, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp } };
+}
 
 export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
   const p = photos[index];
@@ -241,10 +302,13 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", key); document.body.style.overflow = ""; };
   }, [index, photos.length]);
-  const prefs = zoom ? ["k", "h", "l", "b", "c", "z", "w", "n"] : ["b", "l", "c", "z", "w", "n"];
+  const touch = useTouch({ onPrev: index > 0 && (() => onIndex(index - 1)), onNext: index < photos.length - 1 && (() => onIndex(index + 1)),
+                          onClose, reset: p.id, off: zoom });
+  const { tf } = touch;
+  const prefs = zoom || tf.s > 1.5 ? ZOOMED : SHOWN;
   const big = pick(p.sizes, prefs);
   // Once this image is in, fetch the neighbours' (the next two the way we're going, one the other way) so the next
-  // arrow press shows a photo at once (#131). Not the zoom sizes unless zoomed: they're large.
+  // arrow press shows a photo at once (#131). Never the zoom sizes: they're large, and the next photo opens unzoomed.
   const preload = () => {
     const step = index < was.current ? -1 : 1;
     was.current = index;
@@ -254,16 +318,18 @@ export function Lightbox({ photos, index, onIndex, onClose, onNearEnd }) {
       if (!n) continue;
       const img = new Image();
       img.decoding = "async";
-      img.src = pick(n.sizes, prefs);
+      img.src = pick(n.sizes, SHOWN);
       photoDetail(n.id).catch(() => {});
     }
   };
   const d = detail, e = d?.engagement;
   const daily = timeline?.daily || [];
   return html`<div class=${"lightbox" + (info ? "" : " noinfo")} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
-    <div class=${"stage" + (zoom ? " zoomed" : "")}>
-      <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => setZoom(!zoom)} onLoad=${preload}
-           onError=${fallback(p.sizes, prefs)} />
+    <div class=${"stage" + (zoom ? " zoomed" : "")} ...${touch.handlers}>
+      <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => touch.touched() || setZoom(!zoom)} onLoad=${preload}
+           onError=${fallback(p.sizes, prefs)} class=${tf.live ? "live" : ""}
+           style=${{ transform: tf.s === 1 && !tf.x && !tf.y ? "" : `translate(${tf.x}px, ${tf.y}px) scale(${tf.s})`,
+                     opacity: tf.s === 1 && tf.y > 0 ? Math.max(0.4, 1 - tf.y / 400) : "" }} />
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>
       ${index > 0 && html`<button class="navbtn prev" onClick=${() => onIndex(index - 1)} aria-label="Previous">‹</button>`}
       ${index < photos.length - 1 && html`<button class="navbtn next" onClick=${() => onIndex(index + 1)} aria-label="Next">›</button>`}

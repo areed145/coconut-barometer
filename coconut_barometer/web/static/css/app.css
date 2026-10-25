@@ -386,6 +386,12 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox .stage.zoomed { overflow: auto; display: block; cursor: zoom-out; }
 .lightbox .stage img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; user-select: none; }
 .lightbox .stage.zoomed img { max-width: none; max-height: none; cursor: zoom-out; }
+/* touch (#129): the photo follows the fingers, then eases back into place or on to its new spot */
+.lightbox .stage { touch-action: none; }
+.lightbox .stage.zoomed { touch-action: auto; }
+.lightbox .stage img { transition: transform .2s ease-out, opacity .2s; will-change: transform; }
+.lightbox .stage img.live { transition: none; }
+@media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }
 .lightbox .navbtn, .lightbox .close { position: absolute; border: 0; background: rgba(0, 0, 0, .45); color: #fff; border-radius: var(--r-sm); padding: 0; }
 .lightbox .navbtn { top: 50%; transform: translateY(-50%); font-size: 28px; width: 46px; height: 64px; }
 .lightbox .navbtn.prev { left: calc(var(--s2) + var(--safe-l)); }
