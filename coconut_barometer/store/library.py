@@ -19,13 +19,19 @@ class LibraryStore(Database):
     def replace_library(self, photos: list[dict], albums: list[dict], memberships: Iterable[tuple[str, str]]):
         """Full sync: the whole library as just fetched."""
         with self.db:
-            self.db.execute("DELETE FROM photos")
-            self.db.execute("DELETE FROM albums")
+            self._delete_missing("photos", {p["id"] for p in photos})
+            self._delete_missing("albums", {a["id"] for a in albums})
             self._write_photos(photos)
             self._write_albums(albums)
             self._set_memberships("TRUE", (), set(memberships))
             self._snapshot()
         self.set_meta("last_sync", int(time.time()))
+
+    def _delete_missing(self, table: str, keep: set) -> None:
+        """Delete only the rows not in `keep`: the rest are upserted, so emptying the table first would make
+        DuckDB hold every row twice in the transaction (the out-of-memory error of a full sync, #157)."""
+        have = {r[0] for r in self.db.execute(f"SELECT id FROM {table}")}
+        self.db.executemany(f"DELETE FROM {table} WHERE id=?", [(i,) for i in sorted(have - keep)])
 
     def upsert_photos(self, photos: list[dict]) -> None:
         """Incremental sync: add new photos, update changed ones."""
