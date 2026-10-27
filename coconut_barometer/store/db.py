@@ -146,7 +146,10 @@ class Connection:
             marked, _ = _positional(sql, seq[0])
             seq = [_positional(sql, row)[1] for row in seq]
             sql = marked
-        return Result(self._run(sql, lambda: self.raw.executemany(sql, seq)))
+        for i in range(0, len(seq), 1000):      # in batches: one huge call holds every row's parameters at once
+            chunk = seq[i:i + 1000]
+            result = Result(self._run(sql, lambda: self.raw.executemany(sql, chunk)))
+        return result
 
     def executescript(self, sql):
         for statement in sql.split(";"):
