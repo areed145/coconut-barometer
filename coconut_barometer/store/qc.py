@@ -44,6 +44,24 @@ class QcStore(Database):
             for r in rows:
                 self.db.execute("INSERT INTO qc_glm VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", r)
 
+    def qc_save_glm_cover(self, start: int, end: int) -> None:
+        """[start, end] was watched for GLM flashes (#159): the newest span stretched if it reaches start, else a new
+        one. The first span takes in the flashes kept before coverage was tracked (from the oldest of them)."""
+        last = self.db.execute('SELECT start, "end" FROM qc_glm_cover ORDER BY start DESC LIMIT 1').fetchone()
+        with self.db:
+            if last is None:
+                first = self.db.execute("SELECT min(ts) FROM qc_glm").fetchone()[0]
+                self.db.execute("INSERT INTO qc_glm_cover VALUES (?, ?)", (min(start, first if first is not None else start), end))
+            elif last[1] >= start:
+                self.db.execute('UPDATE qc_glm_cover SET "end" = ? WHERE start = ?', (max(last[1], end), last[0]))
+            else:
+                self.db.execute("INSERT INTO qc_glm_cover VALUES (?, ?)", (start, end))
+
+    def qc_glm_cover(self, start: int, end: int) -> list[tuple[int, int]]:
+        """The spans GLM was watched that overlap [start, end]: (start, end), oldest first."""
+        return [tuple(r) for r in self.db.execute('SELECT start, "end" FROM qc_glm_cover WHERE "end" >= ? AND start <= ? '
+                                                  "ORDER BY start", (start, end)).fetchall()]
+
     def qc_save_alerts(self, device_id: int, alerts: list[dict], now: int) -> None:
         """The NWS alerts covering the station now: new ones added, ones still in effect seen again."""
         with self.db:
@@ -77,6 +95,7 @@ class QcStore(Database):
             for name, table in TABLES.items():
                 self.db.execute(f"DELETE FROM {table} WHERE {'last_seen' if name == 'alerts' else 'ts'} < ?", (before,))
             self.db.execute("DELETE FROM qc_fronts WHERE valid < ?", (before,))
+            self.db.execute('DELETE FROM qc_glm_cover WHERE "end" < ?', (before,))
             self.db.execute("DELETE FROM qc_runs WHERE run_at < ?", (before,))
             self.db.execute('DELETE FROM qc_flags WHERE "end" < ?', (before,))
 

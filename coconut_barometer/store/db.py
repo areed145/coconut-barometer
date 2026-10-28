@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS wx_events (device_id BIGINT, ts BIGINT, kind TEXT, va
 CREATE TABLE IF NOT EXISTS qc_rtma (device_id BIGINT, ts BIGINT, hgt DOUBLE, pres DOUBLE, t DOUBLE, td DOUBLE, u DOUBLE, v DOUBLE, gust DOUBLE, tcdc DOUBLE, PRIMARY KEY (device_id, ts));
 CREATE TABLE IF NOT EXISTS qc_radar (device_id BIGINT, ts BIGINT, dbz DOUBLE, dbz_near DOUBLE, PRIMARY KEY (device_id, ts));
 CREATE TABLE IF NOT EXISTS qc_glm (device_id BIGINT, ts BIGINT, lat DOUBLE, lon DOUBLE, km DOUBLE, bearing DOUBLE, PRIMARY KEY (device_id, ts, lat, lon));
+CREATE TABLE IF NOT EXISTS qc_glm_cover (start BIGINT PRIMARY KEY, "end" BIGINT);
 CREATE TABLE IF NOT EXISTS qc_alerts (device_id BIGINT, id TEXT, event TEXT, onset BIGINT, ends BIGINT, first_seen BIGINT, last_seen BIGINT, PRIMARY KEY (device_id, id));
 CREATE TABLE IF NOT EXISTS qc_fronts (valid BIGINT PRIMARY KEY, analysis TEXT);
 CREATE TABLE IF NOT EXISTS qc_flags (device_id BIGINT, suite TEXT, start BIGINT, "end" BIGINT, what TEXT);

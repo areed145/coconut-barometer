@@ -11,6 +11,10 @@ with a GLM flash within MATCH_S seconds at about its distance (DIST_KM, or DIST_
                      nothing: a sensor gone deaf
     distance bias    the station's distance minus GLM's, over the matched strikes; each gets GLM's bearing too
 
+Only strikes GLM was watched around (MATCH_S either side, sampler.py's coverage spans, #159) are judged: the station's
+history reaches back past when GLM was first kept, and the sampler isn't running through a restart; a strike then isn't
+interference, it's just unknown (counted apart, "uncovered"). A storm period still counts as heard by any strike.
+
 GLM sees in-cloud flashes too and misses some (more by day), and the Tempest hears through the cloud, so neither
 rate is expected near 100%: the thresholds are loose."""
 from __future__ import annotations
@@ -37,7 +41,9 @@ def _flags(times: list[int], what: str, join: int = QUIET_S) -> list[tuple]:
 
 def lightning(store, station, start, end, cfg) -> dict:
     q = cfg["qc"]
-    strikes = store.qc_strikes(station["device_id"], start, end)
+    cover = store.qc_glm_cover(start - MATCH_S, end + MATCH_S)
+    every = store.qc_strikes(station["device_id"], start, end)
+    strikes = [s for s in every if any(a <= s[0] - MATCH_S and s[0] + MATCH_S <= b for a, b in cover)]
     flashes = store.qc_glm_flashes(station["device_id"], start - QUIET_S, end + QUIET_S)
     times = [f[0] for f in flashes]
 
@@ -57,7 +63,7 @@ def lightning(store, station, start, end, cfg) -> dict:
     for ts, km, _ in flashes:
         if start <= ts <= end and km <= MISS_KM:
             bins[ts // BIN_S] = bins.get(ts // BIN_S, 0) + 1
-    heard = {ts // BIN_S for ts, _ in strikes}
+    heard = {ts // BIN_S for ts, _ in every}
     for b, n in sorted(bins.items()):
         if n >= STORM_FLASHES:
             storms += 1
@@ -69,16 +75,21 @@ def lightning(store, station, start, end, cfg) -> dict:
     false = len(unconfirmed) / n if n else None
     miss = len(missed) / storms if storms else None
     bias = sum(s - g for _, s, g, _ in matched) / len(matched) if matched else None
-    metrics = {"strikes": n, "matched": len(matched), "unconfirmed": len(unconfirmed), "storms": storms, "missed": len(missed),
+    metrics = {"strikes": n, "uncovered": len(every) - n, "matched": len(matched), "unconfirmed": len(unconfirmed),
+               "storms": storms, "missed": len(missed),
                "hit_rate": None if hit is None else round(hit, 3), "false_rate": None if false is None else round(false, 3),
                "miss_rate": None if miss is None else round(miss, 3), "distance_bias": None if bias is None else round(bias, 2),
                "newest_matched": [{"ts": ts, "km": km, "glm_km": g, "bearing": b} for ts, km, g, b in matched[-KEEP_MATCHED:]],
-               "show": [["strikes", n, "count"], ["nearby storm periods", storms, "count"]]}
+               "show": [["strikes", n, "count"], ["confirmed by GLM", len(matched), "count"],
+                        ["nearby storm periods", storms, "count"]]}
+    if len(every) > n:
+        metrics["show"].append(["strikes outside GLM coverage, not judged", len(every) - n, "count"])
     flags = _flags(unconfirmed, "strikes with no lightning in reach") + [(t, t + BIN_S, "lightning nearby, none heard") for t in missed]
     judged = []
     if n >= MIN_STRIKES:
         judged.append(0 if false < q["lightning_false_warn"] else 1 if false < q["lightning_false_fail"] else 2)
-        metrics["show"] = [["confirmed by GLM", hit * 100, "pct"], ["with no lightning in reach", false * 100, "pct"]]
+        metrics["show"] = [[f"confirmed by GLM ({len(matched)} of {n})", hit * 100, "pct"],
+                           ["with no lightning in reach", false * 100, "pct"]]
         if bias is not None:
             metrics["show"].append(["distance against GLM", bias, "km"])
     if storms >= MIN_STORMS:

@@ -189,6 +189,8 @@ class QcService:
                     rows.append((s["device_id"], int(ts), round(float(la), 2), round(float(lo), 2), round(float(d), 2), round(float(b), 1)))
         if rows:
             store.qc_save_glm(rows)
+        if data["newest"] is not None and data["newest"] + 20 > now - GLM_LATE:     # a stale feed watches nothing
+            store.qc_save_glm_cover(int(now - GLM_LATE), int(data["newest"]) + 20)
 
     def _alerts(self, store, stations, now) -> None:
         if now < self._next["alerts"]:
