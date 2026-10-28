@@ -672,6 +672,13 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("<${PointsMap} points=${tripPoints} />", gallery)
         self.assertIn("<dt>Part of</dt>", gallery)
 
+    def test_an_album_has_a_map_of_its_photos(self):
+        """#170: an album shows its geotagged photos on a map above its gallery, as a trip does."""
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        self.assertIn('api("/api/map/points", { params: { album: f.album } })', gallery)
+        self.assertIn("<${PointsMap} points=${albumPoints} />", gallery)
+        self.assertIn("{ renderer, radius: 5", open(os.path.join(STATIC, "js", "leaflet.js")).read())   # thousands, one canvas
+
     def test_lightbox_slideshow(self):
         """#130: S or the button plays; the next photo after the chosen seconds; held on hover and in a hidden tab; stops at the end."""
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
