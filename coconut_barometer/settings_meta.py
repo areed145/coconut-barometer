@@ -48,8 +48,8 @@ META = {
     "flickr.api_key": _m("connections", "API key", "From flickr.com/services/apps/create.", group="Flickr"),
     "flickr.api_secret": _m("connections", "API secret", group="Flickr"),
     "vision.provider": _m("connections", "Provider", "claude / anthropic, openai, or ollama (local).", group="Vision model"),
-    "vision.model": _m("connections", "Model", "e.g. claude-haiku-5-5 (cheapest) or claude-sonnet-5-5.",
-                       group="Vision model"),
+    "vision.model": _m("connections", "Model", "The models the provider offers that take images. Haiku is the "
+                       "cheapest. A model the provider says it doesn't have isn't saved.", group="Vision model"),
     "vision.api_key": _m("connections", "API key", "Anthropic (or OpenAI) key. Not needed for Ollama.",
                          group="Vision model"),
     "vision.base_url": _m("connections", "Server URL", "Only for Ollama or another OpenAI-compatible server.",

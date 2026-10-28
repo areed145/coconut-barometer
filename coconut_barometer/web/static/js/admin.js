@@ -210,10 +210,28 @@ function SecretField({ s, onSaved }) {
   </div>`;
 }
 
-function Field({ s, value, dirty, onChange, onReset, albums, onSaved }) {
+// The vision model (#167): chosen from the provider's own list, so a typo or a retired model isn't saved unseen. The
+// list is the saved provider's: with the provider or server URL changed and not saved yet, the model is typed.
+function ModelField({ s, value, onChange, disabled, pending }) {
+  const [list, setList] = useState(null);
+  useEffect(() => { api("/api/admin/vision/models").then(setList).catch((e) => setList({ models: [], error: e.message })); }, [s]);
+  const text = html`<input type="text" value=${value ?? ""} disabled=${disabled} onInput=${(e) => onChange(e.target.value)} />`;
+  if (pending) return html`<div>${text}<div class="why">Save the provider first to choose from its models.</div></div>`;
+  if (!list) return text;
+  if (!list.models.length) return html`<div>${text}${list.error && html`<div class="why">Couldn't list the models: ${list.error}</div>`}</div>`;
+  const chosen = list.models.find((m) => m.id === value);
+  return html`<div><select value=${value} disabled=${disabled} onChange=${(e) => onChange(e.target.value)}>
+      ${list.models.map((m) => html`<option value=${m.id}>${m.label === m.id ? m.id : `${m.label} (${m.id})`}</option>`)}</select>
+    ${chosen?.missing && html`<div class="why">⚠ The provider doesn't offer ${value} now: classifying will fail until another is chosen.</div>`}
+    ${list.source === "built-in" && html`<div class="why">The provider couldn't be asked (${list.error}), so these are the usual Claude models.</div>`}
+  </div>`;
+}
+
+function Field({ s, value, dirty, onChange, onReset, albums, onSaved, pending }) {
   const disabled = !!s.locked;
   let input;
-  if (s.path === "theme.radar_colors") input = html`<${StopsField} value=${value} onChange=${onChange} disabled=${disabled} />`;
+  if (s.path === "vision.model") input = html`<${ModelField} s=${s} value=${value} onChange=${onChange} disabled=${disabled} pending=${pending} />`;
+  else if (s.path === "theme.radar_colors") input = html`<${StopsField} value=${value} onChange=${onChange} disabled=${disabled} />`;
   else if (s.path === "theme.lightning_colors") input = html`<${StopsField} value=${value} onChange=${onChange} disabled=${disabled}
       k="min" unit="min ago" top=${15} gap=${3} />`;
   else if (s.kind === "secret") input = html`<${SecretField} s=${s} onSaved=${onSaved} />`;
@@ -504,7 +522,8 @@ export function Admin({ at }) {
           ${s.group && (newPart || s.group !== shown[i - 1]?.group) && html`<h3 class="group" key=${"g" + s.part + s.group}>${s.group}</h3>`}
           <${Field} key=${s.path} s=${s} albums=${data.albums}
             value=${edits[s.path] !== undefined ? edits[s.path] : s.value} dirty=${edits[s.path] !== undefined}
-            onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded} />`;
+            onChange=${(v) => setEdits({ ...edits, [s.path]: v })} onReset=${() => save([s.path])} onSaved=${loaded}
+            pending=${edits["vision.provider"] !== undefined || edits["vision.base_url"] !== undefined} />`;
         })}`}
     </div>
     ${(dirty > 0 || errors.length > 0) && html`<div class="savebar">

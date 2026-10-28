@@ -16,6 +16,7 @@ from ... import settings as S
 from ...config import read_raw
 from ...errors import caught
 from ...settings_meta import SECTIONS
+from ...vision.models import choices
 from ..deps import client_ip, runtime, session, store
 from ..security import COOKIE, MIN_PASSWORD, hash_password, token_hash, verify_password
 
@@ -62,10 +63,24 @@ def get_settings(rt=Depends(runtime), db=Depends(store)):
     return _payload(rt, db)
 
 
+@router.get("/vision/models")
+def vision_models(rt=Depends(runtime)):
+    """The models the saved vision provider offers, for the model dropdown (#167)."""
+    return choices(rt.vision_models, rt.cfg["vision"])
+
+
+VISION_MODEL = ("vision.provider", "vision.model", "vision.base_url")
+
+
 @router.put("/settings")
 def put_settings(body: SettingsChange, sess=Depends(session), rt=Depends(runtime), db=Depends(store)):
     if not rt.cfg_path:
         raise HTTPException(409, "settings can't be edited in this session (no config file)")
+    if any(p in body.changes for p in VISION_MODEL):     # a model the provider says it hasn't: not saved (#167)
+        vcfg = {**rt.cfg["vision"], **{p.split(".")[1]: body.changes[p] for p in VISION_MODEL if p in body.changes}}
+        typed = all(isinstance(vcfg[k], str) for k in ("provider", "model")) and isinstance(vcfg["base_url"], (str, type(None)))
+        if typed and (problem := rt.vision_models.problem(vcfg)):     # otherwise, validation says what's wrong
+            raise HTTPException(422, [problem])
     try:
         out = S.save(rt.cfg_path, read_raw(rt.cfg_path), db, body.changes, body.reset, sess["username"])
     except S.SettingsError as e:

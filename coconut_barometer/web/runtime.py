@@ -22,6 +22,7 @@ from ..weather.service import WeatherService
 from ..weather.snapshot import Snapshots
 from ..aprs.service import AprsService
 from ..store import Store
+from ..vision.models import Models
 from ..visitors import Visitors
 from .security import LoginThrottle
 
@@ -46,6 +47,7 @@ class Runtime:
         self.qc = QcService(cfg, self.radar)          # station QC's reference samples and checks (#105)
         self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar, self.aprs.igate, self.aprs.hub.snapshot)
         self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
+        self.vision_models = Models()                 # the vision provider's models, for Settings (#167)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
         self._stop = threading.Event()
