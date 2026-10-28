@@ -177,9 +177,37 @@ class AdminApiTest(Base):
                               cfg_path=self.cfg_path, client_factory=lambda c: self.clients.append(c["flickr"]["api_key"]) or FakeFlickr())
         self.c = TestClient(self.app, base_url="https://testserver")
         self.h = {"X-CSRF-Token": self.c.post("/api/auth/login", json={"username": "owner", "password": PASSWORD}).json()["csrf"]}
+        self.app.state.runtime.vision_models = FakeModels()
 
     def setting(self, payload, path):
         return next(s for s in payload["settings"] if s["path"] == path)
+
+    def test_the_model_is_chosen_from_the_providers_list(self):
+        """#167: the dropdown lists the provider's models; one it says it hasn't isn't saved."""
+        r = self.c.get("/api/admin/vision/models").json()
+        self.assertEqual(([m["id"] for m in r["models"]], r["source"], r["current"]), (["from-file", "m1", "m2"], "provider", "from-file"))
+        self.assertTrue(r["models"][0]["missing"])                         # the saved one, which it doesn't list: still there
+        bad = self.c.put("/api/admin/settings", json={"changes": {"vision.model": "claude-haiku-5.5"}}, headers=self.h)
+        self.assertEqual(bad.status_code, 422)
+        self.assertEqual(bad.json()["detail"], ["vision.model: no model 'claude-haiku-5.5'"])
+        self.assertEqual(self.app.state.runtime.cfg["vision"]["model"], "from-file")              # not saved
+        self.assertEqual(self.c.put("/api/admin/settings", json={"changes": {"vision.model": "m2"}}, headers=self.h).status_code, 200)
+        self.assertEqual(self.app.state.runtime.vision_models.asked[-1]["model"], "m2")
+        self.c.put("/api/admin/settings", json={"changes": {"review.when_queued": "queue"}}, headers=self.h)
+        self.assertEqual(len(self.app.state.runtime.vision_models.asked), 2)                     # only when it changes
+        self.assertEqual(self.c.put("/api/admin/settings", json={"changes": {"vision.model": 5}}, headers=self.h).status_code, 422)
+
+
+class FakeModels:
+    def __init__(self):
+        self.asked = []
+
+    def available(self, vcfg):
+        return [{"id": "m1", "label": "m1"}, {"id": "m2", "label": "Model Two"}]
+
+    def problem(self, vcfg):
+        self.asked.append(vcfg)
+        return None if vcfg["model"] in ("m1", "m2") else f"vision.model: no model {vcfg['model']!r}"
 
     def test_settings_page_never_shows_keys(self):
         r = self.c.get("/api/admin/settings")
