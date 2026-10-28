@@ -103,6 +103,7 @@ export function AlertPage({ at, alertKey }) {
   const held = alert.deliveries.find((d) => d.status === "suppressed");
   const rows = Object.entries(e).filter(([k, v]) => label(k) && v != null && v !== "");
   return html`
+    <a href="#/alerts">← Alerts</a>
     <h1 class="title">${alert.title}</h1>
     <p>${alert.body}</p>
     <p class="muted">${when(alert.at)} · ${held ? html`<b class="problem">held back</b>: ${held.detail}`

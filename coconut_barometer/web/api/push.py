@@ -1,4 +1,5 @@
-"""Settings → Alerts: turning notifications on and off for a device, and a test. Signed-in only.
+"""Settings → Alerts: turning notifications on and off for a device, and a test; the Alerts page's sent alerts (#168)
+and one alert's own page (#73). Signed-in only.
 
 GET /api/push: the key a browser subscribes with, and the devices turned on. POST /api/push/subscribe with the
 browser's PushSubscription (and a name for the device), /api/push/unsubscribe with a device's id, and
@@ -33,9 +34,10 @@ def devices(db=Depends(store)):
 
 
 @router.get("/history")
-def history(db=Depends(store)):
-    """The most recent alert contexts and per-device delivery outcomes."""
-    return {"alerts": db.alert_log_recent()}
+def history(before: str | None = Query(None, pattern=r"^\d{1,12}-\d{1,18}$"), kind: str | None = Query(None, max_length=20),
+            failed: bool = False, limit: int = Query(50, ge=1, le=200), db=Depends(store)):
+    """The Alerts page (#168): one row per alert, newest first, each with its deliveries; `next` pages back."""
+    return db.alert_log_alerts(limit, before, kind or None, failed)
 
 
 @router.get("/alert")
