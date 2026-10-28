@@ -311,10 +311,8 @@ const deviceName = () => {
 
 function AlertsPanel() {
   const [d, setD] = useState(null);
-  const [history, setHistory] = useState([]);
   const [mine, setMine] = useState(null);       // this browser's subscription's device id, if it's on
   const [busy, setBusy] = useState(false);
-  const loadHistory = () => api("/api/push/history").then((x) => setHistory(x.alerts)).catch(() => {});
   const load = async () => {
     const data = await api("/api/push");
     setD(data);
@@ -328,7 +326,6 @@ function AlertsPanel() {
     return data.devices.some((x) => x.id === hash) ? hash : null;
   };
   useEffect(() => { load().catch((e) => toast(e.message)); }, []);
-  useEffect(() => every(loadHistory, 60000), []);
   const on = async () => {
     setBusy(true);
     try {
@@ -369,19 +366,7 @@ function AlertsPanel() {
         <span>${x.label}${x.id === mine ? html` <span class="muted">(this one)</span>` : ""} <span class="muted">· ${x.username} · since ${day(x.added)}</span></span>
         <button class="link" onClick=${() => off(x.id)} disabled=${busy}>Remove</button></div>`)}
       <button onClick=${test}>Send a test to all</button>`}
-  </div>
-  <div class="card"><h2>Recent notifications</h2>
-    <p class="why">Delivery attempts, the measurements or radar details behind each alert, and a link to its chart or map.</p>
-    ${!history.length ? html`<p class="muted">No alert notifications have been sent yet.</p>` : html`
-      <div class="alert-history">${history.map((x) => html`<article class="alert-log" key=${`${x.at}-${x.device_id}-${x.alert_key}`}>
-        <div class="alert-log-head"><b>${x.title}</b><span class=${x.status === "sent" ? "up" : "problem"}>${x.status}</span></div>
-        <p>${x.body}</p>
-        <p class="muted">${new Date(x.at * 1000).toLocaleString()} · ${x.device_label} · ${x.username}</p>
-        ${Object.keys(x.evidence || {}).length > 0 && html`<p class="alert-evidence">${Object.entries(x.evidence).filter(([k]) => k !== "link").map(([k, v]) =>
-          html`<span>${k.replaceAll("_", " ")}: ${String(v)}</span>`)}</p>`}
-        ${x.detail && html`<p class="problem">${x.detail}</p>`}
-        <a href=${x.url}>View chart or map</a>
-      </article>`)}</div>`}
+    <p><a href="#/alerts">See sent alerts →</a></p>
   </div>`;
 }
 

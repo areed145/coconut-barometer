@@ -634,10 +634,14 @@ button.svc.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--a
   font-size: var(--text-sm); flex-wrap: wrap; }
 .sessionrow:first-of-type, .logrow:first-of-type { border-top: 0; }
 .logrow { justify-content: flex-start; overflow-wrap: anywhere; }
-.alert-history { display: grid; gap: var(--s3); }
-.alert-log { border-top: 1px solid var(--line); padding-top: var(--s3); }
-.alert-log-head { display: flex; justify-content: space-between; gap: var(--s2); }
-.alert-log p { margin: var(--s1) 0; }
+.alerts-log td { vertical-align: top; }
+.alerts-log td.nowrap { white-space: nowrap; }
+@media (max-width: 720px) {     /* a phone: each alert a block, its cells one under another */
+  .alerts-log thead { display: none; }
+  .alerts-log tr { display: block; border-top: 1px solid var(--line); padding: var(--s2) 0; }
+  .alerts-log td { display: block; border-top: 0; padding: 2px var(--s2); }
+  .alerts-log td.nowrap { white-space: normal; }
+}
 .alertmap { height: 360px; }
 .alert-evidence { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); color: var(--muted); font-size: var(--text-xs); }
 .savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap;

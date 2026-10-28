@@ -560,11 +560,20 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('section === "connections" && html`<${FlickrPanel} />`', admin)
         self.assertIn('newPart && s.part === "Sync" && html`<${SyncPanel} />`', admin)
         self.assertIn('section === "aprs" && html`<${AprsStream} />`', admin)
-        self.assertIn('api("/api/push/history")', admin)
-        self.assertIn("<h2>Recent notifications</h2>", admin)
-        self.assertIn('<a href=${x.url}>View chart or map</a>', admin)
-        self.assertIn("String(v)", admin)
         self.assertIn('location.replace("#/settings/" + id)', admin)   # the section is in the address
+
+    def test_sent_alerts_are_a_page_of_their_own(self):
+        """#168: Settings → Alerts keeps the thresholds and devices; the alerts sent are #/alerts, one row per alert."""
+        js = lambda name: open(os.path.join(STATIC, "js", name)).read()
+        admin, main, page = js("admin.js"), js("main.js"), js("alerts_log.js")
+        self.assertNotIn("/api/push/history", admin)                       # Settings no longer loads them
+        self.assertIn('<a href="#/alerts">See sent alerts →</a>', admin)
+        self.assertIn('href="#/alerts" onClick=${() => setOpen(false)}>Alerts</a>', main)
+        self.assertIn(": route[1] ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`", main)
+        self.assertIn(": html`<${AlertsLog} />`;", main)
+        self.assertIn('api("/api/push/history", { params: { kind: f.kind, failed: f.failed || "", before: before || "" } })', page)
+        self.assertIn("<${Devices} deliveries=${x.deliveries} />", page)
+        self.assertIn('<a href="#/alerts">← Alerts</a>', js("alert_page.js"))
 
     def test_visitors_is_a_page_of_its_own(self):
         """Visitors (#83) counts the whole site, so it's a signed-in page of its own, not a tab of Photos → Analytics."""

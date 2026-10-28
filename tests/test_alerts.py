@@ -320,16 +320,37 @@ class PushApiTest(Base):
         self.assertEqual(self.c.get("/api/push").status_code, 401)
         self.assertEqual(self.c.get("/api/push/history").status_code, 401)
 
-    def test_history_returns_alert_evidence_for_signed_in_users(self):
-        self.store.alert_log_add(
-            123, {"key": "gust:11", "title": "Gust", "body": "Wind", "url": "/#/weather/map",
-                  "evidence": {"gust_ms": 20.0}},
-            {"id": "push-id", "label": "Phone", "username": "owner"}, "sent")
-        self.assertEqual(self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"}).status_code, 200)
-        response = self.c.get("/api/push/history")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["alerts"][0]["evidence"], {"gust_ms": 20.0})
-        self.assertEqual(response.json()["alerts"][0]["status"], "sent")
+    def test_history_is_one_row_per_alert_with_its_devices(self):
+        """#168: an alert sent to 3 devices is one row with 3 deliveries; filtered by type or failures, paged by alert."""
+        gust ={"key": "gust:11", "title": "Gust of 72 km/h at Backyard", "body": "Gust 72 km/h.", "url": "/#/alerts/100/gust%3A11",
+                "evidence": {"device_id": 11, "gust_ms": 20.0, "link": "/#/weather/history"}}
+        for label, status, detail in (("iPhone", "sent", ""), ("Mac", "sent", ""), ("iPad", "removed", "subscription expired")):
+            self.store.alert_log_add(100, gust, {"id": label, "label": label, "username": "owner"}, status, detail)
+        heard = {"key": "callsign:KK6GPV-9", "title": "KK6GPV-9 heard", "body": "First packet in 6 h.", "url": "/#/alerts/200/x",
+                 "evidence": {"callsign": "KK6GPV-9"}}
+        for at in (200, 300):
+            self.store.alert_log_add(at, heard, {"id": "iPhone", "label": "iPhone", "username": "owner"}, "sent")
+        self.store.alert_log_add(300, {**heard, "key": "callsign:KK6GPV-7"}, {"id": "iPhone", "label": "iPhone", "username": "owner"}, "sent")
+        self.store.alert_log_add(50, {**heard, "key": "record"}, {"id": "iPhone", "label": "iPhone", "username": "owner"}, "sent")   # logged late
+        self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
+        r = self.c.get("/api/push/history").json()
+        self.assertEqual([(x["at"], x["key"], x["subject"]) for x in r["alerts"]],
+                         [(300, "callsign:KK6GPV-7", "KK6GPV-9"), (300, "callsign:KK6GPV-9", "KK6GPV-9"),
+                          (200, "callsign:KK6GPV-9", "KK6GPV-9"), (100, "gust:11", "Backyard"), (50, "record", "KK6GPV-9")])
+        self.assertEqual([(d["device_label"], d["status"]) for d in r["alerts"][3]["deliveries"]],
+                         [("iPhone", "sent"), ("Mac", "sent"), ("iPad", "removed")])
+        self.assertEqual((r["alerts"][3]["kind"], r["alerts"][3]["evidence"]["gust_ms"]), ("gust", 20.0))
+        self.assertIsNone(r["next"])
+        self.assertEqual([x["at"] for x in self.c.get("/api/push/history", params={"kind": "gust"}).json()["alerts"]], [100])
+        self.assertEqual([x["at"] for x in self.c.get("/api/push/history", params={"failed": True}).json()["alerts"]], [100])
+        seen, before = [], None
+        while True:                                                        # two at a time, splitting the two at 300
+            page = self.c.get("/api/push/history", params={"limit": 1 if not seen else 2, **({"before": before} if before else {})}).json()
+            seen += [(x["at"], x["key"]) for x in page["alerts"]]
+            if not (before := page["next"]):
+                break
+        self.assertEqual(seen, [(x["at"], x["key"]) for x in r["alerts"]])
+        self.assertEqual(self.c.get("/api/push/history", params={"before": "x"}).status_code, 422)
 
     def test_an_alert_has_its_own_page(self):
         """#73: the notification opens #/alerts/<at>/<key>; /api/push/alert gives it, with every device's delivery."""

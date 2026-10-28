@@ -33,6 +33,7 @@ const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
 const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
+const AlertsLog = lazy(() => import("./alerts_log.js"), "AlertsLog");
 const Aprs = lazy(() => import("./aprs.js"), "Aprs");
 const Igate = lazy(() => import("./igate.js"), "Igate");
 const AprsTrips = lazy(() => import("./aprs_trips.js"), "AprsTrips");
@@ -85,6 +86,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
       onClick=${() => setOpen(!open)}>☰</button>
     ${open && (username ? html`<div class="menu-pop" role="menu">
       <div class="who muted">${username}</div>
+      <a role="menuitem" href="#/alerts" onClick=${() => setOpen(false)}>Alerts</a>
       <a role="menuitem" href="#/settings" onClick=${() => setOpen(false)}>Settings</a>
       <button class="link" role="menuitem" onClick=${onLogout}>Sign out</button>
     </div>` : html`<div class="menu-pop" role="menu">
@@ -153,8 +155,9 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "visitors") page = html`<${Visitors} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
-  else if (tab === "alerts") page = session ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`   // where an alert opens (#73)
-    : html`<${Login} onLogin=${onLogin} />`;
+  else if (tab === "alerts") page = !session ? html`<${Login} onLogin=${onLogin} />`
+    : route[1] ? html`<${AlertPage} at=${route[1]} alertKey=${route[2]} />`   // where an alert opens (#73)
+    : html`<${AlertsLog} />`;                                                  // every alert sent (#168)
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))
     || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1]))))
@@ -185,7 +188,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
         ${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
-        <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings"} />
+        <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings" || tab === "alerts"} />
       </div>
     </header>
     <${OfflineNote} />
