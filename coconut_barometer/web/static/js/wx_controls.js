@@ -7,8 +7,8 @@ import { html, useState, useEffect, useRef, toast } from "./lib.js";
 const PREFS = "cb-wxmap-layers", FOLLOW = "cb-wxmap-follow";
 // The lightning's style (smooth, blobs or dots) is gone with the choice (#146): it's dots, and a saved one is ignored.
 export const DEFAULT_LAYERS = { radar: true, storms: true, hazards: true, hazardsMinor: false, fronts: false, glm: true,
-  rings: true, temp: false, dewpoint: false, humidity: false, wind: false, sat: "", radarOpacity: 0.85, satOpacity: 0.9,
-  tempOpacity: 0.6, basemap: "auto" };
+  rings: true, temp: false, dewpoint: false, humidity: false, wind: false, rain: "", sat: "", radarOpacity: 0.85, satOpacity: 0.9,
+  tempOpacity: 0.6, rainOpacity: 0.7, basemap: "auto" };
 export function loadLayers() {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS) || "{}");
@@ -199,6 +199,8 @@ export function useMapTools(map, ready, wrap) {
 export const mapboxClass = (fullscreen, extra = "") => `${extra ? extra + " " : ""}mapbox${fullscreen.full ? " full " + fullscreen.full : ""}`;
 
 // ---- the Layers panel -------------------------------------------------------------------------------------------
+// The rain total's periods (qpe.py HOURS), in hours.
+const RAIN = [["", "None"], ...["1", "3", "6", "12", "24", "48", "72"].map((h) => [h, `${h} h`])];
 const SATS = [["", "None"], ["geocolor", "Color"], ["infrared", "Infrared"]];
 const BASEMAPS = [["auto", "Auto (theme)"], ["light", "Light"], ["dark", "Dark"]];
 const FOCUSABLE = "button, input, a[href]";
@@ -206,7 +208,7 @@ const FOCUSABLE = "button, input, a[href]";
 // What's on, for the closed button.
 export const layersSummary = (l) => [l.radar && "Radar", l.storms && "Storms", l.hazards && "Warnings", l.fronts && "Fronts",
   l.glm && "Lightning", l.rings && "Strikes", l.temp && "Temp", l.dewpoint && "Dew point", l.humidity && "Humidity",
-  l.wind && "Wind", l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
+  l.wind && "Wind", l.rain && `Rain ${l.rain} h`, l.sat && "Sat"].filter(Boolean).join(" · ") || "None";
 
 export function LayersPanel({ layers, set, strikes, legend, notes }) {
   const [open, setOpen] = useState(false);
@@ -267,6 +269,10 @@ export function LayersPanel({ layers, set, strikes, legend, notes }) {
         ${check("dewpoint", "Dew point")}
         ${check("humidity", "Relative humidity")}
         ${check("wind", "Surface wind")}
+        <h3>Rain total</h3>
+        <div class="wxrow"><span class="wxradios" role="radiogroup" aria-label="Rain total">${RAIN.map(([k, l]) => html`<label key=${k}>
+          <input type="radio" name="wxrain" checked=${layers.rain === k} onChange=${() => set({ rain: k })} /><span>${l}</span></label>`)}</span>
+          ${slider("rainOpacity", "Rain total opacity", !layers.rain)}</div>
         <h3>Satellite</h3>
         <div class="wxrow"><span class="wxradios" role="radiogroup" aria-label="Satellite">${SATS.map(([k, l]) => html`<label key=${k}>
           <input type="radio" name="wxsat" checked=${layers.sat === k} onChange=${() => set({ sat: k })} /><span>${l}</span></label>`)}</span>
