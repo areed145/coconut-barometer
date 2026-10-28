@@ -9,7 +9,7 @@ anyone has the map open. One thread (QcService.start), a round every TICK second
     alerts   the NWS alerts in effect at each station's point, every ALERTS_EVERY
     fronts   each WPC surface analysis (fronts.py), its fronts and highs and lows within FRONT_KM of a station
 
-Then the checks (suites.py) every RUN_EVERY, and anything older than qc.keep_days dropped once a day. Only reads, but
+Then the checks (suites.py) every RUN_EVERY (the first once GLM is in, or after GLM_WAIT), and anything older than qc.keep_days dropped once a day. Only reads, but
 it's the server's job, so it isn't started in local mode (local.py). Each source's last problem is kept for the Status
 page."""
 from __future__ import annotations
@@ -34,6 +34,7 @@ BACKFILL_PER_TICK = 2
 NEAR_KM = 3                          # radar: "near the station"
 REACH_KM = 50                        # GLM flashes kept per station
 GLM_LATE = 15 * 60                   # GLM files can come in late: each round looks this far back (duplicates are ignored)
+GLM_WAIT = 600                       # after a start, the first checks wait this long at most for GLM to be watched
 ALERTS_EVERY, FRONTS_EVERY, RUN_EVERY, PRUNE_EVERY = 300, 900, 3600, 86400
 FRONT_KM = 1500
 ALERTS_URL = "https://api.weather.gov/alerts/active"
@@ -72,6 +73,8 @@ class QcService:
         self.errors: dict[str, str | None] = {k: None for k in ("rtma", "backfill", "radar", "glm", "alerts", "fronts", "checks")}
         self._tried: dict[int, float] = {}       # RTMA analyses asked for and not up yet -> when
         self._radar_t: int | None = None
+        self._first_tick: float | None = None
+        self._glm_watched = False
         self._next = {"alerts": 0.0, "fronts": 0.0, "checks": 0.0, "prune": 0.0}
         self.backfill: dict = {"to": None, "done": False}
         self._thread: threading.Thread | None = None
@@ -94,6 +97,8 @@ class QcService:
         if not stations:
             return
         now = self._clock()
+        if self._first_tick is None:
+            self._first_tick = now
         for name, step in (("rtma", self._rtma), ("backfill", self._backfill), ("radar", self._radar_sample),
                            ("glm", self._glm_sample), ("alerts", self._alerts), ("fronts", self._fronts_sample),
                            ("checks", self._checks)):
@@ -191,6 +196,7 @@ class QcService:
             store.qc_save_glm(rows)
         if data["newest"] is not None and data["newest"] + 20 > now - GLM_LATE:     # a stale feed watches nothing
             store.qc_save_glm_cover(int(now - GLM_LATE), int(data["newest"]) + 20)
+            self._glm_watched = True
 
     def _alerts(self, store, stations, now) -> None:
         if now < self._next["alerts"]:
@@ -236,6 +242,8 @@ class QcService:
     def _checks(self, store, stations, now) -> None:
         if now < self._next["checks"]:
             return False
+        if not self._glm_watched and now - self._first_tick < GLM_WAIT:
+            return False      # just started: GLM's first fetch isn't in, and the lightning check would judge nothing for an hour
         self._next["checks"] = now + RUN_EVERY
         self.run_checks(store, now)
 
