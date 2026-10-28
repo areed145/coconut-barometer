@@ -124,6 +124,26 @@ class MembershipsTest(unittest.TestCase):
         self.assertEqual(members(), {("a2", "p2"), ("a9", "p9")})
 
 
+class FullSyncMemoryTest(unittest.TestCase):
+    """#157: a full sync of new photos ran DuckDB out of memory (a statement per row: ~0.6 MiB each until commit)."""
+    def photo(self, i, title="t"):
+        return {"id": str(i), "title": title, "description": "d" * 300, "url_l": "u" * 80, "views": i}
+
+    def test_new_photos_written_in_a_few_statements(self):
+        store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
+        with store.db:
+            store._write_photos([self.photo(i) for i in range(2000)])
+            used = store.db.execute("SELECT sum(memory_usage_bytes) FROM duckdb_memory()").fetchone()[0]
+        self.assertLess(used, 200 * 2**20)                    # a statement per row: ~1.2 GiB
+        self.assertEqual(tuple(store.db.execute("SELECT count(*), sum(views) FROM photos").fetchone()), (2000, sum(range(2000))))
+
+    def test_an_id_given_twice_keeps_its_last(self):
+        store = Store(os.path.join(tempfile.mkdtemp(), "db.duckdb"))
+        store.replace_library([self.photo(1, "old"), self.photo(2), self.photo(1, "new")], [{"id": "a1", "title": "A"}], [])
+        store.upsert_photos([self.photo(2, "x"), self.photo(2, "y")])
+        self.assertEqual([tuple(r) for r in store.db.execute("SELECT id, title FROM photos ORDER BY id")], [("1", "new"), ("2", "y")])
+
+
 class OneProcessTest(unittest.TestCase):
     def test_a_second_process_gets_a_clear_message_not_a_stack_trace(self):
         import subprocess
