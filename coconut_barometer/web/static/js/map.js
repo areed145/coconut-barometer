@@ -3,16 +3,20 @@
 // photos or fewer opens it into thumbnails; a bigger one zooms straight to where it splits up.
 // A bigger one that never would (its photos all at one spot, even at the closest zoom) opens
 // them in the lightbox at once. ⌖ and ⛶ are the Weather map's (#80); the lightbox opens inside what goes full screen.
+// Shade places (#164) shades the countries and US states the photos shown were taken in, under them, on the same colors.
 import { html, useState, useEffect, useRef, api, num, toast, along } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { Lightbox } from "./gallery.js";
 import { useMapTools, mapboxClass } from "./wx_controls.js";
+import { loadAreas, countAreas, areasLayer } from "./areas_layer.js";
 
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const ink = ([r, g, b]) => (0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#1b1b1b" : "#ffffff");
 const short = (n) => (n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
 const RADIUS = 60;          // px: markers this close are clustered (maxClusterRadius)
 const thumb = (id, server, secret) => (server && secret ? `https://live.staticflickr.com/${server}/${id}_${secret}_q.jpg` : "");
+const PLACES = "cb-photomap-places";      // Shade places, remembered per device
+const placesPref = () => { try { return localStorage.getItem(PLACES) === "on"; } catch { return false; } };
 
 function clusterIcon(L, n, total, stops) {
   const t = Math.min(1, Math.log(n) / Math.log(Math.max(3, total)));
@@ -43,6 +47,9 @@ export function MapPage({ at }) {
   const [albums, setAlbums] = useState([]);
   const [f, setF] = useState({ album: "", from: "", to: "" });
   const [box, setBox] = useState(null);           // {photos, index}: the lightbox
+  const [places, setPlaces] = useState(placesPref);
+  const [areas, setAreas] = useState(null);       // loadAreas()'s, once Shade places is first on
+  const shaded = useRef(null);
   const fit = useRef(!parseAt(at));               // fit the photos into view after loading?
   const { fullscreen } = useMapTools(map, ready, wrap);
 
@@ -107,6 +114,22 @@ export function MapPage({ at }) {
     fit.current = true;
   }, [ready, data]);
 
+  useEffect(() => {
+    if (places && !areas) loadAreas().then(setAreas).catch(() => toast("Couldn't load the places."));
+  }, [places]);
+  useEffect(() => {
+    const m = map.current, L = window.L;
+    shaded.current?.remove();
+    shaded.current = null;
+    if (!ready || !m || !data || !places || !areas) return;
+    const stops = data.colors.map(rgb);
+    shaded.current = areasLayer(L, areas, countAreas(areas, data.points), (t) => `rgb(${along(stops, t).join(",")})`).addTo(m);
+  }, [ready, data, places, areas]);
+  const togglePlaces = () => {
+    setPlaces(!places);
+    try { localStorage.setItem(PLACES, places ? "off" : "on"); } catch { /* this visit only */ }
+  };
+
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const years = data?.years || [];
   return html`
@@ -121,6 +144,8 @@ export function MapPage({ at }) {
       <select value=${f.to} onChange=${set("to")} aria-label="To year">
         <option value="">to any year</option>${years.map((y) => html`<option value=${y}>to ${y}</option>`)}
       </select>
+      <button class=${places ? "on" : ""} aria-pressed=${places} onClick=${togglePlaces}
+        title="Shade the countries, and US states, the photos were taken in">Shade places</button>
       <span class="muted">${data ? `${num(data.points.length)} geotagged photo${data.points.length === 1 ? "" : "s"}` : "Loading…"}</span>
       <span class="spacer"></span>
       <span class="muted small hint-pointer">Click a cluster to zoom in; small ones open into thumbnails, a crowd at one spot opens its photos</span>
