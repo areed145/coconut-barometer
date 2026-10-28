@@ -95,7 +95,7 @@ class InstrumentedTest(unittest.TestCase):
         self.assertEqual(seen, ["waiting"] * 3)
 
     def test_expected_answers_are_not_logged_as_errors(self):
-        client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 100))
+        client = FlickrClient("k", "s", limiter=SharedRateLimiter(os.path.join(tempfile.mkdtemp(), "rate.lock"), 0, 100))
         client.api = FakeApi()
         seq = activity.log.since(0)[-1]["seq"] if activity.log.since(0) else 0
         for expect in ((6, 7), ()):
