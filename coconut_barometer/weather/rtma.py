@@ -4,13 +4,14 @@ Analysis, every 15 minutes. It blends the surface observations (METARs, mesonets
 could be. Public domain, on AWS Open Data with no key (s3://noaa-rtma-pds).
 
 Each analysis is one GRIB2 file (~84 MB) with a .idx listing where each field starts, so only what's drawn is fetched,
-a Range request apiece: TMP (2 m) and UGRD and VGRD (10 m), ~18 MB. They're simple-packed on a Lambert grid
+a Range request apiece: TMP and DPT (2 m) and UGRD and VGRD (10 m). They're simple-packed on a Lambert grid
 (grib.py, lambert.py); the winds are along the grid's axes and are turned east and north. A file is up ~15-20 minutes
 after its time, so the newest is found by asking for the .idx of each quarter hour back from now, newest first, and
 nothing is fetched unless there's one newer than what's kept.
 
-Each analysis is resampled once onto LEVELS regular lat/lon grids over the US, kept as int16 in tenths (°C, m/s):
-coarse for the whole US zoomed out, finer for the view zoomed in (view() cuts the box). The full grid isn't kept.
+Each analysis is resampled once onto LEVELS regular lat/lon grids over the US, kept as int16 in tenths (°C, m/s, %):
+relative humidity is derived from temperature and dew point. Coarse for the whole US zoomed out, finer for the view
+zoomed in (view() cuts the box). The full grid isn't kept.
 A Feed (feed.py): fetched when the map asks and what's kept is older than TTL, in the background (a few seconds
 of downloading and decoding). One per process (`rtma`)."""
 from __future__ import annotations
@@ -28,7 +29,8 @@ from .lambert import Lambert, latlon_grid, points, resample
 BASE = "https://noaa-rtma-pds.s3.amazonaws.com/"
 TTL = 5 * 60
 EVERY, LOOK_BACK = 15 * 60, 8          # an analysis per quarter hour; how many quarters back to look
-FIELDS = {"t": ("TMP", "2 m above ground"), "u": ("UGRD", "10 m above ground"), "v": ("VGRD", "10 m above ground")}
+FIELDS = {"t": ("TMP", "2 m above ground"), "d": ("DPT", "2 m above ground"),
+          "u": ("UGRD", "10 m above ground"), "v": ("VGRD", "10 m above ground")}
 US = (20.0, 53.0, -130.0, -60.0)       # south, north, west, east: the RTMA CONUS grid, and a bit of sea
 # name -> (degrees between points, the map's lowest zoom for it). A view picks the finest its zoom allows.
 LEVELS = {"coarse": (0.25, 0), "mid": (0.1, 6), "fine": (0.05, 8)}
@@ -117,7 +119,10 @@ class Rtma(Feed):
             u, v = got["u"][level], got["v"][level]
             if relative:
                 u, v = lam.earth_relative(u, v, points(box)[1])
-            levels[level] = {"box": box, "t": pack(got["t"][level] - np.float32(273.15)), "u": pack(u), "v": pack(v)}
+            t, d = got["t"][level] - np.float32(273.15), got["d"][level] - np.float32(273.15)
+            rh = 100 * np.exp(17.625 * d / (243.04 + d) - 17.625 * t / (243.04 + t))
+            levels[level] = {"box": box, "t": pack(t), "d": pack(d), "rh": pack(np.clip(rh, 0, 100)),
+                             "u": pack(u), "v": pack(v)}
         a["detail"] = f"{time.strftime('%H:%MZ', time.gmtime(t))} analysis, {size / 1e6:.1f} MB"
         return {"valid": valid, "levels": levels}
 

@@ -375,6 +375,22 @@ def surface_temperature(bbox: str | None = Query(None, max_length=100), zoom: fl
     return {**rtma.view(("t",), _bbox(bbox), zoom), "units": _units(rt)}
 
 
+@router.get("/dewpoint")
+def surface_dewpoint(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's dew point: the newest RTMA analysis 2 m above ground (°C), on the temperature grid."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("d",), _bbox(bbox), zoom), "units": _units(rt)}
+
+
+@router.get("/humidity")
+def surface_humidity(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
+    """The Map tab's relative humidity: derived from RTMA's 2 m temperature and dew point (%), on that grid."""
+    from ...weather.rtma import rtma
+
+    return {**rtma.view(("rh",), _bbox(bbox), zoom), "units": _units(rt)}
+
+
 @router.get("/wind")
 def surface_wind(bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24), rt=Depends(runtime)):
     """The Map tab's surface wind: the newest RTMA analysis's wind 10 m up (eastward u and northward v, m/s: the way
