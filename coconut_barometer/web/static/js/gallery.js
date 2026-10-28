@@ -166,6 +166,7 @@ export function Photos({ params = {} }) {
   const set = (patch) => location.replace(photosLink({ ...f, ...patch }));     // no history entry per keystroke
   const [q, setQ] = useState(f.q);
   const [album, setAlbum] = useState(null);
+  const [albumPoints, setAlbumPoints] = useState([]);
   const [years, setYears] = useState([]);
   const [presets, setPresets] = useState([]);
   const [showPresets, setShowPresets] = useState(!!f.is);
@@ -187,8 +188,10 @@ export function Photos({ params = {} }) {
     api("/api/map/points", { params: { trip: f.trip } }).then((r) => setTripPoints(r.points)).catch(() => {});
   }, [f.trip]);
   useEffect(() => {
-    setAlbum(null);
-    if (f.album) api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
+    setAlbum(null); setAlbumPoints([]);
+    if (!f.album) return;
+    api(`/api/albums/${encodeURIComponent(f.album)}`, { params: { limit: 1 } }).then(setAlbum).catch(() => set({ album: "" }));
+    api("/api/map/points", { params: { album: f.album } }).then((r) => setAlbumPoints(r.points)).catch(() => {});   // #170
   }, [f.album]);
   const key = FILTERS.map((k) => f[k]).join("|");
   const query = { album: f.album, trip: f.trip, tag: f.tag, year: f.year, on: f.on, camera: f.camera, lens: f.lens, setting: f.setting, day: f.day,
@@ -224,7 +227,8 @@ export function Photos({ params = {} }) {
     ${f.album && html`<a href="#/photos/albums">← Albums</a>
       <h1 class="title">${album ? album.title : "…"}
         ${album && html` <button class="link share" onClick=${() => share(`/a/${album.id}`, album.title)}>Share</button>`}</h1>
-      ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}`}
+      ${album?.description && html`<p class="muted">${plain(album.description)}</p>`}
+      <${PointsMap} points=${albumPoints} />`}
     ${f.trip && !f.album && html`<a href="#/photos/trips">← Trips</a>
       <h1 class="title">${trip ? tripName(trip) : "…"}</h1>
       ${trip && html`<p class="muted">${tripDates(trip)} · ${num(trip.count)} photos</p>`}

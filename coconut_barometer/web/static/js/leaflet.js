@@ -55,7 +55,8 @@ export function baseMap({ L, cfg }, el, { labels = false, ...options } = {}) {
   return map;
 }
 
-// A small map of many photos (a trip's): a dot for each, fitted to them all. points: [[id, lat, lon, ...]].
+// A small map of many photos (a trip's, an album's): a dot for each, fitted to them all, drawn on one canvas (an album
+// can have thousands). points: [[id, lat, lon, ...]].
 export function PointsMap({ points, color = "#1dab45" }) {
   const el = useRef(null);
   useEffect(() => {
@@ -65,7 +66,9 @@ export function PointsMap({ points, color = "#1dab45" }) {
       if (!live || !el.current) return;
       const { L } = lf;
       map = baseMap(lf, el.current, { scrollWheelZoom: false });
-      for (const [, lat, lon] of points) L.circleMarker([lat, lon], { radius: 5, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(map);
+      const renderer = L.canvas();
+      for (const [, lat, lon] of points)
+        L.circleMarker([lat, lon], { renderer, radius: 5, color: "#fff", weight: 1, fillColor: color, fillOpacity: 0.9 }).addTo(map);
       map.fitBounds(L.latLngBounds(points.map(([, lat, lon]) => [lat, lon])), { padding: [20, 20], maxZoom: 14 });
     }).catch(() => {});
     return () => { live = false; map?.remove(); };
