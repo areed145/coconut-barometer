@@ -1,5 +1,6 @@
-// The Weather map's surface analysis (weather/rtma.py: NOAA RTMA, every 15 minutes): the air temperature 2 m up as a
-// smooth color field (#85), and the wind 10 m up as arrows (#86). Both come as one regular lat/lon grid (decodeGrid())
+// The Weather map's surface analysis (weather/rtma.py: NOAA RTMA, every 15 minutes): temperature and dew point 2 m up
+// and relative humidity as smooth color fields, and the wind 10 m up as arrows (#85, #86). All come as a regular
+// lat/lon grid (decodeGrid())
 // read bilinearly wherever it's needed (sample()), each drawn on its own canvas (map_canvas.js):
 //   temperature  colored at every few screen pixels and scaled up smoothly, so it's as fine as the screen at any zoom
 //   wind         an arrow every SPACING screen pixels (so as many at any zoom), the way the wind blows, longer and
@@ -16,7 +17,9 @@ export const TEMP_STOPS = [[-20, "#6a1b9a"], [0, "#3949ab"], [20, "#1e88e5"], [3
 // The wind's, in m/s: grey calm, blue and green light, yellow to red strong.
 export const WIND_STOPS = [[0, "#90a4ae"], [2, "#4fc3f7"], [5, "#43a047"], [8, "#fdd835"], [11, "#fb8c00"], [15, "#e53935"], [20, "#ad1457"]]
   .map(([at, color]) => ({ at, color }));
-export const TEMP_RANGE = [-30, 45], WIND_RANGE = [0, 20];      // the legends' ends (°C, m/s)
+export const RH_STOPS = [[0, "#a66b00"], [20, "#fdd835"], [40, "#a5d6a7"], [60, "#4fc3f7"], [80, "#1976d2"], [100, "#4a148c"]]
+  .map(([at, color]) => ({ at, color }));
+export const TEMP_RANGE = [-30, 45], WIND_RANGE = [0, 20], RH_RANGE = [0, 100];      // the legends' ends (°C, m/s, %)
 
 const CELL = 4;                       // temperature: screen px between the points colored (then scaled up smoothly)
 const LUT_LO = -60, LUT_STEP = 0.25, LUT_N = 481;               // a color per quarter °C, -60 to 60
@@ -47,27 +50,22 @@ export function sample(g, name, lat, lon) {
 
 // The legends' gradients, between the ranges' ends.
 export const tempScale = () => rampGradient(TEMP_STOPS, ...TEMP_RANGE);
+export const dewScale = () => rampGradient(TEMP_STOPS, ...TEMP_RANGE);
 export const windScale = () => rampGradient(WIND_STOPS, ...WIND_RANGE);
+export const humidityScale = () => rampGradient(RH_STOPS, ...RH_RANGE);
 
 const lonAt = (x) => x * 360 - 180;                                    // Web Mercator (0-1 across the world) -> degrees
 const latAt = (y) => (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI;
 
-let lut = null;
-function tempLut() {
-  if (lut) return lut;
-  lut = new Uint8ClampedArray(LUT_N * 4);
+function scalarCanvas(L, pane, attribution, className, valueAt, stops, lo, hi) {
+  const step = (hi - lo) / (LUT_N - 1), colors = new Uint8ClampedArray(LUT_N * 4);
   for (let i = 0; i < LUT_N; i++) {
-    const [r, g, b] = rampRGB(TEMP_STOPS, LUT_LO + i * LUT_STEP);
-    lut.set([r, g, b, 255], i * 4);
+    const [r, g, b] = rampRGB(stops, lo + i * step);
+    colors.set([r, g, b, 255], i * 4);
   }
-  return lut;
-}
-
-// Leaflet layers in `pane`: set(grid) shows decodeGrid()'s grid; the temperature's setOpacity() fades it as a whole.
-export function temperatureCanvas(L, pane, attribution) {
   const Layer = L.Layer.extend({
     options: { pane, attribution },
-    ...mapCanvas(L, "wxtemp-canvas"),
+    ...mapCanvas(L, className),
     set(grid) { this._grid = grid; this._draw(); return this; },
     setOpacity(o) {
       this._opacity = o;
@@ -76,16 +74,16 @@ export function temperatureCanvas(L, pane, attribution) {
     },
     _paint(ctx, corner, size, zoom) {
       const g = this._grid;
-      if (!g?.fields.t) return;
+      if (!g) return;
       const world = 256 * 2 ** zoom, cols = Math.ceil(size.x / CELL), rows = Math.ceil(size.y / CELL);
-      const img = new ImageData(cols, rows), px = img.data, colors = tempLut();
+      const img = new ImageData(cols, rows), px = img.data;
       const lons = Float64Array.from({ length: cols }, (_, c) => lonAt((corner.x + (c + 0.5) * CELL) / world));
       for (let r = 0; r < rows; r++) {
         const lat = latAt((corner.y + (r + 0.5) * CELL) / world);
         for (let c = 0; c < cols; c++) {
-          const t = sample(g, "t", lat, lons[c]);
-          if (Number.isNaN(t)) continue;
-          const k = Math.max(0, Math.min(LUT_N - 1, Math.round((t - LUT_LO) / LUT_STEP))) * 4, o = (r * cols + c) * 4;
+          const value = valueAt(g, lat, lons[c]);
+          if (!Number.isFinite(value)) continue;
+          const k = Math.max(0, Math.min(LUT_N - 1, Math.round((value - lo) / step))) * 4, o = (r * cols + c) * 4;
           px[o] = colors[k]; px[o + 1] = colors[k + 1]; px[o + 2] = colors[k + 2]; px[o + 3] = 255;
         }
       }
@@ -99,6 +97,16 @@ export function temperatureCanvas(L, pane, attribution) {
   });
   return new Layer();
 }
+
+// Leaflet layers in `pane`: set(grid) shows decodeGrid()'s grid; opacity fades the whole layer.
+export const temperatureCanvas = (L, pane, attribution) =>
+  scalarCanvas(L, pane, attribution, "wxtemp-canvas", (g, lat, lon) => sample(g, "t", lat, lon),
+    TEMP_STOPS, LUT_LO, LUT_LO + LUT_STEP * (LUT_N - 1));
+export const dewpointCanvas = (L, pane, attribution) =>
+  scalarCanvas(L, pane, attribution, "wxdew-canvas", (g, lat, lon) => sample(g, "d", lat, lon),
+    TEMP_STOPS, LUT_LO, LUT_LO + LUT_STEP * (LUT_N - 1));
+export const humidityCanvas = (L, pane, attribution) =>
+  scalarCanvas(L, pane, attribution, "wxhumidity-canvas", (g, lat, lon) => sample(g, "rh", lat, lon), RH_STOPS, 0, 100);
 
 // One arrow at (x, y) for (u, v) m/s; `halo` the map's background, under it so it reads on any color.
 export function arrow(ctx, x, y, u, v, spacing, halo) {

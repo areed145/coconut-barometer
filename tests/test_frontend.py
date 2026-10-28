@@ -97,11 +97,15 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('createPane("wxhazards").style.zIndex = 355', m)      # under the radar: echoes show through
         self.assertIn("if (x.pending) soon = setTimeout(load, PENDING_MS);", m)
         self.assertIn('check("temp", "Temperature")', c)                    # RTMA's temperature and wind (#85, #86)
+        self.assertIn('check("dewpoint", "Dew point")', c)
+        self.assertIn('check("humidity", "Relative humidity")', c)
         self.assertIn('slider("tempOpacity", "Temperature opacity", !layers.temp)', c)
         self.assertIn('check("wind", "Surface wind")', c)
         self.assertIn('createPane("wxtemp").style.zIndex = 345', m)
         self.assertIn('createPane("wxwind").style.zIndex = 365', m)
         self.assertIn("useFeed(showTemp, surfaceQuery && `/api/wx/temperature?${surfaceQuery}`, 5 * 60000)", m)
+        self.assertIn("useFeed(showDew, surfaceQuery && `/api/wx/dewpoint?${surfaceQuery}`, 5 * 60000)", m)
+        self.assertIn("useFeed(showHumidity, surfaceQuery && `/api/wx/humidity?${surfaceQuery}`, 5 * 60000)", m)
         self.assertIn("inside(v, map.current, SURFACE_ZOOMS) ? v : viewFor(map.current, SURFACE_ZOOMS)", m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
@@ -152,7 +156,7 @@ class FrontendTest(unittest.TestCase):
           globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
           const { loadLayers, saveLayers, DEFAULT_LAYERS, layersSummary } = await import("%s");
           const first = loadLayers();
-          saveLayers({ ...first, radar: false, sat: "infrared", satOpacity: 0.5, basemap: "dark" });
+          saveLayers({ ...first, radar: false, sat: "infrared", satOpacity: 0.5, basemap: "dark", dewpoint: true, humidity: true });
           const again = loadLayers();
           store.set("cb-wxmap-layers", '{"radar": "yes", "bogus": 1}');      // a bad value: the default
           const bad = loadLayers();
@@ -173,11 +177,13 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         out = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertTrue(out["first"])
-        self.assertEqual({k: out["again"][k] for k in ("radar", "sat", "satOpacity", "basemap", "storms")},
-                         {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True})
+        self.assertEqual({k: out["again"][k] for k in ("radar", "sat", "satOpacity", "basemap", "storms", "dewpoint", "humidity")},
+                         {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True,
+                          "dewpoint": True, "humidity": True})
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
-        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Sat")
-        self.assertEqual((out["old"]["rings"], out["old"]["glm"], "lightning" in out["old"]), (False, True, False))
+        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Dew point · Humidity · Sat")
+        self.assertEqual((out["old"]["rings"], out["old"]["glm"], out["old"]["dewpoint"], out["old"]["humidity"], "lightning" in out["old"]),
+                         (False, True, False, False, False))
         self.assertEqual(out["styles"], [])                                  # lightning is dots, whatever was saved (#146)
         self.assertEqual((out["first_hazards"], out["first_minor"]), (True, False))   # warnings on, advisories off
 

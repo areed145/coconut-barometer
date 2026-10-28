@@ -32,13 +32,15 @@ def sec3(nx=N, ny=N, lat=CORNER[0], lon=CORNER[1]) -> bytes:
     return bytes(s)
 
 
-def analysis(temp_c=20.0, u=3.0, v=0.0) -> tuple[bytes, str]:
-    """An RTMA file of HGT (not wanted), TMP, UGRD and VGRD, and its .idx, as the real one lays them out."""
+def analysis(temp_c=20.0, dew_c=10.0, u=3.0, v=0.0) -> tuple[bytes, str]:
+    """An RTMA file of HGT (not wanted), TMP, DPT, UGRD and VGRD, and its .idx, as the real one lays them out."""
     msgs = [simple(np.zeros((N, N)), sec3(), field=(3, 5), ref=0.0, d=0, bits=8, t=T),
             simple(np.full((N, N), temp_c + 273.15), sec3(), field=(0, 0), ref=25000.0, d=2, bits=16, t=T),
+            simple(np.full((N, N), dew_c + 273.15), sec3(), field=(0, 6), ref=25000.0, d=2, bits=16, t=T),
             simple(np.full((N, N), u), sec3(), field=(2, 2), ref=-2000.0, d=2, bits=13, t=T),
             simple(np.full((N, N), v), sec3(), field=(2, 3), ref=-2000.0, d=2, bits=13, t=T)]
-    names = ["HGT:surface", "TMP:2 m above ground", "UGRD:10 m above ground", "VGRD:10 m above ground"]
+    names = ["HGT:surface", "TMP:2 m above ground", "DPT:2 m above ground",
+             "UGRD:10 m above ground", "VGRD:10 m above ground"]
     idx, at = [], 0
     for k, (m, name) in enumerate(zip(msgs, names)):
         idx.append(f"{k + 1}:{at}:d=2026102419:{name}:anl:")
@@ -75,7 +77,8 @@ class RtmaTest(unittest.TestCase):
                "3:14980236:d=2026102419:TMP:2 m above ground:anl:\n4:21065993:d=2026102419:DPT:2 m above ground:anl:\n"
                "5:27151750:d=2026102419:UGRD:10 m above ground:anl:\n6:33237507:d=2026102419:VGRD:10 m above ground:anl:\n"
                "7:38855143:d=2026102419:SPFH:2 m above ground:anl:\n")
-        self.assertEqual(R.ranges(idx), {"t": (14980236, 21065992), "u": (27151750, 33237506), "v": (33237507, 38855142)})
+        self.assertEqual(R.ranges(idx), {"t": (14980236, 21065992), "d": (21065993, 27151749),
+                                         "u": (27151750, 33237506), "v": (33237507, 38855142)})
         self.assertEqual(R.ranges(idx.rsplit("7:", 1)[0])["v"], (33237507, None))       # the last: to the end
         with self.assertRaisesRegex(ValueError, "t"):
             R.ranges(idx.replace("TMP", "TMAX"))
@@ -87,7 +90,7 @@ class RtmaTest(unittest.TestCase):
         state = f.current()
         self.assertEqual((state["error"], state["data"]["valid"]), (None, T))
         self.assertEqual([u for u, _ in s3.asked[:2]], [R.url(T + 900) + ".idx", R.url(T) + ".idx"])   # 19:45: not yet
-        self.assertEqual(len([r for _, r in s3.asked if r]), 3)                  # TMP, UGRD, VGRD; not HGT
+        self.assertEqual(len([r for _, r in s3.asked if r]), 4)                  # TMP, DPT, UGRD, VGRD; not HGT
         s3.asked.clear()
         f.checked_at -= R.TTL
         f.current()                                                              # nothing newer: nothing downloaded
@@ -106,6 +109,9 @@ class RtmaTest(unittest.TestCase):
         self.assertAlmostEqual(unpack(v, "u")[j, i], float(ue), delta=0.06)
         self.assertAlmostEqual(unpack(v, "v")[j, i], float(ve), delta=0.06)     # west of LoV: turned toward the north
         self.assertGreater(unpack(v, "v")[j, i], 0.1)
+        moisture = f.view(("d", "rh"), (-105.5, 38.4, -105.1, 38.8), zoom=9)
+        self.assertAlmostEqual(unpack(moisture, "d")[j, i], 10.0, places=1)
+        self.assertAlmostEqual(unpack(moisture, "rh")[j, i], 52.5, delta=0.2)
         us = f.view(("t",), None, zoom=4)
         self.assertEqual((us["level"], us["nx"], us["ny"], list(us["fields"])), ("coarse", 281, 133, ["t"]))
         self.assertTrue(np.isnan(unpack(us, "t")[0, 0]))                         # off the grid: no value
@@ -129,8 +135,12 @@ class RtmaTest(unittest.TestCase):
         with mock.patch.object(R, "rtma", R.Rtma(get=FakeS3({T: analysis()}), clock=lambda: NOW, background=False)):
             t = c.get("/api/wx/temperature?bbox=-106,38,-105,39&zoom=7").json()
             w = c.get("/api/wx/wind?zoom=4").json()
+            d = c.get("/api/wx/dewpoint?zoom=4").json()
+            h = c.get("/api/wx/humidity?zoom=4").json()
         self.assertEqual((t["level"], list(t["fields"]), t["valid"], t["error"]), ("mid", ["t"], T, None))
         self.assertEqual((w["level"], sorted(w["fields"]), w["units"]), ("coarse", ["u", "v"], t["units"]))
+        self.assertEqual((d["level"], sorted(d["fields"])), ("coarse", ["d"]))
+        self.assertEqual((h["level"], sorted(h["fields"])), ("coarse", ["rh"]))
 
 
 if __name__ == "__main__":
