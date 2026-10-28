@@ -370,6 +370,38 @@ class FrontendTest(unittest.TestCase):
         self.assertTrue(out["near"])                                       # ... and the Texas coast where it is
 
     @unittest.skipUnless(NODE, "needs Node")
+    def test_photo_map_places_count_where_photos_were_taken(self):
+        """#164: a photo counts for the country it's in, or in the US its state; off a coast, the nearest."""
+        path = os.path.join(STATIC, "vendor", "natural-earth-areas.json")
+        ids = [a["id"] for a in json.load(open(path))["areas"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn("US", ids)                                        # the states instead
+        self.assertEqual(sum(i.startswith("US-") for i in ids), 51)        # and DC
+        self.assertTrue({"FR", "NO", "LS", "ZA"} <= set(ids))
+        self.assertFalse([i for i in ids if i.startswith("-")])           # no Natural Earth -99s
+        script = r"""
+          import { decodeAreas, areaAt, countAreas } from "%s";
+          import { readFileSync } from "node:fs";
+          const a = decodeAreas(JSON.parse(readFileSync("%s", "utf8")));
+          const at = { paris: [48.86, 2.35], moab: [38.57, -109.55], honolulu: [21.31, -157.86], lesotho: [-29.31, 27.48],
+            offshore: [32.72, -117.30], atlantic: [30, -40] };
+          const points = [["1", 48.86, 2.35], ["2", 38.57, -109.55], ["3", 38.57, -109.55], ["4", 30, -40]];
+          console.log(JSON.stringify({ at: Object.fromEntries(Object.entries(at).map(([k, [lat, lon]]) => [k, areaAt(a, lat, lon)])),
+            counts: Object.fromEntries(countAreas(a, points)) }));
+        """ % (os.path.join(STATIC, "js", "areas_layer.js"), path)
+        out = json.loads(subprocess.run([NODE, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60).stdout)
+        self.assertEqual(out["at"], {"paris": "FR", "moab": "US-UT", "honolulu": "US-HI",
+                                     "lesotho": "LS",                      # a hole in South Africa
+                                     "offshore": "US-CA", "atlantic": None})
+        self.assertEqual(out["counts"], {"FR": 1, "US-UT": 2})
+
+    def test_photo_map_shade_places_is_a_remembered_toggle(self):
+        m = open(os.path.join(STATIC, "js", "map.js")).read()
+        self.assertIn('aria-pressed=${places} onClick=${togglePlaces}', m)
+        self.assertIn('localStorage.setItem(PLACES', m)
+        self.assertIn("if (places && !areas) loadAreas()", m)              # fetched only once it's wanted
+
+    @unittest.skipUnless(NODE, "needs Node")
     def test_lightning_is_clean_dots_the_newest_on_top(self):
         """#146: a dot per cell and minute, each minute's filled as one shape and none outlined, the oldest first; small
         zoomed out, a little bigger where there were more flashes; the default colors are config.py's."""
