@@ -22,27 +22,30 @@ class ClaudeProvider(VisionProvider):
         self.client = anthropic.Anthropic(**kwargs)
 
     def classify(self, image: bytes, media_type: str, prompt: str, schema: dict) -> dict:
+        # The tool is asked for, not forced: Sonnet 5.5, Opus 5.5 and Fable 5.1 reject a forced tool_choice
+        # ("tool"/"any") with a 400 (#167), so "auto" plus the prompt's last line, on every model.
         resp = self.client.messages.create(
             model=self.model,
-            max_tokens=1000,  # room for every category score, tags, caption and description
+            max_tokens=8000,  # every category score, tags, caption and description, and the thinking newer models do first
             tools=[{
                 "name": "record_classification",
                 "description": "Record the classification of the photo.",
                 "input_schema": schema,
             }],
-            tool_choice={"type": "tool", "name": "record_classification"},
+            tool_choice={"type": "auto"},
             messages=[{
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": media_type,
                                                  "data": base64.b64encode(image).decode()}},
-                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": prompt + "\n\nRecord your answer by calling record_classification."},
                 ],
             }],
         )
         for block in resp.content:
-            if block.type == "tool_use":
+            if block.type == "tool_use" and block.name == "record_classification":
                 out = dict(block.input)
                 out["_usage"] = {"input": resp.usage.input_tokens, "output": resp.usage.output_tokens}
                 return out
-        raise ValueError("Model did not return a classification")
+        why = {"refusal": "the model declined this photo", "max_tokens": "it ran out of room (max_tokens)"}
+        raise ValueError(f"Model did not return a classification: {why.get(resp.stop_reason, f'stop_reason {resp.stop_reason}')}")
