@@ -13,6 +13,7 @@ PHOTO_COLS = ["id", "title", "description", "tags", "lat", "lon", "accuracy", "m
               "date_taken_unknown", "views", "faves", "comments", "license", "width", "height",
               "url_l", "url_h", "url_k", "geo_public"]
 ALBUM_COLS = ["id", "title", "count", "date_update", "cover_url", "description"]
+UPSERT_ROWS = 500
 
 
 class LibraryStore(Database):
@@ -93,16 +94,23 @@ class LibraryStore(Database):
                         "FROM photos WHERE views IS NOT NULL", (day,))
 
     def _write_photos(self, photos: list[dict]) -> None:
-        self.db.executemany(
-            f"INSERT INTO photos ({', '.join(PHOTO_COLS)}) VALUES ({', '.join(':' + c for c in PHOTO_COLS)}) "
-            f"ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in PHOTO_COLS if c != 'id')}",
-            [{c: p.get(c) for c in PHOTO_COLS} for p in photos])
+        self._upsert("photos", PHOTO_COLS, photos)
 
     def _write_albums(self, albums: list[dict]) -> None:
-        self.db.executemany(
-            f"INSERT INTO albums ({', '.join(ALBUM_COLS)}) VALUES ({', '.join(':' + c for c in ALBUM_COLS)}) "
-            f"ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in ALBUM_COLS if c != 'id')}",
-            [{c: a.get(c) for c in ALBUM_COLS} for a in albums])
+        self._upsert("albums", ALBUM_COLS, albums)
+
+    def _upsert(self, table: str, cols: list[str], items: list[dict]) -> None:
+        """Insert or update rows by id, UPSERT_ROWS to a statement. A statement per row costs DuckDB ~0.6 MiB for each
+        new row until the transaction commits (10k new photos: ~6 GiB, #157); a few hundred rows a statement, almost
+        nothing. One statement can't update a row twice, so an id given twice (Flickr's pages shift mid-sync) keeps
+        its last."""
+        rows = list({i["id"]: [i.get(c) for c in cols] for i in items}.values())
+        one = f"({', '.join('?' * len(cols))})"
+        for k in range(0, len(rows), UPSERT_ROWS):
+            chunk = rows[k:k + UPSERT_ROWS]
+            self.db.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES {', '.join([one] * len(chunk))} "
+                            f"ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in cols if c != 'id')}",
+                            [v for r in chunk for v in r])
 
     def photos(self) -> list:
         return self.db.execute("SELECT * FROM photos ORDER BY date_upload DESC, id").fetchall()
