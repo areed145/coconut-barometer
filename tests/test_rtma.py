@@ -36,7 +36,7 @@ def analysis(temp_c=20.0, dew_c=10.0, u=3.0, v=0.0) -> tuple[bytes, str]:
     """An RTMA file of HGT (not wanted), TMP, DPT, UGRD and VGRD, and its .idx, as the real one lays them out."""
     msgs = [simple(np.zeros((N, N)), sec3(), field=(3, 5), ref=0.0, d=0, bits=8, t=T),
             simple(np.full((N, N), temp_c + 273.15), sec3(), field=(0, 0), ref=25000.0, d=2, bits=16, t=T),
-            simple(np.full((N, N), dew_c + 273.15), sec3(), field=(0, 0, 6), ref=25000.0, d=2, bits=16, t=T),
+            simple(np.full((N, N), dew_c + 273.15), sec3(), field=(0, 6), ref=25000.0, d=2, bits=16, t=T),
             simple(np.full((N, N), u), sec3(), field=(2, 2), ref=-2000.0, d=2, bits=13, t=T),
             simple(np.full((N, N), v), sec3(), field=(2, 3), ref=-2000.0, d=2, bits=13, t=T)]
     names = ["HGT:surface", "TMP:2 m above ground", "DPT:2 m above ground",

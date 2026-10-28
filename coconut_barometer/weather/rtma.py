@@ -119,9 +119,9 @@ class Rtma(Feed):
             u, v = got["u"][level], got["v"][level]
             if relative:
                 u, v = lam.earth_relative(u, v, points(box)[1])
-            t, d = got["t"][level] - np.float32(273.15), got["d"][level] - np.float32(273.15)
-            rh = 100 * np.exp(17.625 * d / (243.04 + d) - 17.625 * t / (243.04 + t))
-            levels[level] = {"box": box, "t": pack(t), "d": pack(d), "rh": pack(np.clip(rh, 0, 100)),
+            tc, dc = got["t"][level] - np.float32(273.15), got["d"][level] - np.float32(273.15)
+            rh = 100 * np.exp(17.625 * dc / (243.04 + dc) - 17.625 * tc / (243.04 + tc))     # Magnus
+            levels[level] = {"box": box, "t": pack(tc), "d": pack(dc), "rh": pack(np.clip(rh, 0, 100)),
                              "u": pack(u), "v": pack(v)}
         a["detail"] = f"{time.strftime('%H:%MZ', time.gmtime(t))} analysis, {size / 1e6:.1f} MB"
         return {"valid": valid, "levels": levels}
