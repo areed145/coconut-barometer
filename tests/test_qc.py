@@ -152,6 +152,7 @@ class SamplerTest(unittest.TestCase):
         self.assertEqual(store.qc_sampled()["rtma"]["count"], 1)
         self.assertEqual(store.qc_sampled()["radar"]["count"], 1)
         self.assertEqual(store.qc_sampled()["glm"]["count"], 1)
+        self.assertEqual(store.qc_glm_cover(0, int(now[0])), [(int(now[0]) - 15 * 60, int(now[0]) - 40)])   # #159: watched
 
     def test_the_past_filled_in_and_a_source_down_doesnt_stop_the_rest(self):
         store, now = make_store(), [T + 20 * 60]
@@ -511,6 +512,7 @@ class LightningCheckTest(unittest.TestCase):
         self.cfg = from_dict(CFG)
         self.station = self.store.qc_stations()[0]
         self.span = (DAY0, DAY0 + 10 * 86400)
+        self.store.qc_save_glm_cover(*self.span)                            # GLM watched throughout
 
     def strike(self, ts, km):
         self.store.wx_save_event(11, ts, "strike", km, 100.0)
@@ -561,6 +563,31 @@ class LightningCheckTest(unittest.TestCase):
         for day in range(4):
             self.storm(day, heard=False, km=35.0)
         self.assertEqual(self.check()["status"], "insufficient")
+
+    def test_strikes_from_before_glm_was_kept_arent_judged(self):
+        """#159: the station's history reaches back past GLM's first flashes; those strikes aren't interference."""
+        self.store.db.execute("DELETE FROM qc_glm_cover")
+        self.store.qc_save_glm_cover(DAY0 + 3 * 86400, self.span[1])         # GLM kept from day 3 on
+        for k in range(30):                                                  # day 0's storm: no GLM kept then
+            self.strike(DAY0 + 18 * 3600 + k * 60, 6.0)
+        self.strike(DAY0 + 4 * 86400, 4.0)                                   # day 4: a strike at 4 km, GLM 1 km out
+        self.flash(DAY0 + 4 * 86400 - 10, 1.0)
+        r = self.check()
+        m = r["metrics"]
+        self.assertEqual((m["strikes"], m["uncovered"], m["matched"], m["unconfirmed"]), (1, 30, 1, 0))
+        self.assertEqual(r["status"], "insufficient")                        # one strike: not enough to judge by
+        self.assertEqual(r["flags"], [])
+        self.assertIn(["confirmed by GLM", 1, "count"], m["show"])
+        self.assertIn(["strikes outside GLM coverage, not judged", 30, "count"], m["show"])
+
+    def test_glm_cover_spans_join_and_start_at_the_first_flash(self):
+        self.store.db.execute("DELETE FROM qc_glm_cover")
+        self.flash(DAY0 - 600, 10.0)                                         # kept before coverage was tracked
+        self.store.qc_save_glm_cover(DAY0, DAY0 + 900)
+        self.store.qc_save_glm_cover(DAY0 + 30, DAY0 + 930)                  # the next round: overlaps, stretches
+        self.store.qc_save_glm_cover(DAY0 + 5000, DAY0 + 5900)               # after a restart: a new span
+        self.assertEqual(self.store.qc_glm_cover(DAY0 - 86400, DAY0 + 86400), [(DAY0 - 600, DAY0 + 930), (DAY0 + 5000, DAY0 + 5900)])
+        self.assertEqual(self.store.qc_glm_cover(DAY0 + 1000, DAY0 + 2000), [])
 
     def test_history_minutes_fill_in_where_the_stream_wasnt(self):
         t0 = DAY0 + 18 * 3600
