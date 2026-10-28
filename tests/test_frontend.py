@@ -679,6 +679,8 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("setTimeout(() => (index < photos.length - 1 ? onIndex(index + 1) : play(false)), secs * 1000)", gallery)
         self.assertIn("if (!playing || held) return;", gallery)
         self.assertIn("const vis = () => setHeld(document.hidden);", gallery)
+        # #165: only the mouse holds it; on iPhone a tap's hover re-rendered the bar and swallowed the tap on ▶
+        self.assertIn('onPointerEnter=${(e) => e.pointerType === "mouse" && setHeld(true)}', gallery)
         self.assertIn("<${PhotoGrid} paged=${paged} slideshow=${slideshow}", gallery)
         self.assertIn("try { localStorage.setItem(PACE_KEY, n); } catch {}", gallery)     # storage may be blocked
 

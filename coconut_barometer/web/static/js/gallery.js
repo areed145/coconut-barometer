@@ -487,7 +487,7 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
   const p = photos[index];
   const root = useRef(null);
   const [playing, setPlaying] = useState(false);
-  const [held, setHeld] = useState(false);          // paused for now: the pointer is on the controls, or the tab is hidden
+  const [held, setHeld] = useState(false);          // paused for now: the mouse is on the controls, or the tab is hidden
   const [secs, setSecs] = useState(savedPace);
   const [idle, setIdle] = useState(false);          // controls hidden while playing, until the pointer moves
   const full = useRef(false);                       // whether the slideshow went full screen (and so leaves it)
@@ -589,7 +589,8 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>
       ${index > 0 && html`<button class="navbtn prev" onClick=${() => onIndex(index - 1)} aria-label="Previous">‹</button>`}
       ${index < photos.length - 1 && html`<button class="navbtn next" onClick=${() => onIndex(index + 1)} aria-label="Next">›</button>`}
-      <div class="showbar" onPointerEnter=${() => setHeld(true)} onPointerLeave=${() => setHeld(document.hidden)}>
+      <div class="showbar" onPointerEnter=${(e) => e.pointerType === "mouse" && setHeld(true)}
+           onPointerLeave=${(e) => e.pointerType === "mouse" && setHeld(document.hidden)}>
         <button onClick=${() => play(!playing)} aria-pressed=${playing} title="Slideshow (S)">${playing ? "❚❚ Pause" : "▶ Slideshow"}</button>
         ${playing && html`<select value=${secs} onChange=${(e) => pace(+e.target.value)} aria-label="Seconds per photo">
             ${PACES.map((n) => html`<option value=${n}>${n} s</option>`)}</select>
