@@ -169,6 +169,28 @@ class SamplerTest(unittest.TestCase):
         self.assertEqual(store.qc_rtma_times(0), back | {T})               # every hour of the day, and no further
         self.assertEqual(len(back), 23)
 
+    def test_the_first_checks_wait_for_glm(self):
+        store, now = make_store(), [T + 20 * 60]
+        qc = service(store, now, glm={"t": np.zeros(0, dtype=np.int64), "lat": np.zeros(0), "lon": np.zeros(0), "newest": None})
+        runs = lambda: store.db.execute("SELECT count(*) FROM qc_runs").fetchone()[0]
+        qc.tick(store)
+        self.assertEqual(runs(), 0)                                        # GLM's first fetch not in yet: judged nothing
+        qc._glm.data = {"t": np.array([now[0] - 60], dtype=np.int64), "lat": np.array([4500], dtype=np.int16),
+                        "lon": np.array([-10570], dtype=np.int16), "newest": now[0] - 60}
+        now[0] += 30
+        qc.tick(store)
+        self.assertGreater(runs(), 0)                                      # watched now: the checks run
+
+    def test_the_first_checks_dont_wait_forever(self):
+        store, now = make_store(), [T + 20 * 60]
+        qc = service(store, now)                                           # GLM never comes in
+        runs = lambda: store.db.execute("SELECT count(*) FROM qc_runs").fetchone()[0]
+        qc.tick(store)
+        self.assertEqual(runs(), 0)
+        now[0] += 601
+        qc.tick(store)
+        self.assertGreater(runs(), 0)
+
     def test_turned_off_does_nothing(self):
         store, now = make_store(), [T + 20 * 60]
         cfg = from_dict({**CFG, "qc": {"enabled": False}})
