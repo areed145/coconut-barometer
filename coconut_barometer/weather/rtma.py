@@ -61,8 +61,29 @@ def ranges(idx: str, total: int | None = None) -> dict[str, tuple[int, int | Non
     return out
 
 
-def level_for(zoom: float | None) -> str:
-    return max((k for k, (_, z) in LEVELS.items() if (zoom or 0) >= z), key=lambda k: LEVELS[k][1])
+def level_for(zoom: float | None, levels: dict = LEVELS) -> str:
+    return max((k for k, (_, z) in levels.items() if (zoom or 0) >= z), key=lambda k: levels[k][1])
+
+
+def cut(data: dict, names: tuple[str, ...], bbox: tuple | None, level: str) -> dict:
+    """`names` of data's grids at `level` ({valid, levels: {level: {box, name: int16 tenths}}}) for the box (None: all
+    of it), as view() sends them."""
+    g = data["levels"][level]
+    box = g["box"]
+    r0, c0, r1, c1 = 0, 0, box["ny"], box["nx"]
+    if bbox:                                   # the points covering the box (a hair's slack for float steps)
+        w, s, e, n = bbox
+        r0 = max(0, math.floor((s - box["lat0"]) / box["dlat"] + 1e-6))
+        r1 = min(box["ny"], math.ceil((n - box["lat0"]) / box["dlat"] - 1e-6) + 1)
+        c0 = max(0, math.floor((w - box["lon0"]) / box["dlon"] + 1e-6))
+        c1 = min(box["nx"], math.ceil((e - box["lon0"]) / box["dlon"] - 1e-6) + 1)
+    if r1 <= r0 or c1 <= c0:
+        return {"valid": data["valid"], "level": level}
+    parts = {k: np.ascontiguousarray(g[k][r0:r1, c0:c1]) for k in names}
+    return {"valid": data["valid"], "level": level, "lat0": round(box["lat0"] + r0 * box["dlat"], 6),
+            "lon0": round(box["lon0"] + c0 * box["dlon"], 6), "dlat": box["dlat"], "dlon": box["dlon"], "ny": r1 - r0, "nx": c1 - c0,
+            "scale": 0.1, "missing": MISSING,
+            "fields": {k: base64.b64encode(a.astype("<i2").tobytes()).decode() for k, a in parts.items()}}
 
 
 def pack(values: np.ndarray) -> np.ndarray:
@@ -135,23 +156,7 @@ class Rtma(Feed):
         data = state["data"]
         if not data:
             return out
-        level = level_for(zoom)
-        g = data["levels"][level]
-        box = g["box"]
-        r0, c0, r1, c1 = 0, 0, box["ny"], box["nx"]
-        if bbox:                                   # the points covering the box (a hair's slack for float steps)
-            w, s, e, n = bbox
-            r0 = max(0, math.floor((s - box["lat0"]) / box["dlat"] + 1e-6))
-            r1 = min(box["ny"], math.ceil((n - box["lat0"]) / box["dlat"] - 1e-6) + 1)
-            c0 = max(0, math.floor((w - box["lon0"]) / box["dlon"] + 1e-6))
-            c1 = min(box["nx"], math.ceil((e - box["lon0"]) / box["dlon"] - 1e-6) + 1)
-        if r1 <= r0 or c1 <= c0:
-            return {**out, "valid": data["valid"], "level": level}
-        cut = {k: np.ascontiguousarray(g[k][r0:r1, c0:c1]) for k in names}
-        return {**out, "valid": data["valid"], "level": level, "lat0": round(box["lat0"] + r0 * box["dlat"], 6),
-                "lon0": round(box["lon0"] + c0 * box["dlon"], 6), "dlat": box["dlat"], "dlon": box["dlon"], "ny": r1 - r0, "nx": c1 - c0,
-                "scale": 0.1, "missing": MISSING,
-                "fields": {k: base64.b64encode(a.astype("<i2").tobytes()).decode() for k, a in cut.items()}}
+        return {**out, **cut(data, names, bbox, level_for(zoom))}
 
 
 rtma = Rtma()

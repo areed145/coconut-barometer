@@ -6,7 +6,8 @@
 // in, ~8 km for the US zoomed out (radar_layer.js draws them). Fronts and highs and lows are WPC's latest surface
 // analysis (fronts_layer.js), and watches and warnings the NWS's in effect now (hazards_layer.js, #87), whatever the
 // timeline shows, as are the temperature, dew point, relative humidity and surface wind (NOAA's RTMA analysis every 15
-// minutes, surface_layer.js, #85, #86): each fetched while it's shown (useFeed). Lightning is where GOES-East's mapper saw it
+// minutes, surface_layer.js, #85, #86), and the rain total over the last 1 to 72 hours (NOAA MRMS, hourly, #177):
+// each fetched while it's shown (useFeed). Lightning is where GOES-East's mapper saw it
 // (lightning_layer.js, #94): the 15 minutes up to the time the timeline shows, fetched each minute and only what's
 // new, drawn as dots (#146; the smooth shapes of #101 and the blobs are retired). The map's own errors go to the
 // server (#65), which reports
@@ -24,8 +25,8 @@ import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
 import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
-import { decodeGrid, temperatureCanvas, dewpointCanvas, humidityCanvas, windCanvas, tempScale, dewScale, humidityScale, windScale,
-  TEMP_RANGE, RH_RANGE, WIND_RANGE } from "./surface_layer.js";
+import { decodeGrid, temperatureCanvas, dewpointCanvas, humidityCanvas, rainCanvas, windCanvas, tempScale, dewScale, humidityScale,
+  rainScale, windScale, TEMP_RANGE, RH_RANGE, RAIN_RANGE, WIND_RANGE } from "./surface_layer.js";
 import { lightningCanvas, lightningScale, mergeMinutes, TRAIL } from "./lightning_layer.js";
 // import { ageStops } from "./lightning_layer.js"; import { rampColor } from "./ramp.js";   // the smooth lightning's (#146)
 import { linesCanvas, loadLines } from "./lines_layer.js";
@@ -120,7 +121,7 @@ export function WxMap({ show, unitsFor, compass }) {
   const tiles = useRef({ sat: new Map() });     // satellite frame key -> Leaflet tile layer
   const pins = useRef(new Map()), rings = useRef(null), canvas = useRef(null), storms = useRef(null), frontsLayer = useRef(null);
   const hazardsLayer = useRef(null), tempLayer = useRef(null), dewLayer = useRef(null), humidityLayer = useRef(null), windLayer = useRef(null);
-  const glmLayer = useRef(null), linesLayer = useRef(null);
+  const rainLayer = useRef(null), glmLayer = useRef(null), linesLayer = useRef(null);
   // const glmShapesLayer = useRef(null);         // the smooth lightning, retired (#146)
   // const glmShapes = useRef(new Map());          // the smooth lightning: view:minute(:newest, live) -> decoded shapes
   const [ready, setReady] = useState(false);
@@ -132,7 +133,7 @@ export function WxMap({ show, unitsFor, compass }) {
   useEffect(() => saveLayers(layers), [layers]);
   const { radar: showRadar, storms: showStorms, fronts: showFronts, sat, rings: showRings, glm: showGlm, radarOpacity: opacity } = layers;
   const { hazards: showHazards, hazardsMinor: showMinor, temp: showTemp, dewpoint: showDew, humidity: showHumidity, tempOpacity,
-    wind: showWind } = layers;
+    wind: showWind, rain: rainHours, rainOpacity } = layers;
   const [view, setView] = useState(null);          // what the radar shapes are fetched for (viewFor)
   const [surfView, setSurfView] = useState(null);  // ... and the temperature and wind (viewFor SURFACE_ZOOMS)
   const [glmView, setGlmView] = useState(null);    // ... and the lightning (glmViewFor)
@@ -161,6 +162,7 @@ export function WxMap({ show, unitsFor, compass }) {
       map.current.createPane("wxtemp").style.zIndex = 345;     // the temperature: over the base map, under the rest
       map.current.createPane("wxdew").style.zIndex = 346;
       map.current.createPane("wxhumidity").style.zIndex = 347;
+      map.current.createPane("wxrain").style.zIndex = 348;     // the rain total: over those, under the satellite
       map.current.createPane("wxsat").style.zIndex = 350;      // above the base map, under the radar and markers
       map.current.createPane("wxhazards").style.zIndex = 355;  // over the satellite, under the radar: echoes show through
       map.current.createPane("wxlines").style.zIndex = 356;    // coasts and borders, under the names (LABELS_Z)
@@ -179,6 +181,7 @@ export function WxMap({ show, unitsFor, compass }) {
       dewLayer.current = dewpointCanvas(lf.L, "wxdew", `Dew point: ${rtmaLink}`);
       humidityLayer.current = humidityCanvas(lf.L, "wxhumidity", `Relative humidity: ${rtmaLink}`);
       windLayer.current = windCanvas(lf.L, "wxwind", `Wind: ${rtmaLink}`);
+      rainLayer.current = rainCanvas(lf.L, "wxrain", 'Rain total: <a href="https://www.nssl.noaa.gov/projects/mrms/">NOAA MRMS</a>');
       const glmLink = 'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>';
       glmLayer.current = lightningCanvas(lf.L, "wxlightning", glmLink);
       // glmShapesLayer.current = radarCanvas(lf.L, "wxglmshapes", glmLink, "age");   // the smooth lightning (#146)
@@ -242,6 +245,9 @@ export function WxMap({ show, unitsFor, compass }) {
   const dewNow = useFeed(showDew, surfaceQuery && `/api/wx/dewpoint?${surfaceQuery}`, 5 * 60000);
   const humidityNow = useFeed(showHumidity, surfaceQuery && `/api/wx/humidity?${surfaceQuery}`, 5 * 60000);
   const windNow = useFeed(showWind, surfaceQuery && `/api/wx/wind?${surfaceQuery}`, 5 * 60000);
+  // The rain total: a new one each hour, up ~15 minutes after it; a look every 5, on the same grids' zooms.
+  const rainNow = useFeed(!!rainHours, surfaceQuery && `/api/wx/rain?hours=${rainHours}&${surfaceQuery}`, 5 * 60000);
+  const rainGrid = useMemo(() => decodeGrid(rainNow), [rainNow]);
   const tempGrid = useMemo(() => decodeGrid(tempNow), [tempNow]), dewGrid = useMemo(() => decodeGrid(dewNow), [dewNow]);
   const humidityGrid = useMemo(() => decodeGrid(humidityNow), [humidityNow]), windGrid = useMemo(() => decodeGrid(windNow), [windNow]);
   useEffect(() => {
@@ -286,6 +292,13 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!m.hasLayer(layer)) layer.addTo(m);
     layer.setOpacity(0.6).set(humidityGrid);
   }, [ready, showHumidity, humidityGrid]);
+  useEffect(() => {
+    const m = map.current, layer = rainLayer.current;
+    if (!ready || !m || !layer) return;
+    if (!rainHours) { layer.remove(); return; }
+    if (!m.hasLayer(layer)) layer.addTo(m);
+    layer.setOpacity(rainOpacity).set(rainGrid);
+  }, [ready, rainHours, rainOpacity, rainGrid]);
   useEffect(() => {
     if (!info) return;
     let alive = true;
@@ -617,6 +630,7 @@ export function WxMap({ show, unitsFor, compass }) {
     .filter(Boolean).join(" · ") || "no imagery";
   const gap = sat && loopWin.end ? Date.now() / 1000 - loopWin.end : 0;
   const shownUnits = live?.units || info?.units;
+  const rainEnd = (mm) => `${+unitsFor(shownUnits).rain[1](mm).toPrecision(2)} ${unitsFor(shownUnits).rain[0]}`;
   const ends = (kind, [lo, hi]) => [lo, hi].map((v) => `${Math.round(unitsFor(shownUnits)[kind][1](v))} ${unitsFor(shownUnits)[kind][0]}`);
   const legend = html`${showRadar && colors && html`<p class="muted heatkey"><span>radar: light</span>
     <i style=${`background: ${radarScale(colors)}; opacity: ${opacity}`}></i><span>heavy / hail</span></p>`}
@@ -626,6 +640,8 @@ export function WxMap({ show, unitsFor, compass }) {
       <i style=${`background: ${dewScale()}; opacity: 0.6`}></i><span>${ends("temp", TEMP_RANGE)[1]}</span></p>`}
     ${showHumidity && html`<p class="muted heatkey"><span>${RH_RANGE[0]}%</span>
       <i style=${`background: ${humidityScale()}; opacity: 0.6`}></i><span>${RH_RANGE[1]}%</span></p>`}
+    ${rainHours && html`<p class="muted heatkey"><span>rain: ${rainEnd(RAIN_RANGE[0])}</span>
+      <i style=${`background: ${rainScale()}; opacity: ${rainOpacity}`}></i><span>${rainEnd(RAIN_RANGE[1])}+</span></p>`}
     ${showWind && html`<p class="muted heatkey"><span>wind: calm</span>
       <i style=${`background: ${windScale()}`}></i><span>${ends("speed", WIND_RANGE)[1]}+</span></p>`}
     ${showGlm && html`<p class="muted heatkey"><span>lightning: new</span>
@@ -645,7 +661,9 @@ export function WxMap({ show, unitsFor, compass }) {
     ${showTemp || showDew || showHumidity || showWind ? (surfaceAt ? ` ${[showTemp && "temperature", showDew && "dew point", showHumidity && "relative humidity",
       showWind && "wind"].filter(Boolean).join(" and ")}: NOAA's surface analysis at ${clock(surfaceAt)} (every 15 minutes), whatever time the radar shows.${showWind ? " Arrows point the way the wind blows." : ""}`
       : [tempNow, dewNow, humidityNow, windNow].some((x) => x?.error) ? " Surface analysis unavailable right now."
-      : [tempNow, dewNow, humidityNow, windNow].some((x) => x?.pending) ? " Surface analysis is loading…" : "") : ""}`;
+      : [tempNow, dewNow, humidityNow, windNow].some((x) => x?.pending) ? " Surface analysis is loading…" : "") : ""}
+    ${rainHours ? (rainNow?.valid ? ` Rain total: the ${rainNow.hours} hours to ${clock(rainNow.valid)} (NOAA MRMS: the radars, corrected with rain gauges; hourly), whatever time the radar shows.`
+      : rainNow?.error ? " Rain total unavailable right now." : rainNow?.pending ? " Rain total is loading…" : "") : ""}`;
   return html`
     <div ref=${wrap} class=${mapboxClass(fullscreen, "wxmap")}>
       <div class="mapwrap" ref=${box}></div>

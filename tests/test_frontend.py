@@ -107,6 +107,13 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("useFeed(showDew, surfaceQuery && `/api/wx/dewpoint?${surfaceQuery}`, 5 * 60000)", m)
         self.assertIn("useFeed(showHumidity, surfaceQuery && `/api/wx/humidity?${surfaceQuery}`, 5 * 60000)", m)
         self.assertIn("inside(v, map.current, SURFACE_ZOOMS) ? v : viewFor(map.current, SURFACE_ZOOMS)", m)
+        # MRMS's rain total (#177): a period at a time, on the surface grids' zooms, its own pane and opacity.
+        self.assertIn('aria-label="Rain total">${RAIN.map(', c)
+        self.assertIn('slider("rainOpacity", "Rain total opacity", !layers.rain)', c)
+        self.assertIn("useFeed(!!rainHours, surfaceQuery && `/api/wx/rain?hours=${rainHours}&${surfaceQuery}`, 5 * 60000)", m)
+        self.assertIn('createPane("wxrain").style.zIndex = 348', m)
+        self.assertIn("layer.setOpacity(rainOpacity).set(rainGrid)", m)
+        self.assertIn("Rain total: the ${rainNow.hours} hours to ${clock(rainNow.valid)}", m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
         self.assertIn('fetch("/api/wx/map/errors"', m)
@@ -156,7 +163,7 @@ class FrontendTest(unittest.TestCase):
           globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
           const { loadLayers, saveLayers, DEFAULT_LAYERS, layersSummary } = await import("%s");
           const first = loadLayers();
-          saveLayers({ ...first, radar: false, sat: "infrared", satOpacity: 0.5, basemap: "dark", dewpoint: true, humidity: true });
+          saveLayers({ ...first, radar: false, sat: "infrared", satOpacity: 0.5, basemap: "dark", dewpoint: true, humidity: true, rain: "24" });
           const again = loadLayers();
           store.set("cb-wxmap-layers", '{"radar": "yes", "bogus": 1}');      // a bad value: the default
           const bad = loadLayers();
@@ -181,7 +188,8 @@ class FrontendTest(unittest.TestCase):
                          {"radar": False, "sat": "infrared", "satOpacity": 0.5, "basemap": "dark", "storms": True,
                           "dewpoint": True, "humidity": True})
         self.assertEqual((out["bad"]["radar"], "bogus" in out["bad"], out["broken"]), (True, False, True))
-        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Dew point · Humidity · Sat")
+        self.assertEqual(out["summary"], "Storms · Warnings · Lightning · Strikes · Dew point · Humidity · Rain 24 h · Sat")
+        self.assertEqual((out["again"]["rain"], out["bad"]["rain"], out["again"]["rainOpacity"]), ("24", "", 0.7))
         self.assertEqual((out["old"]["rings"], out["old"]["glm"], out["old"]["dewpoint"], out["old"]["humidity"], "lightning" in out["old"]),
                          (False, True, False, False, False))
         self.assertEqual(out["styles"], [])                                  # lightning is dots, whatever was saved (#146)
@@ -217,7 +225,7 @@ class FrontendTest(unittest.TestCase):
         """#85, #86: a grid decoded from int16 tenths and read bilinearly (NaN off it and beside a missing point);
         a wind arrow points the way the wind blows, as a station pin's arrow does (rotated wind_dir + 180)."""
         script = r"""
-          import { decodeGrid, sample, arrow, TEMP_STOPS } from "%s";
+          import { decodeGrid, sample, arrow, TEMP_STOPS, RAIN_STOPS } from "%s";
           import { rampColor } from "%s";
           const ints = new Int16Array([100, 200, 300, 400, 500, -32768]);         // 2 rows of 3: 10, 20, 30 / 40, 50, -
           const b64 = Buffer.from(ints.buffer).toString("base64");
@@ -234,7 +242,8 @@ class FrontendTest(unittest.TestCase):
           const from = [0, 90, 225, 300], pins = from.map((d) => (d + 180) %% 360);
           const arrows = from.map((d) => { const r = (d * Math.PI) / 180; return bearing(-5 * Math.sin(r), -5 * Math.cos(r)); });
           console.log(JSON.stringify({ corner: at(30, -100), mid: at(30, -99.5), off: at(29, -100), missing: at(30.5, -98.5),
-            none: decodeGrid(null), pins, arrows, freezing: rampColor(TEMP_STOPS, 0) }));
+            none: decodeGrid(null), pins, arrows, freezing: rampColor(TEMP_STOPS, 0), inch: rampColor(RAIN_STOPS, Math.sqrt(25.4)),
+            rising: RAIN_STOPS.every((s, k) => !k || s.at > RAIN_STOPS[k - 1].at) }));
         """ % (os.path.join(STATIC, "js", "surface_layer.js"), os.path.join(STATIC, "js", "ramp.js"))
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")
         with open(stub, "w") as f:
@@ -245,6 +254,7 @@ class FrontendTest(unittest.TestCase):
         self.assertEqual((out["corner"], out["mid"], out["off"], out["missing"], out["none"]), (10, 15, None, None, None))
         self.assertEqual(out["arrows"], out["pins"])                        # the way it blows, as the pins show it
         self.assertEqual(out["freezing"], "#4fc3f7")                        # 32 °F is a stop of its own
+        self.assertEqual((out["inch"], out["rising"]), ("#fb8c00", True))   # rain: an inch is a stop, by √mm (#177)
 
     @unittest.skipUnless(NODE, "needs Node")
     def test_the_loop_runs_to_the_newest_radar_however_late_the_satellite(self):
