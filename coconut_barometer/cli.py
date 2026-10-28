@@ -7,14 +7,14 @@ import os
 import sys
 import time
 
-from .config import FLICKR_CALLS_PER_SECOND, load_config
+from .config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, load_config
 from .store import Store
 
 
 def _client(cfg):
     from .flickr_client import FlickrClient
 
-    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
+    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"])
     c.authenticate("write")
     return c
 
@@ -27,7 +27,13 @@ def _new_client(cfg):
 
     if not (cfg["flickr"]["api_key"] and cfg["flickr"]["api_secret"]):
         return None
-    return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
+    return FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"])
+
+
+def _flickr_minutes(calls: int) -> float:
+    from .ratelimit import estimate_seconds
+
+    return estimate_seconds(calls, FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND) / 60
 
 
 def _provider(cfg):
@@ -39,7 +45,7 @@ def _provider(cfg):
 def cmd_auth(cfg, store, args):
     from .flickr_client import FlickrClient
 
-    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"], FLICKR_CALLS_PER_SECOND)
+    c = FlickrClient(cfg["flickr"]["api_key"], cfg["flickr"]["api_secret"])
     c.authenticate("delete")
     print(f"Authenticated as {c.nsid()} (token cached in ~/.flickr/)")
 
@@ -104,10 +110,10 @@ def cmd_camera(cfg, store, args):
     if not todo:
         print("Nothing to fetch — every photo's camera is cached.")
         return
-    minutes = len(todo) / FLICKR_CALLS_PER_SECOND / 60
+    minutes = _flickr_minutes(len(todo))
     took = f"{minutes / 60:.1f} h" if minutes >= 90 else f"{max(1, round(minutes))} min"
     print(f"{len(todo)} photo(s) need camera info: one Flickr call each (~{took} at "
-          f"{FLICKR_CALLS_PER_SECOND}/s). Safe to stop and resume.")
+          f"{FLICKR_CALLS_PER_HOUR}/hour). Safe to stop and resume.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return
     print(f"Cameras: {fetch_cameras(_client(cfg), store, todo)}")
@@ -432,7 +438,7 @@ def cmd_process(cfg, store, args):
         return
     exif_calls = len(set(todo) - store.camera_ids())
     calls = exif_calls + (2 * len(todo) if args.refresh_each else 0)
-    minutes = calls / FLICKR_CALLS_PER_SECOND / 60
+    minutes = _flickr_minutes(calls)
     print(f"{len(todo)} photo(s) to process: ~{calls} Flickr call(s) (~{minutes:.0f} min)"
           + f", vision on up to {len(todo)} (~${len(todo) * 0.0006:.2f} on Haiku 5.5)"
           + ". Safe to stop and resume.")
@@ -459,7 +465,7 @@ def cmd_social(cfg, store, args):
              + (0 if args.skip_groups else 2 * max(store.group_count(), 200)))
     print(f"To fetch: {'' if args.skip_groups else 'groups + your photos in each pool, '}"
           f"comments on {len(comments)} photo(s), faves on {len(faves)} photo(s): "
-          f"~{calls} Flickr calls (~{calls / FLICKR_CALLS_PER_SECOND / 60:.0f} min). Safe to stop and resume.")
+          f"~{calls} Flickr calls (~{_flickr_minutes(calls):.0f} min). Safe to stop and resume.")
     if not args.yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return
     if not args.skip_groups:

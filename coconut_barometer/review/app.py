@@ -15,7 +15,7 @@ from collections import deque
 from .. import activity
 from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
-from ..config import FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
+from ..config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..errors import caught
 from ..flickr_client import FlickrCallError
 from ..planner import photo_page
@@ -496,7 +496,7 @@ class ReviewApp:
             "took": {k: round(v, 1) for k, v in took.items()}, "done_in": None if eta is None else round(eta),
             "services": {
                 "flickr": {"configured": self.client is not None, "calls": getattr(self.client, "call_count", 0),
-                           "calls_per_second": FLICKR_CALLS_PER_SECOND,
+                           "calls_per_hour": FLICKR_CALLS_PER_HOUR, "calls_per_second": FLICKR_CALLS_PER_SECOND,
                            "next_slot": limiter.next_free() if hasattr(limiter, "next_free") else None},
                 "weatherflow": {"configured": wx is not None, "calls": wx.call_count if wx else 0,
                                 "calls_per_second": WEATHERFLOW_CALLS_PER_SECOND},

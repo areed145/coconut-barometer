@@ -60,17 +60,17 @@ function Jobs({ q, now }) {
 const Health = ({ row }) => row && html`<i class=${"health-dot " + row.level} role="img"
   title=${row.state + (row.detail ? ` · ${row.detail}` : "")} aria-label=${`${row.level}: ${row.state}`}></i>`;
 
-function ServiceCard({ id, title, a, health, on, onPick, children, limit }) {
+function ServiceCard({ id, title, a, health, on, onPick, children, limit, perHour }) {
   const s = a.sources[id] || { calls: 0, errors: 0, last_minute: 0, last_hour: 0, waited: 0 };
   const pending = a.pending.filter((p) => p.source === id);
   const waiting = pending.filter((p) => p.state === "waiting"), running = pending.filter((p) => p.state === "running");
-  const budget = limit ? limit * 3600 : null;
+  const budget = perHour || (limit ? limit * 3600 : null);
   return html`<button class=${"svc" + (on ? " on" : "") + (pending.length ? " busy" : "")} onClick=${() => onPick(on ? "" : id)}
       aria-pressed=${on} title=${on ? "Show every source" : `Show only ${title} in the log`}>
     <span class="svchead">${dot(id)}<b>${title}</b>${s.errors ? html`<span class="status s-failed">${s.errors} error${s.errors === 1 ? "" : "s"}</span>` : ""}<${Health} row=${health} /></span>
     <span class="svcnum"><b>${num(s.last_hour)}</b> <small>calls in the last hour</small></span>
     <span class="svcmeta">${num(s.last_minute)} in the last minute${s.waited >= 1 ? ` · ${dur(s.waited)} spent waiting for the limit` : ""}</span>
-    ${budget && html`<span class="svcbar" title=${`${num(s.last_hour)} of ${num(Math.round(budget))} calls an hour at ${limit}/s`}>
+    ${budget && html`<span class="svcbar" title=${`${num(s.last_hour)} of ${num(Math.round(budget))} calls an hour${perHour ? "" : ` at ${limit}/s`}`}>
       <i style=${`width: ${Math.min(100, (100 * s.last_hour) / budget)}%`}></i></span>`}
     ${children}
     <span class="svcnow">${running.length ? html`<span class="spin">⟳</span> ${running[0].what}${running.length > 1 ? ` +${running.length - 1}` : ""} · ${dur(a.now - running[0].at)}`
@@ -159,8 +159,8 @@ export function StatusPage({ health }) {
     <${HealthPanel} health=${health} fix=${true} here="#/status" />
     <${Jobs} q=${q} now=${a.now} />
     <div class="svcs">
-      <${ServiceCard} ...${card("flickr")} title="Flickr API" limit=${fl.calls_per_second}>
-        <span class="svcmeta">${fl.calls_per_second}/s, shared with every process on this key${slot ? ` · next free slot in ${dur(slot)}` : ""}</span>
+      <${ServiceCard} ...${card("flickr")} title="Flickr API" perHour=${fl.calls_per_hour}>
+        <span class="svcmeta">${num(fl.calls_per_hour)}/hour (up to ${fl.calls_per_second}/s), shared with every process on this key${slot ? ` · next free slot in ${dur(slot)}` : ""}</span>
       <//>
       <${ServiceCard} ...${card("vision")} title="Vision model">
         <span class="svcmeta">${sv.vision.model || "–"} · ${sv.vision.concurrency} at once · ${num(sv.vision.input_tokens)} in / ${num(sv.vision.output_tokens)} out tokens</span>

@@ -202,7 +202,7 @@ Per-day stats come from Flickr's own stats (`photo_daily`: views, comments and f
 ## Costs and limits
 
 - Each photo sends one ~500px thumbnail plus a short prompt, roughly 1k input tokens. Run `--limit 50` and look at the token counts it prints before doing the whole library. Check current API pricing.
-- Flickr allows 3600 API calls per hour per API key. The app makes at most 1.1 calls a second (about 3960 an hour, deliberately a little over the stated limit), shared by everything using the key: the web app, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay at that rate. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
+- Flickr allows 3600 API calls per hour per API key. The app makes at most 3960 calls in any hour (deliberately a little over the stated limit), as fast as 5 a second while the hour has room and then one as each call from an hour ago ages out. That budget is shared by everything using the key: the web app, `process` and `social` running at once take turns through a small file in `~/.flickr/`, so together they stay within it. Each applied change costs one call, except that a retitle and a description for the same photo share one `setMeta` call (plus one call to re-read the photo first). A sync costs about one call per 500 photos plus one per album.
 - Reverse geocoding runs offline and returns the nearest town, so a photo taken right at a border can occasionally land in the neighbouring country. That's one reason to review before applying.
 
 ## Adding a vision provider
