@@ -4,10 +4,12 @@ hour (Pass 2 waits for more gauges, an hour). Public domain, from NCEP's MRMS se
 fetched only when it has changed (If-Modified-Since), 0.5-7 MB. A 0.01° grid over the US, PNG-packed GRIB2 as the
 radar's is (radar.decode(), grid()), in mm, -3 where no radar sees.
 
-Each is averaged once onto LEVELS regular lat/lon grids (sent from the same zooms as rtma.py's, so the map asks for
-both alike), in bands of rows to keep the memory down, and kept as int16 tenths of a mm: a block's mean of what's seen
-in it, MISSING where nothing is. rtma.cut() cuts the view. A Feed per period (feed.py), made when the map first asks
-for it and refreshed in the background (Totals; one per process, `qpe`)."""
+Drawn as the radar is (#179): each 2×2 block averaged (~2 km; what no radar sees counts as dry), totals under the
+lowest of BANDS and specks dropped (radar.clean()), then smoothed and traced into stacked shapes per BANDS level
+(radar.encode(), view()) at two LEVELS of detail, coarser than the radar's: a total is smooth, and covers far more of
+the map than echo does (72 hours of it, ~170 KB gzipped for the US, ~250 KB a view zoomed in). A Feed per period
+(feed.py), made when the map first asks for it and refreshed in the background, one tracing at a time (~2 s and
+~100 MB each; Totals, one per process: `qpe`)."""
 from __future__ import annotations
 
 import gzip
@@ -18,12 +20,18 @@ import numpy as np
 
 from . import radar
 from .feed import Feed
-from .rtma import TTL, cut, level_for, pack
+from .rtma import TTL
 
 HOURS = (1, 3, 6, 12, 24, 48, 72)
-# name -> (degrees between points, the map's lowest zoom for it): rtma.py's zooms, finer, since rain's edges are sharp.
-LEVELS = {"coarse": (0.1, 0), "mid": (0.05, 6), "fine": (0.02, 8)}
-BAND = 100               # the grid's rows averaged at a time (a multiple of each level's block)
+# The levels traced, in mm: inches from 0.01 to 10, about evenly by ratio, so the colors step finely at any total.
+BANDS = [round(i * 25.4, 3) for i in (0.01, 0.02, 0.05, 0.1, 0.15, 0.25, 0.35, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10)]
+# radar.LEVELS's shape: name -> (Gaussian sigma in ~2 km pixels, traced on every n-th, whole 1/q degrees). Fine (~4 km)
+# from FINE_ZOOM in, for the view; coarse (~10 km) the whole US. The zoom is rtma.py's finest, as the map asks for both.
+LEVELS = {"fine": (2.0, 2, 250), "coarse": (3.0, 5, 100)}
+FINE_ZOOM = 8
+BLOCK, SPECK_PX = 2, 4   # the grid averaged in 2×2 blocks (~2 km); rain over fewer of those, connected, is a speck
+ROWS = 100               # the grid's rows averaged at a time (a multiple of BLOCK)
+_tracing = threading.Lock()     # one period traced at a time, however many the map asks for at once
 
 
 def url(hours: int) -> str:
@@ -31,27 +39,26 @@ def url(hours: int) -> str:
     return f"https://mrms.ncep.noaa.gov/2D/{product}/MRMS_{product}.latest.grib2.gz"
 
 
-def average(msg: dict, raw: np.ndarray) -> dict:
-    """radar.decode()'s message and its stored values (north at the top) -> each level's {box, p}: mm, int16 tenths,
-    rows south first, each point the mean of what's seen in its block (MISSING: nothing seen)."""
+def field(msg: dict, raw: np.ndarray) -> dict:
+    """radar.decode()'s message and its stored values (north at the top) -> the total in BLOCK×BLOCK means (mm,
+    float32, north at the top; unseen: 0) and where it is, as radar.crop() has a field."""
     ref, e, d = (np.float32(x) for x in msg["scale"])
-    out = {}
-    for level, (step, _) in LEVELS.items():
-        b = round(step / msg["di"])
-        ny, nx = raw.shape[0] // b, raw.shape[1] // b
-        rows = []
-        for r0 in range(0, ny * b, BAND):
-            mm = (raw[r0:min(r0 + BAND, ny * b), :nx * b].astype(np.float32) * e + ref) / d
-            seen = mm >= 0
-            k = mm.shape[0] // b
-            total = np.where(seen, mm, 0).reshape(k, b, nx, b).sum(axis=(1, 3))
-            n = seen.reshape(k, b, nx, b).sum(axis=(1, 3))
-            rows.append(pack(np.where(n > 0, total / np.maximum(n, 1, dtype=np.float32), np.float32(np.nan))))
-        box = {"lat0": round(msg["la1"] - ((ny - 1) * b + (b - 1) / 2) * msg["dj"], 6),
-               "lon0": round(msg["lo1"] + (b - 1) / 2 * msg["di"], 6),
-               "dlat": round(b * msg["dj"], 6), "dlon": round(b * msg["di"], 6), "ny": ny, "nx": nx}
-        out[level] = {"box": box, "p": np.ascontiguousarray(np.concatenate(rows)[::-1])}
-    return out
+    b = BLOCK
+    ny, nx = raw.shape[0] // b, raw.shape[1] // b
+    rows = []
+    for r0 in range(0, ny * b, ROWS):
+        mm = (raw[r0:min(r0 + ROWS, ny * b), :nx * b].astype(np.float32) * e + ref) / d
+        np.maximum(mm, 0, out=mm)
+        rows.append(mm.reshape(mm.shape[0] // b, b, nx, b).mean(axis=(1, 3), dtype=np.float32))
+    return {"north": msg["la1"] - (b - 1) / 2 * msg["dj"], "west": msg["lo1"] + (b - 1) / 2 * msg["di"],
+            "di": b * msg["di"], "dj": b * msg["dj"], "mm": np.concatenate(rows)}
+
+
+def shapes(msg: dict, raw: np.ndarray) -> dict:
+    """The total's stacked shapes at each of LEVELS: {level: [[mm, polys], ...]}."""
+    f = field(msg, raw)
+    mm = radar.clean(f.pop("mm"), SPECK_PX, floor=BANDS[0])
+    return {name: radar.encode(f, mm, *spec, bands=BANDS) for name, spec in LEVELS.items()}
 
 
 class Qpe(Feed):
@@ -69,7 +76,8 @@ class Qpe(Feed):
         r.raise_for_status()
         msg = radar.decode(gzip.decompress(r.content))
         size = len(r.content)
-        levels = average(msg, radar.grid(msg))
+        with _tracing:
+            levels = shapes(msg, radar.grid(msg))
         self.remember(r)
         a["detail"] = f"{self.hours} h to {time.strftime('%H:%MZ', time.gmtime(msg['t']))}, {size / 1e6:.1f} MB"
         return {"valid": msg["t"], "levels": levels}
@@ -87,15 +95,13 @@ class Totals:
                 self._feeds[hours] = Qpe(hours, **self._feed)
             return self._feeds[hours]
 
-    def view(self, hours: int, bbox: tuple | None = None, zoom: float | None = None) -> dict:
-        """The rain over the `hours` up to `valid` (p: mm, int16 tenths, base64, little-endian, rows south first,
-        MISSING where no radar sees) for the box at the zoom's level: rtma.Rtma.view()'s shape, and `hours`."""
+    def view(self, hours: int, bbox: tuple | None = None, zoom: float | None = None) -> tuple[dict, str]:
+        """The rain over the `hours` up to `valid`: ({hours, valid, checked_at, error, pending}, the shapes for the
+        box at the zoom's level as radar.view()'s JSON text, each band's level its mm)."""
         state = self.feed(hours).current()
-        out = {"hours": hours, "valid": None, "level": None, "fields": {},
-               **{k: state[k] for k in ("checked_at", "error", "pending")}}
-        if not state["data"]:
-            return out
-        return {**out, **cut(state["data"], ("p",), bbox, level_for(zoom, LEVELS))}
+        data = state["data"]
+        rest = {"hours": hours, "valid": data and data["valid"], **{k: state[k] for k in ("checked_at", "error", "pending")}}
+        return rest, radar.view(data, bbox, zoom, "mm", LEVELS, FINE_ZOOM) if data else '{"level":null,"q":1,"bands":[]}'
 
 
 qpe = Totals()

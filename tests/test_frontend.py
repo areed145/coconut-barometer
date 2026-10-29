@@ -112,7 +112,9 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('slider("rainOpacity", "Rain total opacity", !layers.rain)', c)
         self.assertIn("useFeed(!!rainHours, surfaceQuery && `/api/wx/rain?hours=${rainHours}&${surfaceQuery}`, 5 * 60000)", m)
         self.assertIn('createPane("wxrain").style.zIndex = 348', m)
-        self.assertIn("layer.setOpacity(rainOpacity).set(rainGrid)", m)
+        self.assertIn("layer.setOpacity(rainOpacity).set(rainShapes, rainColor)", m)    # drawn as the radar is (#179)
+        self.assertIn('radarCanvas(lf.L, "wxrain", ', m)
+        self.assertIn("decode(rainNow?.shapes)", m)
         self.assertIn("Rain total: the ${rainNow.hours} hours to ${clock(rainNow.valid)}", m)
         self.assertNotIn("Radar loop", m)                                   # no loop mode: one timeline
         self.assertIn("loopWindow(", m)                                     # one timeline for them all (wx_loop.js)
@@ -225,7 +227,7 @@ class FrontendTest(unittest.TestCase):
         """#85, #86: a grid decoded from int16 tenths and read bilinearly (NaN off it and beside a missing point);
         a wind arrow points the way the wind blows, as a station pin's arrow does (rotated wind_dir + 180)."""
         script = r"""
-          import { decodeGrid, sample, arrow, TEMP_STOPS, RAIN_STOPS } from "%s";
+          import { decodeGrid, sample, arrow, TEMP_STOPS, RAIN_STOPS, rainColor } from "%s";
           import { rampColor } from "%s";
           const ints = new Int16Array([100, 200, 300, 400, 500, -32768]);         // 2 rows of 3: 10, 20, 30 / 40, 50, -
           const b64 = Buffer.from(ints.buffer).toString("base64");
@@ -242,7 +244,7 @@ class FrontendTest(unittest.TestCase):
           const from = [0, 90, 225, 300], pins = from.map((d) => (d + 180) %% 360);
           const arrows = from.map((d) => { const r = (d * Math.PI) / 180; return bearing(-5 * Math.sin(r), -5 * Math.cos(r)); });
           console.log(JSON.stringify({ corner: at(30, -100), mid: at(30, -99.5), off: at(29, -100), missing: at(30.5, -98.5),
-            none: decodeGrid(null), pins, arrows, freezing: rampColor(TEMP_STOPS, 0), inch: rampColor(RAIN_STOPS, Math.sqrt(25.4)),
+            none: decodeGrid(null), pins, arrows, freezing: rampColor(TEMP_STOPS, 0), inch: rainColor(25.4),
             rising: RAIN_STOPS.every((s, k) => !k || s.at > RAIN_STOPS[k - 1].at) }));
         """ % (os.path.join(STATIC, "js", "surface_layer.js"), os.path.join(STATIC, "js", "ramp.js"))
         stub = os.path.join(tempfile.mkdtemp(), "run.mjs")

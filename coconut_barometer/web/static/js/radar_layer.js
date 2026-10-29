@@ -55,13 +55,13 @@ export function decode(shapes) {
   return { level: shapes.level, bands: shapes.bands.map((b) => ({ ...b, polys: b.polys.map((p) => decodePoly(p, shapes.q)) })) };
 }
 
-// A Leaflet layer in `pane`: set(shapes, colorOf) shows a decoded frame (colorOf(band[key]) -> CSS color: its dBZ, or
-// the lightning's age), setOpacity() fades it as a whole (the levels are stacked, so they're drawn opaque and the
-// canvas is faded).
-export function radarCanvas(L, pane, attribution, key = "dbz") {
+// A Leaflet layer in `pane`: set(shapes, colorOf) shows a decoded frame (colorOf(band[key]) -> CSS color: its dBZ, the
+// rain total's mm, or the lightning's age), setOpacity() fades it as a whole (the levels are stacked, so they're drawn
+// opaque and the canvas is faded).
+export function radarCanvas(L, pane, attribution, key = "dbz", className = "wxradar-canvas") {
   const Layer = L.Layer.extend({
     options: { pane, attribution },
-    ...mapCanvas(L, "wxradar-canvas"),
+    ...mapCanvas(L, className),
     set(shapes, colorOf) {
       this._shapes = shapes;
       this._colorOf = colorOf;
