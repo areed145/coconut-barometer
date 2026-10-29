@@ -25,8 +25,8 @@ import { leaflet, baseMap } from "./leaflet.js";
 import { decode, radarCanvas, levelColor, radarScale, DEFAULT_STOPS } from "./radar_layer.js";
 import { frontsCanvas } from "./fronts_layer.js";
 import { hazardsCanvas, decodeHazards, hazardPopup } from "./hazards_layer.js";
-import { decodeGrid, temperatureCanvas, dewpointCanvas, humidityCanvas, rainCanvas, windCanvas, tempScale, dewScale, humidityScale,
-  rainScale, windScale, TEMP_RANGE, RH_RANGE, RAIN_RANGE, WIND_RANGE } from "./surface_layer.js";
+import { decodeGrid, temperatureCanvas, dewpointCanvas, humidityCanvas, windCanvas, tempScale, dewScale, humidityScale,
+  rainScale, rainColor, windScale, TEMP_RANGE, RH_RANGE, RAIN_RANGE, WIND_RANGE } from "./surface_layer.js";
 import { lightningCanvas, lightningScale, mergeMinutes, TRAIL } from "./lightning_layer.js";
 // import { ageStops } from "./lightning_layer.js"; import { rampColor } from "./ramp.js";   // the smooth lightning's (#146)
 import { linesCanvas, loadLines } from "./lines_layer.js";
@@ -181,7 +181,8 @@ export function WxMap({ show, unitsFor, compass }) {
       dewLayer.current = dewpointCanvas(lf.L, "wxdew", `Dew point: ${rtmaLink}`);
       humidityLayer.current = humidityCanvas(lf.L, "wxhumidity", `Relative humidity: ${rtmaLink}`);
       windLayer.current = windCanvas(lf.L, "wxwind", `Wind: ${rtmaLink}`);
-      rainLayer.current = rainCanvas(lf.L, "wxrain", 'Rain total: <a href="https://www.nssl.noaa.gov/projects/mrms/">NOAA MRMS</a>');
+      rainLayer.current = radarCanvas(lf.L, "wxrain", 'Rain total: <a href="https://www.nssl.noaa.gov/projects/mrms/">NOAA MRMS</a>',
+        "mm", "wxrain-canvas");
       const glmLink = 'Lightning: <a href="https://www.goes-r.gov/spacesegment/glm.html">NOAA GOES-East GLM</a> via <a href="https://www.unidata.ucar.edu/software/tds/">Unidata THREDDS</a>';
       glmLayer.current = lightningCanvas(lf.L, "wxlightning", glmLink);
       // glmShapesLayer.current = radarCanvas(lf.L, "wxglmshapes", glmLink, "age");   // the smooth lightning (#146)
@@ -245,9 +246,10 @@ export function WxMap({ show, unitsFor, compass }) {
   const dewNow = useFeed(showDew, surfaceQuery && `/api/wx/dewpoint?${surfaceQuery}`, 5 * 60000);
   const humidityNow = useFeed(showHumidity, surfaceQuery && `/api/wx/humidity?${surfaceQuery}`, 5 * 60000);
   const windNow = useFeed(showWind, surfaceQuery && `/api/wx/wind?${surfaceQuery}`, 5 * 60000);
-  // The rain total: a new one each hour, up ~15 minutes after it; a look every 5, on the same grids' zooms.
+  // The rain total: a new one each hour, up ~15 minutes after it; a look every 5, on the same zooms. Shapes per level,
+  // as the radar's (#179).
   const rainNow = useFeed(!!rainHours, surfaceQuery && `/api/wx/rain?hours=${rainHours}&${surfaceQuery}`, 5 * 60000);
-  const rainGrid = useMemo(() => decodeGrid(rainNow), [rainNow]);
+  const rainShapes = useMemo(() => decode(rainNow?.shapes), [rainNow]);
   const tempGrid = useMemo(() => decodeGrid(tempNow), [tempNow]), dewGrid = useMemo(() => decodeGrid(dewNow), [dewNow]);
   const humidityGrid = useMemo(() => decodeGrid(humidityNow), [humidityNow]), windGrid = useMemo(() => decodeGrid(windNow), [windNow]);
   useEffect(() => {
@@ -297,8 +299,8 @@ export function WxMap({ show, unitsFor, compass }) {
     if (!ready || !m || !layer) return;
     if (!rainHours) { layer.remove(); return; }
     if (!m.hasLayer(layer)) layer.addTo(m);
-    layer.setOpacity(rainOpacity).set(rainGrid);
-  }, [ready, rainHours, rainOpacity, rainGrid]);
+    layer.setOpacity(rainOpacity).set(rainShapes, rainColor);
+  }, [ready, rainHours, rainOpacity, rainShapes]);
   useEffect(() => {
     if (!info) return;
     let alive = true;

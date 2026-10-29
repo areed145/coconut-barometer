@@ -395,12 +395,14 @@ def surface_humidity(bbox: str | None = Query(None, max_length=100), zoom: float
 def rain_total(hours: int = Query(24), bbox: str | None = Query(None, max_length=100), zoom: float | None = Query(None, ge=0, le=24),
                rt=Depends(runtime)):
     """The Map tab's rain total (#177): the rain over the last `hours` (mm, weather/qpe.py: NOAA MRMS, radars and rain
-    gauges, hourly) on a lat/lon grid, the whole US zoomed out, finer and only `bbox` zoomed in."""
+    gauges, hourly) as shapes per level and up, as the radar's are (#179): ~2 km and only what's in `bbox` zoomed in,
+    ~8 km over the US zoomed out."""
     from ...weather.qpe import HOURS, qpe
 
     if hours not in HOURS:
         raise HTTPException(422, f"hours: one of {', '.join(map(str, HOURS))}")
-    return {**qpe.view(hours, _bbox(bbox), zoom), "units": _units(rt)}
+    rest, shapes = qpe.view(hours, _bbox(bbox), zoom)
+    return _with_shapes({**rest, "units": _units(rt)}, shapes)
 
 
 @router.get("/wind")

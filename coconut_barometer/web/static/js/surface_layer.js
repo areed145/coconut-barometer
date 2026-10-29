@@ -1,6 +1,6 @@
 // The Weather map's surface analysis (weather/rtma.py: NOAA RTMA, every 15 minutes): temperature and dew point 2 m up
-// and relative humidity as smooth color fields, and the wind 10 m up as arrows (#85, #86); and the rain total over the
-// last hours (weather/qpe.py: NOAA MRMS, #177) as another. All come as a regular lat/lon grid (decodeGrid())
+// and relative humidity as smooth color fields, and the wind 10 m up as arrows (#85, #86). All come as a regular
+// lat/lon grid (decodeGrid())
 // read bilinearly wherever it's needed (sample()), each drawn on its own canvas (map_canvas.js):
 //   temperature  colored at every few screen pixels and scaled up smoothly, so it's as fine as the screen at any zoom
 //   wind         an arrow every SPACING screen pixels (so as many at any zoom), the way the wind blows, longer and
@@ -20,13 +20,14 @@ export const WIND_STOPS = [[0, "#90a4ae"], [2, "#4fc3f7"], [5, "#43a047"], [8, "
 export const RH_STOPS = [[0, "#a66b00"], [20, "#fdd835"], [40, "#a5d6a7"], [60, "#4fc3f7"], [80, "#1976d2"], [100, "#4a148c"]]
   .map(([at, color]) => ({ at, color }));
 export const TEMP_RANGE = [-30, 45], WIND_RANGE = [0, 20], RH_RANGE = [0, 100];      // the legends' ends (°C, m/s, %)
-// The rain total's (#177), at the inches NWS rainfall maps step at and kept in mm: green light, yellow to red heavy,
-// purple extreme. Colored by the square root of the mm, so a tenth of an inch and ten inches both read; under
-// RAIN_RANGE[0] (0.01 in) is no color.
+// The rain total's (#177; drawn as the radar's shapes are, radar_layer.js, #179), at the inches NWS rainfall maps
+// step at and kept in mm: green light, yellow to red heavy, purple extreme. Colored by the square root of the mm, so a
+// tenth of an inch and ten inches both read; under RAIN_RANGE[0] (0.01 in) there are no shapes.
 const rainAt = (mm) => Math.sqrt(mm);
 export const RAIN_STOPS = [[0.01, "#b9e3b0"], [0.1, "#66bb6a"], [0.25, "#2e7d32"], [0.5, "#fdd835"], [1, "#fb8c00"],
   [2, "#e53935"], [3, "#ad1457"], [5, "#7b1fa2"], [10, "#3f0f6b"]].map(([inches, color]) => ({ at: rainAt(inches * 25.4), color }));
 export const RAIN_RANGE = [0.254, 254];                         // mm: 0.01 in to 10 in
+export const rainColor = (mm) => rampColor(RAIN_STOPS, rainAt(mm));
 
 const CELL = 4;                       // temperature: screen px between the points colored (then scaled up smoothly)
 const LUT_LO = -60, LUT_STEP = 0.25, LUT_N = 481;               // a color per quarter °C, -60 to 60
@@ -115,11 +116,6 @@ export const dewpointCanvas = (L, pane, attribution) =>
     TEMP_STOPS, LUT_LO, LUT_LO + LUT_STEP * (LUT_N - 1));
 export const humidityCanvas = (L, pane, attribution) =>
   scalarCanvas(L, pane, attribution, "wxhumidity-canvas", (g, lat, lon) => sample(g, "rh", lat, lon), RH_STOPS, 0, 100);
-export const rainCanvas = (L, pane, attribution) =>
-  scalarCanvas(L, pane, attribution, "wxrain-canvas", (g, lat, lon) => {
-    const mm = sample(g, "p", lat, lon);
-    return mm >= RAIN_RANGE[0] ? rainAt(mm) : NaN;
-  }, RAIN_STOPS, ...RAIN_RANGE.map(rainAt));
 
 // One arrow at (x, y) for (u, v) m/s; `halo` the map's background, under it so it reads on any color.
 export function arrow(ctx, x, y, u, v, spacing, halo) {

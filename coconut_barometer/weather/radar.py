@@ -110,12 +110,12 @@ def crop(msg: dict, south: float | None = None, north: float | None = None, west
             "di": msg["di"] * block, "dj": msg["dj"] * block, "dbz": dbz}
 
 
-def clean(dbz: np.ndarray, speck_px: int = SPECK_PX) -> np.ndarray:
-    """Weak echo and specks (connected echo of fewer than speck_px pixels) removed: what the alerts read, and
-    (smoothed) what the map draws. In place."""
+def clean(dbz: np.ndarray, speck_px: int = SPECK_PX, floor: float = MIN_DBZ) -> np.ndarray:
+    """Weak echo (under `floor`) and specks (connected echo of fewer than speck_px pixels) removed: what the alerts
+    read, and (smoothed) what the map draws. In place. The rain totals' too (qpe.py, in mm)."""
     from scipy import ndimage
 
-    dbz[dbz < MIN_DBZ] = 0
+    dbz[dbz < floor] = 0
     labels, n = ndimage.label(dbz > 0)
     if n:
         small = np.bincount(labels.ravel()) < speck_px
@@ -124,8 +124,9 @@ def clean(dbz: np.ndarray, speck_px: int = SPECK_PX) -> np.ndarray:
     return dbz
 
 
-def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list[list]:
-    """The map's shapes at one level of detail: for each BAND_STEP dBZ level, everything at that level *or above*
+def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int, bands=None) -> list[list]:
+    """The map's shapes at one level of detail: for each BAND_STEP dBZ level (or each of `bands`: the rain totals'
+    mm, qpe.py), everything at that level *or above*
     (so the bands are drawn stacked, lowest first, and neighbours can't show a seam between them: #67), as
     [dbz, [poly, ...]], each poly as shapes.py has it, in whole 1/q degrees. The text is made once, here: a request
     picks the polys in view and joins their texts (view())."""
@@ -140,7 +141,7 @@ def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list
     gen = contourpy.contour_generator(xs, ys, grid, fill_type=contourpy.FillType.OuterOffset)
     min_area = di * dj                     # a ring smaller than one traced cell is a speck or a pinhole
     out = []
-    for lo in range(MIN_DBZ, BAND_TOP + 1, BAND_STEP):
+    for lo in range(MIN_DBZ, BAND_TOP + 1, BAND_STEP) if bands is None else bands:
         points, offsets = gen.filled(lo, 1000)
         polys = []
         for pts, offs in zip(points, offsets):
@@ -159,16 +160,18 @@ def encode(field: dict, z: np.ndarray, smooth: float, thin: int, q: int) -> list
     return out
 
 
-def view(frame: dict, bbox: tuple | None = None, zoom: float | None = None) -> str:
-    """A frame's shapes for the map, as JSON text: the fine level from FINE_ZOOM in (only the polys touching `bbox`,
-    west/south/east/north degrees), else the coarse one (also filtered, if `bbox` is given)."""
-    level = "fine" if zoom is not None and zoom >= FINE_ZOOM else "coarse"
-    q = LEVELS[level][2]
+def view(frame: dict, bbox: tuple | None = None, zoom: float | None = None, key: str = "dbz", levels: dict = LEVELS,
+         fine_zoom: float = FINE_ZOOM) -> str:
+    """A frame's shapes for the map, as JSON text: the fine level from fine_zoom in (only the polys touching `bbox`,
+    west/south/east/north degrees), else the coarse one (also filtered, if `bbox` is given). Each band's level is
+    `key`; the rain totals' (qpe.py) are mm, at their own `levels` and fine_zoom."""
+    level = "fine" if zoom is not None and zoom >= fine_zoom else "coarse"
+    q = levels[level][2]
     bands = []
     for dbz, polys in (frame.get("levels") or {}).get(level, []):
         texts = [p[4] for p in polys if shapes.in_view(p, bbox, q)]
         if texts:
-            bands.append(f'{{"dbz":{dbz},"polys":[{",".join(texts)}]}}')
+            bands.append(f'{{"{key}":{dbz},"polys":[{",".join(texts)}]}}')
     return f'{{"level":"{level}","q":{q},"bands":[{",".join(bands)}]}}'
 
 
