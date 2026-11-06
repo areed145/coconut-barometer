@@ -10,6 +10,7 @@ import struct
 import tempfile
 import time
 import unittest
+import zlib
 from unittest import mock
 
 import numpy as np
@@ -145,6 +146,11 @@ class FrameTest(unittest.TestCase):
     def _cut(self):
         return mock.Mock(status_code=200, content=gzip.compress(grib(blob(20)))[:100], raise_for_status=lambda: None, headers={})
 
+    def _corrupt(self):
+        response = self._ok()
+        response.content = response.content[:10] + b"\x07" + response.content[11:]
+        return response
+
     def _details(self):
         return [e["detail"] for e in activity.log.entries["radar"] if e["kind"] == "call"]
 
@@ -163,6 +169,38 @@ class FrameTest(unittest.TestCase):
         self.assertIsNone(svc.frame)
         self.assertEqual(svc._modified, "old")
         self.assertIn("(truncated download)", self._details()[-1])
+
+    def test_corrupt_download_is_retried(self):
+        bad = self._corrupt()
+        with self.assertRaises(zlib.error):
+            gzip.decompress(bad.content)
+        svc, stations, calls = self._service([bad, self._ok()])
+        self.assertTrue(svc.refresh_frame(stations))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(svc.frame["t"], T)
+        self.assertEqual(svc._modified, "Sat, 24 Oct 2026 00:20:39 GMT")
+        self.assertIn("(truncated download)", self._details()[-1])
+
+    def test_two_corrupt_downloads_keep_the_cache_until_a_good_round(self):
+        svc, stations, calls = self._service([self._ok(), self._corrupt(), self._corrupt(), self._ok()])
+        self.assertTrue(svc.refresh_frame(stations))
+        frame, field, rain, modified = svc.frame, svc.field, list(svc.rain[11]), svc._modified
+        svc.stations = mock.Mock(return_value=stations)
+        svc.refresh_cells = mock.Mock()
+        with mock.patch.object(R, "caught") as caught:
+            svc.tick(None)
+            caught.assert_not_called()
+        self.assertEqual(len(calls), 3)
+        self.assertIs(svc.frame, frame)
+        self.assertIs(svc.field, field)
+        self.assertEqual(list(svc.rain[11]), rain)
+        self.assertEqual(svc._modified, modified)
+        self.assertIn("trying again next round", svc.snapshot()["error"])
+        svc.refresh_cells.assert_called_once_with(stations)
+        svc._next["frame"] = 0
+        svc.tick(None)
+        self.assertEqual(len(calls), 4)
+        self.assertIsNone(svc.snapshot()["error"])
 
     def test_retry_returning_304_keeps_the_truncation_note(self):
         svc, stations, calls = self._service([self._cut(), mock.Mock(status_code=304)])

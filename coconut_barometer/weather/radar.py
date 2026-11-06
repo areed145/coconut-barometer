@@ -29,6 +29,7 @@ import math
 import os
 import threading
 import time
+import zlib
 from collections import deque
 from datetime import datetime
 
@@ -343,7 +344,7 @@ class RadarService:
                 try:
                     data = gzip.decompress(r.content)
                     break
-                except (EOFError, OSError):
+                except (EOFError, OSError, zlib.error):
                     truncated += " (truncated download)"
                     a["detail"] = f"{len(r.content) / 1e6:.1f} MB" + truncated
         if data is None:
