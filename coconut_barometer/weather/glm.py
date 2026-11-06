@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+from ..errors import expected
 from ..gazetteer import USER_AGENT
 from .feed import Feed
 
@@ -103,8 +104,8 @@ class Lightning(Feed):
         self._last = {p: n for p, n in last.items() if p in seen}     # only once every hour has listed
         return names
 
-    def _fetch(self, name: str) -> tuple[int, np.ndarray, np.ndarray] | str:
-        """One file's flashes, or why not: "late" (THREDDS doesn't have it yet) or the error. Either way it's tried
+    def _fetch(self, name: str) -> tuple[int, np.ndarray, np.ndarray] | str | Exception:
+        """One file's flashes, or why not: "late" (THREDDS doesn't have it yet) or the exception. Either way it's tried
         again next round: one bad file mustn't lose the round."""
         try:
             t = start_time(name)
@@ -115,7 +116,7 @@ class Lightning(Feed):
             r.raise_for_status()
             lat, lon = parse_ascii(r.text)
         except Exception as e:  # noqa: BLE001
-            return f"{type(e).__name__}: {e}"[:200]
+            return e
         return t, np.round(lat * Q).astype(np.int16), np.round(lon * Q).astype(np.int16)
 
     def load(self, a: dict) -> dict | None:
@@ -128,7 +129,7 @@ class Lightning(Feed):
             for i in range(0, len(todo), FIRST_FILL):        # newest first, each batch shown once it's in
                 batch = todo[i:i + FIRST_FILL]
                 for name, flashes in zip(batch, pool.map(self._fetch, batch)):
-                    if isinstance(flashes, str):
+                    if isinstance(flashes, (str, Exception)):
                         self._missing.add(name)
                         if flashes != "late":
                             failed.append(flashes)
@@ -139,7 +140,10 @@ class Lightning(Feed):
                 with self._lock:
                     self.data = data
         if failed and not got:
-            raise RuntimeError(f"none of {len(failed)} files could be read from THREDDS: {failed[0]}")
+            error = next((e for e in failed if not expected(e)), failed[0])
+            kind = OSError if expected(error) else RuntimeError
+            detail = f"{type(error).__name__}: {error}"[:200]
+            raise kind(f"none of {len(failed)} files could be read from THREDDS: {detail}") from error
         data = self._pack()
         a["detail"] = f"{got} new files, {len(self._files)} held, {len(data['t'])} flashes" + \
                       (f", {len(self._missing)} not read yet" if self._missing else "")

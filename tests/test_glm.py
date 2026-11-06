@@ -2,7 +2,11 @@
 here), held for KEEP, fetched only when new, and counted per minute and cell for the map."""
 import re
 import unittest
+from unittest.mock import patch
 
+import requests
+
+from coconut_barometer import errors
 from coconut_barometer.weather.glm import KEEP, LEVELS, Lightning, hour_prefix, listed, parse_ascii, start_time
 # The smooth shapes' tests, retired (#146; below):
 # import json
@@ -34,7 +38,7 @@ class Resp:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+            raise requests.HTTPError(f"HTTP {self.status_code}")
 
 
 class FakeNoaa:
@@ -127,6 +131,72 @@ class GlmTest(unittest.TestCase):
         s = g.current()
         self.assertIn("none of 1 files", s["error"])
         self.assertEqual(len(s["data"]["t"]), 1)
+
+    def test_thredds_outages_are_expected_and_retry_after_recovery(self):
+        for failure in (requests.ConnectTimeout("timed out"), requests.HTTPError("HTTP 503"), OSError("connection lost")):
+            for cached in (False, True):
+                with self.subTest(failure=type(failure).__name__, cached=cached):
+                    now = [NOW]
+                    held, new = name(NOW - 60), name(NOW + 20)
+                    noaa = FakeNoaa({held: [(35, -97)]} if cached else {})
+                    g = feed(noaa, now)
+                    if cached:
+                        g.current()
+                    noaa.files[new] = [(36, -98)]
+                    now[0] += 61
+
+                    def down(url, **kwargs):
+                        if ".ascii?" in url:
+                            raise failure
+                        return noaa(url, **kwargs)
+
+                    g._get = down
+                    with patch("coconut_barometer.weather.feed.caught") as caught:
+                        s = g.current()
+                    error = caught.call_args.args[0]
+                    self.assertTrue(errors.expected(error))
+                    self.assertIs(error.__cause__, failure)
+                    self.assertIn("none of 1 files", s["error"])
+                    self.assertIn(type(failure).__name__, s["error"])
+                    self.assertEqual(len(s["data"]["t"]), int(cached))
+                    self.assertEqual(g._missing, {new})
+                    self.assertEqual(s["checked_at"], now[0])
+                    self.assertFalse(s["pending"])
+                    reporter = errors.Reporter()
+                    with patch.object(reporter, "enabled", return_value=True):
+                        reporter.report(error, "lightning")
+                    self.assertTrue(reporter._q.empty())
+
+                    g._get = noaa
+                    now[0] += 61
+                    s = g.current()
+                    self.assertIsNone(s["error"])
+                    self.assertEqual(len(s["data"]["t"]), 1 + int(cached))
+                    self.assertFalse(g._missing)
+
+    def test_malformed_thredds_data_remains_unexpected_even_with_network_failures(self):
+        now = [NOW]
+        bad, unavailable = name(NOW - 60), name(NOW - 40)
+        noaa = FakeNoaa({bad: [], unavailable: []})
+
+        def get(url, **kwargs):
+            if unavailable in url:
+                raise requests.ConnectTimeout("timed out")
+            if ".ascii?" in url:
+                return Resp("not a flash dataset")
+            return noaa(url, **kwargs)
+
+        g = feed(get, now)
+        with patch("coconut_barometer.weather.feed.caught") as caught:
+            s = g.current()
+        error = caught.call_args.args[0]
+        self.assertIsInstance(error, RuntimeError)
+        self.assertFalse(errors.expected(error))
+        self.assertIsInstance(error.__cause__, ValueError)
+        self.assertIn("none of 2 files", s["error"])
+        self.assertIn("ValueError", s["error"])
+        self.assertEqual(g._missing, {bad, unavailable})
+        self.assertEqual(len(s["data"]["t"]), 0)
 
     def test_the_view_counts_per_minute_and_cell(self):
         now = [NOW]
