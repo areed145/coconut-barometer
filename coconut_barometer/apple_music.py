@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
-from . import activity
+from . import activity, music_insights as I
 from .errors import caught
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,8 @@ def _track(item: dict) -> dict:
     return {"id": item["id"], "kind": item.get("type"), "name": a.get("name") or "Unknown", "artist": a.get("artistName") or "Unknown",
             "album": a.get("albumName") or "", "genres": json.dumps([g for g in a.get("genreNames") or [] if g != "Music"]),
             "duration_ms": int(a.get("durationInMillis") or 0), "release_date": a.get("releaseDate"), "isrc": a.get("isrc"),
-            "artwork": (a.get("artwork") or {}).get("url"), "url": a.get("url")}
+            "artwork": (a.get("artwork") or {}).get("url"), "url": a.get("url"),
+            "bg_color": (a.get("artwork") or {}).get("bgColor"), "text_color": (a.get("artwork") or {}).get("textColor1")}
 
 
 class Music:
@@ -268,18 +269,14 @@ class Music:
         by_day: Counter = Counter()
         minutes: Counter = Counter()
         heat = [[0] * 24 for _ in range(7)]
-        tops: dict[str, Counter] = {"artists": Counter(), "tracks": Counter(), "albums": Counter(), "genres": Counter()}
+        genres: Counter = Counter()
         for r in current:
             local = dt.datetime.fromtimestamp(r["played_at"], zone)
             day, mins = local.date().isoformat(), r["ms"] / 60000
             by_day[day] += 1
             minutes[day] += mins
             heat[local.weekday()][local.hour] += 1
-            keys = {"artists": [r["artist"]] if r["artist"] else [], "tracks": [f"{r['name']} · {r['artist']}"],
-                    "albums": [f"{r['album']} · {r['artist']}"] if r["album"] else [], "genres": json.loads(r["genres"] or "[]")}
-            for name, labels in keys.items():
-                for label in labels:
-                    tops[name][label] += 1
+            genres.update(json.loads(r["genres"] or "[]"))
         first = min((r["played_at"] for r in current), default=now)
         start = dt.datetime.fromtimestamp(first if days >= ALL else since, zone).date()
         today = dt.datetime.fromtimestamp(now, zone).date()
@@ -287,9 +284,26 @@ class Music:
         return {"state": self.state(store), "days": days,
                 "totals": _totals(current), "previous": _totals(earlier) if days < ALL and earlier else None,
                 "series": [{"day": d, "plays": by_day[d], "minutes": round(minutes[d])} for d in series], "heat": heat,
-                **{name: [{"label": k, "plays": n} for k, n in c.most_common(TOP)] for name, c in tops.items()},
-                "recent": [{k: r[k] for k in ("name", "artist", "album", "played_at", "window_start", "seen_at", "url")}
+                "artists": I.top(current, lambda r: r["artist"], TOP), "tracks": I.top(current, I.track_key, TOP),
+                "albums": I.top(current, I.album_key, TOP), "genres": [{"label": k, "plays": n} for k, n in genres.most_common(TOP)],
+                "wall": I.wall(current), "strip": I.strip(current, zone, days), "palettes": I.palettes(current, zone),
+                "recent": [{"art": r["track_id"] if r["has_art"] else None, "bg": r["bg_color"],
+                            **{k: r[k] for k in ("name", "artist", "album", "played_at", "window_start", "seen_at", "url")}}
                            for r in sorted(current, key=lambda r: (r["seen_at"], r["played_at"]), reverse=True)[:RECENT_ROWS]]}
+
+
+def trip_soundtrack(store, first: str, last: str, tz: str) -> dict:
+    """The plays between two days, in the viewer's timezone (photos carry a local time but not its zone)."""
+    zone = _zone(tz)
+    start = dt.datetime.fromisoformat(first).replace(tzinfo=zone)
+    end = dt.datetime.fromisoformat(last).replace(tzinfo=zone) + dt.timedelta(days=1)
+    return I.soundtrack(store.music_between(int(start.timestamp()), int(end.timestamp())))
+
+
+def rain_report(store, days: int, tz: str, now: float | None = None) -> dict:
+    now = int(now if now is not None else time.time())
+    since = 0 if days >= ALL else now - days * 86400
+    return I.weather(store.music_plays(since), *store.music_rain(since), _zone(tz))
 
 
 def _totals(rows: list[dict]) -> dict:

@@ -17,10 +17,12 @@ from fastapi.testclient import TestClient
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer import apple_export as X
 from coconut_barometer import local
+from coconut_barometer import music_insights as I
 from coconut_barometer import apple_music as M
 from coconut_barometer.config import from_dict
 from coconut_barometer.store import Store
 from coconut_barometer.web import security
+from coconut_barometer.web.api import music as music_api
 from coconut_barometer.web.app import create_app
 from coconut_barometer.web.security import hash_password
 
@@ -341,6 +343,77 @@ class ImportTest(unittest.TestCase):
         self.assertEqual(self.music.enrich(self.store, NOON, get), 0)
 
 
+def row(track="1", artist="A", album="Album", bg="ff0000", at=NOON, genres='["Rock"]', art=True):
+    return {"track_id": track, "played_at": at, "seen_at": at, "window_start": None, "ms": 60000, "name": f"Song {track}", "artist": artist,
+            "album": album, "genres": genres, "url": None, "has_art": art, "bg_color": bg if art else None, "text_color": "ffffff" if art else None}
+
+
+class InsightsTest(unittest.TestCase):
+    UTC = __import__("datetime").timezone.utc
+
+    def test_a_blend_keeps_its_color_among_grey_covers(self):
+        r, g, b = I._rgb(I.blend(__import__("collections").Counter({"e01010": 2, "808080": 5, "202020": 5})))
+        self.assertGreater(r, g + 60)
+
+    def test_top_takes_the_cover_of_the_most_played_track(self):
+        rows = [row("1"), row("2", bg="00ff00"), row("2", bg="00ff00")]
+        self.assertEqual(I.top(rows, lambda r: r["artist"], 5), [{"label": "A", "plays": 3, "art": "2", "bg": "00ff00", "text": "ffffff"}])
+
+    def test_a_track_with_no_cover_counts_but_shows_none(self):
+        self.assertEqual(I.top([row(art=False)], lambda r: r["artist"], 5)[0]["art"], None)
+        self.assertEqual(I.wall([row(art=False)]), [])
+
+    def test_long_ranges_are_drawn_a_week_to_a_band(self):
+        rows = [row(at=NOON), row(at=NOON + 86400)]
+        self.assertEqual(len(I.strip(rows, self.UTC, 30)), 2)
+        monday = 1_790_000_000 - (1_790_000_000 % 604800) + 4 * 86400
+        self.assertEqual(len(I.strip([row(at=monday), row(at=monday + 86400)], self.UTC, 3650)), 1)
+
+    def test_a_palette_is_the_main_colors_and_top_album(self):
+        out = I.palettes([row(bg="ff0000"), row(bg="fe0101"), row(bg="0000ff")], self.UTC)
+        self.assertEqual(len(out[0]["colors"]), 2)
+        self.assertEqual(out[0]["colors"][0]["share"], 0.667)
+        self.assertEqual(out[0]["album"]["label"], "Album · A")
+
+    def test_rain_compares_wet_days_with_dry_ones(self):
+        wet, dry = NOON, NOON + 86400
+        plays = [row(artist="Wet", at=wet) for _ in range(30)] + [row(artist="Dry", at=dry) for _ in range(30)]
+        d = I.weather(plays, [(1, wet, 0.6), (1, wet + 60, 0.6), (2, dry, 0.1)], NOON - 10, dry + 10, self.UTC)
+        self.assertTrue(d["enough"])
+        self.assertEqual((d["rainy_days"], d["plays"]), (1, 30))
+        self.assertEqual(d["rainy"][0]["label"], "Wet")
+        self.assertEqual(d["dry"][0]["label"], "Dry")
+
+    def test_rain_needs_enough_plays_and_a_station(self):
+        self.assertFalse(I.weather([row()], [(1, NOON, 5)], NOON - 1, NOON + 1, self.UTC)["enough"])
+        self.assertFalse(I.weather([row()], [], None, None, self.UTC)["enough"])
+
+
+class CoversTest(unittest.TestCase):
+    def setUp(self):
+        self.store = Store(os.path.join(tempfile.mkdtemp(), "t.duckdb"))
+        self.addCleanup(self.store.close)
+
+    def test_the_upgrade_adds_colors_and_asks_about_every_track_again(self):
+        self.store.db.execute("ALTER TABLE music_tracks DROP COLUMN bg_color")
+        self.store.db.execute("ALTER TABLE music_tracks DROP COLUMN text_color")
+        self.store.db.execute("INSERT INTO music_tracks (id, name, enriched) VALUES ('123', 'S', 5)")
+        self.store.set_meta("schema_version", 15)
+        self.assertEqual(self.store.music_to_enrich(10), [])
+        self.store.migrate()
+        self.assertEqual(self.store.music_to_enrich(10), ["123"])
+        self.assertEqual(self.store.db.execute("SELECT bg_color FROM music_tracks").fetchone()[0], None)
+
+    def test_reads_keep_apples_colors(self):
+        item = song("a")
+        item["attributes"]["artwork"] = {"url": "https://is1.mzstatic.com/x/{w}x{h}bb.jpg", "bgColor": "123456", "textColor1": "eeeeee"}
+        music = M.Music(cfg())
+        music.poll(self.store, NOON, get=lambda u, headers, timeout: Answer({"data": []}))
+        music.poll(self.store, NOON + 60, get=lambda u, headers, timeout: Answer({"data": [item]}))
+        r = self.store.music_plays(0)[0]
+        self.assertEqual((r["bg_color"], r["text_color"], r["has_art"]), ("123456", "eeeeee", True))
+
+
 class WebTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -444,6 +517,44 @@ class WebTest(unittest.TestCase):
         job = rt.review.recent[-1]
         self.assertEqual((job["kind"], job["status"], job["title"], job["rows"]), ("music", "done", "Apple Music", 0))
         self.assertTrue(rt.music.state(rt.store())["started"])
+
+    def add_track(self, artwork):
+        self.rt.store().db.execute("INSERT INTO music_tracks (id, name, artwork) VALUES ('77', 'S', ?)", (artwork,))
+
+    def test_covers_are_signed_in_kept_and_only_from_apple(self):
+        self.assertEqual(self.c.get("/api/music/art/77").status_code, 401)
+        self.login()
+        self.add_track("https://is1-ssl.mzstatic.com/x/{w}x{h}bb.jpg")
+        calls = []
+
+        class Image:
+            status_code, content, headers = 200, b"jpeg-bytes", {"content-type": "image/jpeg"}
+        original = music_api.requests.get
+        self.addCleanup(setattr, music_api.requests, "get", original)
+        music_api.requests.get = lambda url, **k: calls.append(url) or Image
+        for _ in range(2):
+            r = self.c.get("/api/music/art/77", params={"s": 160})
+            self.assertEqual((r.status_code, r.content), (200, b"jpeg-bytes"))
+        self.assertEqual(calls, ["https://is1-ssl.mzstatic.com/x/160x160bb.jpg"])      # once: then our own copy
+        self.assertIn("private", r.headers["cache-control"])
+        self.assertEqual(self.c.get("/api/music/art/77", params={"s": 7}).status_code, 400)
+
+    def test_a_cover_address_elsewhere_is_never_fetched(self):
+        self.login()
+        self.add_track("https://evil.example/{w}x{h}.jpg")
+        original = music_api.requests.get
+        self.addCleanup(setattr, music_api.requests, "get", original)
+        music_api.requests.get = lambda *a, **k: self.fail("fetched")
+        self.assertEqual(self.c.get("/api/music/art/77").status_code, 404)
+
+    def test_a_trips_soundtrack_is_signed_in_only(self):
+        self.assertEqual(self.c.get("/api/music/trip/t1").status_code, 401)
+        self.login()
+        self.assertEqual(self.c.get("/api/music/trip/nope").status_code, 404)
+
+    def test_the_rain_report_without_stations(self):
+        self.login()
+        self.assertFalse(self.c.get("/api/music/weather").json()["enough"])
 
     def test_the_analytics_answer(self):
         self.login()

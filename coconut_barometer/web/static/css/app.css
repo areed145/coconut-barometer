@@ -957,3 +957,24 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
 .calendar { display: block; max-width: 100%; height: auto; margin-top: var(--s2); }
 .daterange { display: inline-flex; align-items: center; gap: var(--s2); }
+
+/* Music: covers (from /api/music/art) and the colors of what was played */
+.thumb { width: 22px; height: 22px; border-radius: 3px; object-fit: cover; vertical-align: -6px; margin-right: var(--s2); background: var(--surface-2); }
+.colorstrip { display: block; width: 100%; height: 96px; border-radius: var(--r-sm); }
+.colorstrip-key { display: flex; justify-content: space-between; gap: var(--s2); margin-top: var(--s1); font-size: var(--text-sm); color: var(--muted); }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); grid-auto-rows: 1fr; grid-auto-flow: dense; gap: 6px; }
+.wall button { padding: 0; border: 0; aspect-ratio: 1; overflow: hidden; border-radius: var(--r-sm); cursor: pointer; background: var(--surface-2); }
+.wall button.big { grid-column: span 3; grid-row: span 3; }
+.wall button.mid { grid-column: span 2; grid-row: span 2; }
+.wall button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wall img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: var(--s3); }
+.palette { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 2px var(--s2); align-items: center; font-size: var(--text-sm); }
+.palette img { grid-row: span 3; width: 56px; height: 56px; border-radius: var(--r-sm); object-fit: cover; background: var(--surface-2); }
+.palette .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.palette .swatches { display: flex; height: 16px; border-radius: 3px; overflow: hidden; }
+.soundtrack { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--s2); }
+.soundtrack figure { margin: 0; overflow: hidden; border-radius: var(--r-sm); }
+.soundtrack img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.soundtrack figcaption { padding: 4px 6px; font-size: var(--text-xs); color: #fff; text-shadow: 0 1px 2px #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.poster canvas { display: block; max-width: min(100%, 420px); height: auto; border-radius: var(--r-sm); margin-bottom: var(--s2); }

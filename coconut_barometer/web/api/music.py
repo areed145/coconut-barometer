@@ -7,16 +7,18 @@ as the app's shell) and it's never cached. The page's only secrets are a develop
 session's CSRF token."""
 from __future__ import annotations
 
+import hashlib
 import html
 import os
 import tempfile
-from urllib.parse import unquote
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import duckdb
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from .. import assets
@@ -27,6 +29,9 @@ from ..deps import runtime, session, store
 from .admin import _confirm_password
 
 router = APIRouter(prefix="/api/music", tags=["music"])
+ART_SIZES = (64, 160, 320, 640)
+ART_MAX_BYTES = 5 * 1024 ** 2
+ART_SECONDS = 30 * 86400
 MAX_IMPORT = 200 * 1024 ** 2                         # the small file; Apple's own is several times this
 
 CONNECT_HEADERS = {
@@ -63,6 +68,56 @@ def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_
 @router.get("/state", dependencies=[Depends(session)])
 def state(rt=Depends(runtime), db=Depends(store)):
     return rt.music.state(db)
+
+
+@router.get("/weather", dependencies=[Depends(session)])
+def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), db=Depends(store)):
+    return M.rain_report(db, days, tz)
+
+
+@router.get("/trip/{trip_id}", dependencies=[Depends(session)])
+def trip(trip_id: str, tz: str = Query("UTC", max_length=64), db=Depends(store)):
+    """A trip's soundtrack: signed in only, though the trip itself may be public."""
+    found = db.trip_list(trip_id=trip_id)
+    if not found:
+        raise HTTPException(404, "no such trip")
+    return M.trip_soundtrack(db, found[0]["first"], found[0]["last"], tz)
+
+
+def _cover_url(template: str, size: int) -> str:
+    url = template.replace("{w}", str(size)).replace("{h}", str(size)).replace("{c}", "bb").replace("{f}", "jpg")
+    u = urlparse(url)
+    if u.scheme != "https" or not (u.hostname or "").endswith(".mzstatic.com"):     # never fetch anywhere else
+        raise HTTPException(404, "no cover")
+    return url
+
+
+@router.get("/art/{track_id}", dependencies=[Depends(session)])
+def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store)):
+    """A cover, from this server's own copy: Apple's image host isn't in the site's CSP, and this way the browser
+    never talks to it. Fetched the first time it's shown, then kept on the disk."""
+    if s not in ART_SIZES:
+        raise HTTPException(400, "unknown size")
+    headers = {"Cache-Control": f"private, max-age={ART_SECONDS}"}
+    folder = Path(rt.db_path).resolve().parent / "music_art"
+    name = hashlib.sha256(track_id.encode()).hexdigest()[:32]
+    path = folder / f"{name}-{s}.jpg"
+    if path.exists():
+        return FileResponse(path, media_type="image/jpeg", headers=headers)
+    template = db.music_artwork(track_id)
+    if not template:
+        raise HTTPException(404, "no cover")
+    try:
+        r = requests.get(_cover_url(template, s), timeout=20, allow_redirects=False)
+    except requests.RequestException:
+        raise HTTPException(502, "Apple's image host didn't answer") from None
+    if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/") or len(r.content) > ART_MAX_BYTES:
+        raise HTTPException(502, "Apple's image host didn't send a cover")
+    folder.mkdir(exist_ok=True)
+    temporary = path.with_suffix(f".{os.getpid()}.part")
+    temporary.write_bytes(r.content)
+    temporary.replace(path)
+    return FileResponse(path, media_type=r.headers["content-type"].split(";")[0], headers=headers)
 
 
 @router.post("/sync", dependencies=[Depends(session)])
