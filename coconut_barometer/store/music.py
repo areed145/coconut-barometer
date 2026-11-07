@@ -190,5 +190,15 @@ class MusicStore(Database):
                                 "VALUES (?, ?, ?, ?, ?, ?, ?)", (r["artist"], json.dumps(r["scenes"]), json.dumps(r["styles"]),
                                                                 json.dumps(r["decades"]), r["country"], model, now))
 
+    def music_graph_version(self) -> tuple:
+        """Changes whenever what the artist graph is made from does: plays, tracks, MusicBrainz's answers, profiles.
+        The explorer (music_explore.py) rebuilds its whole graph when it does."""
+        return tuple(self.db.execute(
+            "SELECT (SELECT COUNT(*) FROM music_plays), (SELECT MAX(played_at) FROM music_plays), "
+            "(SELECT COUNT(*) FROM music_tracks), (SELECT MAX(enriched) FROM music_tracks), "
+            "(SELECT COUNT(*) FROM mb_recordings), (SELECT MAX(asked) FROM mb_recordings), "
+            "(SELECT COUNT(*) FROM mb_artists), (SELECT MAX(asked) FROM mb_artists), "
+            "(SELECT COUNT(*) FROM artist_profiles), (SELECT MAX(asked) FROM artist_profiles)").fetchone())
+
     def profiles_clear(self) -> None:
         self.db.execute("DELETE FROM artist_profiles")

@@ -74,13 +74,24 @@ Each artist lookup also keeps what MusicBrainz knows about the artist: group or 
 **Profile match** links join artists that are alike on paper. Each artist has a profile: genres (from Apple, MusicBrainz and Claude), scenes, the decades they mattered most in, and where they're from. The site compares profiles itself every time the graph loads, with no AI call. Each link names what the two share, for example *bakersfield sound · country rock · 1960s–70s · Bakersfield*.
 
 - **A rare genre counts for more than a common one.** A genre that more than a quarter of the drawn artists share is ignored, so two artists known only as "Rock" aren't linked.
-- **Years and places alone never link two artists.** A pair needs genres that are clearly alike, or a scene in common.
+- **Years and places alone never link two artists.** A pair needs genres that are clearly alike, or a scene in common. A shared scene links artists from different eras too, so lineage shows (Merle Haggard and Sturgill Simpson through outlaw country).
 - **Each artist keeps at most its 4 closest matches**, so the network doesn't turn into a hairball.
 - **Clusters are named** after a scene most of their members share, else the genres they have most of.
 
 To fill in scenes, styles and decades, turn on **Profile artists with Claude** in **Settings → Music**. It uses the Anthropic key from **Settings → Vision**. Every artist with over 10 plays is asked about once, most played first, 25 at a time, as **Artist profiles** jobs at the back of the Status page's job line. Claude picks from the labels already in use where one fits, so matching labels are spelled the same. **Requests a day** caps the cost (20 by default; 1,000 artists take 40 requests, so a big library fills in over a few days). New artists are asked about once they pass 10 plays.
 
 The graph page shows how many artists have profiles, with **Profile more now** to queue a job straight away and **Start over** to forget every profile and ask again, for example after switching models. Profiles are held in local mode.
+
+## Explore
+
+**Music → Explore** (`#/music/explore`) is the whole artist graph rather than the top few hundred: every artist with over 10 plays, and every link between them. Instead of picking a range, you start somewhere and follow links outward.
+
+- **Start** from one of your most played artists, a scene or a decade on the opening card, or search for an artist, scene, genre, decade or country. A scene, genre, decade or country adds the most played artists that fit, lit up.
+- **Grow the map** by clicking an artist: **Show neighbours** adds its strongest links, **Two steps out** adds theirs as well, and **Remove** takes it off. New artists arrive with their links to everyone already shown, and the map makes room for them. **Start over** clears it.
+- **How are they connected?** finds the strongest chain of links between two artists and lights it up, with the reason for each step. Artists with no chain between them say so.
+- The **Artist network**'s detail panel has **Explore from here** to open the explorer on that artist.
+
+The site builds the whole graph the first time Explore opens (a second or two for a few thousand artists) and keeps it until new plays, MusicBrainz lookups or profiles change it. At most 400 artists are shown at once, so the layout stays quick on a phone.
 
 ## What to expect
 

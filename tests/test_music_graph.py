@@ -76,6 +76,12 @@ class Profiles(unittest.TestCase):
         self.assertEqual(list(links), [("Haggard", "Owens")])
         self.assertEqual(links[("Haggard", "Owens")][1], "bakersfield sound · country rock · 1960s–70s · Bakersfield")
 
+    def test_a_scene_links_across_eras(self):
+        p = {"Haggard": prof({"honky tonk": 1}, ["outlaw country"], (1960, 1979)),
+             "Simpson": prof({"americana": 1}, ["outlaw country"], (2010, 2029)),
+             "Other": prof({"techno": 1})}
+        self.assertEqual(G.profile_links(p)[("Haggard", "Simpson")][1], "outlaw country")
+
     def test_a_genre_everyone_has_years_and_places_link_nothing(self):
         p = {a: prof({"rock": 1}, [], (1970, 1979), "Austin", "US") for a in "ABC"}
         p["D"] = prof({"jazz": 1})
