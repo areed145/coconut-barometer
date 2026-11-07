@@ -12,7 +12,7 @@ _KEYS = tempfile.mkdtemp(prefix="cb-test-keys-")
 _settings.DEFAULT_KEY_FILE = os.path.join(_KEYS, "secret.key")
 _settings.OLD_KEY_FILE = os.path.join(_KEYS, "before-the-rename", "secret.key")
 
-from coconut_barometer.flickr_client import FlickrCallError  # noqa: E402
+from coconut_barometer.flickr_client import FlickrCallError, note_call  # noqa: E402
 from coconut_barometer.vision.base import VisionProvider  # noqa: E402
 
 
@@ -66,6 +66,7 @@ class FakeFlickr:
 
     def call(self, method, expect=(), **p):
         self.calls.append((method, p))
+        note_call()
         if self.fail_next.get(method):
             self.fail_next[method] -= 1
             raise FlickrCallError(method, 105, "Service currently unavailable")

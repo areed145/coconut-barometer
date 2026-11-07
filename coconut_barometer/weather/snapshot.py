@@ -26,6 +26,7 @@ from datetime import datetime
 import numpy as np
 import requests
 
+from .. import activity
 from .radar import MIN_DBZ, where_at
 
 SIZE = (640, 360)               # the card's image, in CSS pixels (scale 2 for retina)
@@ -158,8 +159,9 @@ class Basemap:
         if path and os.path.exists(path):
             with Image.open(path) as img:
                 return img.convert("RGB")
-        resp = self._get(TILE_URL.format(style=style, z=z, x=x, y=y, r=r), params={"key": key}, timeout=10)
-        resp.raise_for_status()
+        with activity.log.call("radar", "basemap tile", f"CARTO {style} {z}/{x}/{y}"):     # logged (#197); then kept on disk
+            resp = self._get(TILE_URL.format(style=style, z=z, x=x, y=y, r=r), params={"key": key}, timeout=10)
+            resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content)).convert("RGB")
         if path:
             os.makedirs(os.path.dirname(path), exist_ok=True)

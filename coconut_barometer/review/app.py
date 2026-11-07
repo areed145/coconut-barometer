@@ -6,19 +6,19 @@ from __future__ import annotations
 
 import json
 import logging
-import queue
 import re
 import threading
 import time
 from collections import deque
 
 from .. import activity
+from ..jobs import LANE_NAMES, LANES, PRIORITY_NAMES, Lanes
 from ..apple_music import connected
 from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..errors import caught
-from ..flickr_client import FlickrCallError
+from ..flickr_client import FlickrCallError, thread_calls
 from ..musicbrainz import CALLS_PER_SECOND as MB_CALLS_PER_SECOND
 from ..planner import photo_page
 from ..util import norm_tag
@@ -38,49 +38,15 @@ OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music":
               "profiles": "Artist profiles"}
 
 
-class JobQueue(queue.Queue):
-    """The worker's line, in the order it takes jobs (`.queue`). put_front: ahead of everything waiting, but
-    behind any other job put there before it, so jobs you asked for go first, in the order you asked."""
-
-    def _init(self, maxsize):
-        super()._init(maxsize)
-        self.urgent = 0                     # how many at the front were put there
-
-    def _get(self):
-        self.urgent = max(0, self.urgent - 1)
-        return super()._get()
-
-    def put_front(self, item) -> None:
-        with self.not_full:
-            self.queue.insert(self.urgent, item)
-            self.urgent += 1
-            self.unfinished_tasks += 1
-            self.not_empty.notify()
-
-    def to_front(self, item) -> bool:
-        """A job already waiting, moved up as if put_front now (False if it isn't waiting, or is up there already)."""
-        with self.mutex:
-            try:
-                at = self.queue.index(item)
-            except ValueError:
-                return False
-            if at < self.urgent:
-                return False
-            del self.queue[at]
-            self.queue.insert(self.urgent, item)
-            self.urgent += 1
-            return True
-
-
 # Bulk review: the kinds of change it lists, by action.
 BULK_KINDS = {"location": "set_location", "tags": "set_tags", "title": "set_title", "description": "set_description",
               "album": "add_to_album", "group": "add_to_group"}
 
 
 class ReviewApp:
-    """The review tool's logic. send(), decide() and process() only queue a job; a single
-    background worker makes the Flickr (and vision) calls in order, so the rate limit
-    holds, and records the outcome. Photos left "applying" when the tool stopped resume,
+    """The review tool's logic. send(), decide() and process() only queue a job; the background
+    lanes (jobs.py: a worker per outside service, each line ordered by priority) make the Flickr,
+    vision and other calls, each under its service's rate limit, and record the outcome. Photos left "applying" when the tool stopped resume,
     and with review.when_queued: process, ones still waiting to be processed are processed.
 
     cfg/provider are needed only to process photos and sync; provider is a zero-argument
@@ -97,7 +63,7 @@ class ReviewApp:
         self.background = background
         self.cfg, self._provider_factory, self._provider = cfg, provider, None
         self.process_kw = process_kw or {}
-        self.jobs = JobQueue()   # ("apply"|"process", photo_id) or ("sync", mode); what you ask for by hand goes first
+        self.jobs = Lanes()      # ("apply"|"process", photo_id) or ("sync", mode)...: a lane per service (jobs.py)
         self.syncing = False
         self.music = None                               # the web app's Music, for ("music", "") jobs
         self.musicbrainz = None                         # the web app's MusicBrainz, for ("musicbrainz", "") jobs
@@ -107,7 +73,7 @@ class ReviewApp:
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
         self.recent: deque[dict] = deque(maxlen=50)   # finished jobs, newest last
         self._seq = 0
-        self.running: dict | None = None                # the job the worker is on: {kind, photo_id, started}
+        self._recent_lock = threading.Lock()            # lanes finish jobs at the same time
         self.vision_usage = {"photos": 0, "input_tokens": 0, "output_tokens": 0}   # since start
         self.licenses = self._licenses()
         pruned = store.queue_prune()     # photos deleted on Flickr before their review row went with them (#76)
@@ -124,8 +90,8 @@ class ReviewApp:
                     except KeyError:      # gone from the library since
                         store.queue_remove(pid)
             self._resume_requested(store)
-            # Started once the line is rebuilt, so it takes the jobs in the line's order.
-            threading.Thread(target=self._worker, name="review-worker", daemon=True).start()
+            # Started once the lines are rebuilt, so each takes its jobs in its line's order.
+            self.jobs.start(self._run_job)
 
     def _resume_requested(self, store) -> None:
         """The re-processes, undos and re-plans you asked for that hadn't finished when the app stopped, queued
@@ -152,7 +118,7 @@ class ReviewApp:
             raise RuntimeError("syncing isn't available in this session")
         if self.client is None:
             return {"status": "no_flickr"}          # no API keys yet
-        if self.syncing or any(kind == "sync" for kind, _ in list(self.jobs.queue)):
+        if self.syncing or self.jobs.has("sync"):
             return {"status": "busy"}
         self.jobs.put(("sync", mode or ""))
         return {"status": "queued"}
@@ -161,7 +127,7 @@ class ReviewApp:
         """Queue a WeatherFlow sync (stations, then every Tempest's missing history). Returns at once."""
         if self.weather is None or self.weather.client is None:
             return {"status": "no_token"}
-        if (self.running or {}).get("kind") == "wx" or any(kind == "wx" for kind, _ in list(self.jobs.queue)):
+        if self.jobs.has("wx"):
             return {"status": "busy"}
         self.jobs.put(("wx", ""))
         return {"status": "queued"}
@@ -170,7 +136,7 @@ class ReviewApp:
         """Queue a read of Apple Music, next in line: it takes seconds, and a Flickr sync can take hours."""
         if self.music is None or not connected(self.cfg):
             return {"status": "not_connected"}
-        if (self.running or {}).get("kind") == "music" or any(kind == "music" for kind, _ in list(self.jobs.queue)):
+        if self.jobs.has("music"):
             return {"status": "busy"}
         self.jobs.put_front(("music", ""))
         return {"status": "queued"}
@@ -179,7 +145,7 @@ class ReviewApp:
         """Queue a batch of MusicBrainz lookups at the back of the line: it's filling in, never urgent. One at a time."""
         if self.musicbrainz is None or not self.musicbrainz.ready():
             return {"status": "not_ready"}
-        if (self.running or {}).get("kind") == "musicbrainz" or any(kind == "musicbrainz" for kind, _ in list(self.jobs.queue)):
+        if self.jobs.has("musicbrainz"):
             return {"status": "busy"}
         self.jobs.put(("musicbrainz", ""))
         return {"status": "queued"}
@@ -188,7 +154,7 @@ class ReviewApp:
         """Queue a batch of artist profiles at the back of the line, like MusicBrainz's. One at a time."""
         if self.profiles is None or not self.profiles.ready():
             return {"status": "not_ready"}
-        if (self.running or {}).get("kind") == "profiles" or any(kind == "profiles" for kind, _ in list(self.jobs.queue)):
+        if self.jobs.has("profiles"):
             return {"status": "busy"}
         self.jobs.put(("profiles", ""))
         return {"status": "queued"}
@@ -412,7 +378,7 @@ class ReviewApp:
     def replan(self) -> dict:
         """Every ready photo in review planned again with the current settings, from what's already known
         (cached vision results, EXIF): no vision or Flickr calls. Returns at once."""
-        if any(kind == "replan" for kind, _ in list(self.jobs.queue)):
+        if self.jobs.has("replan"):
             return {"status": "busy"}
         if not self.background:
             return self._replan(self.store)
@@ -481,55 +447,69 @@ class ReviewApp:
         (self.jobs.put if if_new else self.jobs.put_front)(("process", photo_id))
         return {"status": "processing"}
 
+    @property
+    def running(self) -> dict | None:
+        """The first job running (any lane), as {kind, photo_id, started}; None when every lane is idle."""
+        jobs = self.jobs.running()
+        return {"kind": jobs[0].kind, "photo_id": jobs[0].key, "started": jobs[0].started} if jobs else None
+
     def jobs_status(self, since: int = 0) -> dict:
-        """queued: every job on the worker, the one running and those waiting (the Status tab's dot pulses)."""
+        """queued: every job in the lanes, running and waiting (the Status tab's dot pulses)."""
         return {"applying": self.store.queue_counts().get("applying", 0), "processing": len(self.processing),
-                "syncing": self.syncing, "queued": self.jobs.qsize() + (1 if self.running else 0),
+                "syncing": self.syncing, "queued": self.jobs.qsize() + len(self.jobs.running()),
                 "finished": [j for j in self.recent if j["seq"] > since], "seq": self._seq}
 
     def jobs_view(self) -> dict:
-        """The Status page's jobs: the job running now and every job waiting, in the one order the worker takes
-        them. Each gets an estimated start, from how long recent jobs of its kind took (their waits for the
-        rate limit included); none once a kind with no history is ahead. Plus each service's limits and use."""
-        waiting = list(self.jobs.queue)                       # a snapshot; the worker may move on
+        """The Status page's jobs: each lane's running jobs and its line, in the order it takes them (jobs.py). Each
+        waiting job gets an estimated start, from how long recent jobs of its kind took (their waits for the rate
+        limit included), behind what's ahead of it in its own lane; none once a kind with no history is ahead.
+        Plus each service's limits and use."""
+        now = time.time()
+        waiting, running = self.jobs.waiting(), self.jobs.running()     # snapshots; the workers may move on
         shown = waiting[:200]
-        ids = [pid for kind, pid in shown if kind in PHOTO_JOBS]
-        if self.running and self.running["kind"] in PHOTO_JOBS:
-            ids.append(self.running["photo_id"])
+        ids = [j.key for j in shown + running if j.kind in PHOTO_JOBS]
         cards = self.store.cards(ids)
         took: dict[str, list[float]] = {}
         for j in self.recent:
             took.setdefault(j["kind"], []).append(j["seconds"])
         took = {k: sum(v) / len(v) for k, v in took.items()}
 
-        def job(kind, pid, **extra):
-            c = cards.get(pid) if kind in PHOTO_JOBS else None
-            return {"kind": kind, "photo_id": pid if kind in PHOTO_JOBS else None, "mode": (pid or "due") if kind == "sync" else None,
-                    "title": OTHER_JOBS.get(kind) or ((c or {}).get("title") or pid),
-                    "thumb": ((c or {}).get("sizes") or {}).get("q", ""), **extra}
+        def job(j, **extra):
+            c = cards.get(j.key) if j.kind in PHOTO_JOBS else None
+            return {"kind": j.kind, "photo_id": j.key if j.kind in PHOTO_JOBS else None,
+                    "mode": (j.key or "due") if j.kind == "sync" else None,
+                    "title": OTHER_JOBS.get(j.kind) or ((c or {}).get("title") or j.key),
+                    "thumb": ((c or {}).get("sizes") or {}).get("q", ""), "lane": j.lane,
+                    "priority": PRIORITY_NAMES.get(j.priority, ""), **extra}
 
-        eta: float | None = 0.0
-        running = None
-        if self.running:
-            elapsed = time.time() - self.running["started"]
-            k = self.running["kind"]
-            running = job(k, self.running["photo_id"], started=self.running["started"], typical=took.get(k))
-            eta = max(0.0, took[k] - elapsed) if k in took else None
-        line = []
-        for i, (kind, pid) in enumerate(waiting, 1):
-            if i <= len(shown):
-                line.append(job(kind, pid, position=i, starts_in=None if eta is None else round(eta)))
-            eta = None if eta is None or kind not in took else eta + took[kind]
+        eta: dict[str, float | None] = {lane: 0.0 for lane in LANES}   # when each lane is free for its next job
+        shown_running = []
+        for j in running:
+            shown_running.append(job(j, started=j.started, typical=took.get(j.kind), worker=j.worker))
+            left = max(0.0, took[j.kind] - (now - j.started)) if j.kind in took else None
+            eta[j.lane] = None if eta[j.lane] is None or left is None else max(eta[j.lane], left)
+        line, position = [], {lane: 0 for lane in LANES}
+        for i, j in enumerate(waiting):
+            position[j.lane] += 1
+            e = eta[j.lane]
+            if i < len(shown):
+                line.append(job(j, position=position[j.lane], starts_in=None if e is None else round(e)))
+            eta[j.lane] = None if e is None or j.kind not in took else e + took[j.kind]
         by_kind: dict[str, int] = {}
-        for kind, _ in waiting:
-            by_kind[kind] = by_kind.get(kind, 0) + 1
+        for j in waiting:
+            by_kind[j.kind] = by_kind.get(j.kind, 0) + 1
+        busy = {j.lane for j in waiting} | {j.lane for j in running}
+        lanes = [{"id": lane, "name": LANE_NAMES[lane], "running": sum(1 for j in running if j.lane == lane),
+                  "waiting": position[lane], "done_in": None if eta[lane] is None else round(eta[lane])}
+                 for lane in LANES]
+        done_in = None if any(eta[lane] is None for lane in busy) else round(max((eta[lane] for lane in busy), default=0.0))
         wx = self.weather.client if self.weather else None
         cfg = self.cfg or {}
         limiter = getattr(self.client, "limiter", None)
         mb = self.musicbrainz
         return {
-            "running": running, "waiting": len(waiting), "line": line, "by_kind": by_kind,
-            "took": {k: round(v, 1) for k, v in took.items()}, "done_in": None if eta is None else round(eta),
+            "running": shown_running, "lanes": lanes, "waiting": len(waiting), "line": line, "by_kind": by_kind,
+            "took": {k: round(v, 1) for k, v in took.items()}, "done_in": done_in,
             "services": {
                 "flickr": {"configured": self.client is not None, "calls": getattr(self.client, "call_count", 0),
                            "calls_per_hour": FLICKR_CALLS_PER_HOUR, "calls_per_second": FLICKR_CALLS_PER_SECOND,
@@ -549,56 +529,55 @@ class ReviewApp:
         """Block until every queued job is done (tests, shutdown)."""
         self.jobs.join()
 
-    def _worker(self) -> None:
+    def _run_job(self, j) -> None:
+        """One job, on its lane's worker thread (jobs.Lanes.start): run, recorded, and logged."""
         store = self.store   # this thread's own connection
-        while True:
-            kind, pid = self.jobs.get()
-            started, calls0 = time.time(), getattr(self.client, "call_count", 0)
-            self.running = {"kind": kind, "photo_id": pid, "started": started}
-            try:
-                if kind == "sync":
-                    out = self._sync(store, pid or None)
-                elif kind == "wx":
-                    out = self.weather.sync(store, log=self.log)
-                elif kind == "music":
-                    out = self.music.run_once(store)
-                elif kind == "musicbrainz":
-                    out = self.musicbrainz.run_once(store)
-                elif kind == "profiles":
-                    out = self.profiles.run_once(store)
-                elif kind == "undo":
-                    out = self._undo(store, pid)
-                elif kind == "replan":
-                    out = self._replan(store)
-                else:
-                    out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
-            except Exception as e:  # network trouble etc.
-                caught(e, f"{kind} job")
-                if kind == "apply":   # back in review, to apply again
-                    store.queue_finish(pid, "pending", {"error": str(e), "failed_at": int(time.time())})
-                if kind == "sync":
-                    store.set_meta("last_sync_result", json.dumps({"error": str(e), "at": int(time.time())}))
-                self.processing.discard(pid)
+        kind, pid = j.kind, j.key
+        started, calls0 = time.time(), thread_calls()
+        try:
+            if kind == "sync":
+                out = self._sync(store, pid or None)
+            elif kind == "wx":
+                out = self.weather.sync(store, log=self.log)
+            elif kind == "music":
+                out = self.music.run_once(store)
+            elif kind == "musicbrainz":
+                out = self.musicbrainz.run_once(store)
+            elif kind == "profiles":
+                out = self.profiles.run_once(store)
+            elif kind == "undo":
+                out = self._undo(store, pid)
+            elif kind == "replan":
+                out = self._replan(store)
+            else:
+                out = self._apply(store, pid) if kind == "apply" else self._process(store, pid)
+        except Exception as e:  # network trouble etc.
+            caught(e, f"{kind} job")
+            if kind == "apply":   # back in review, to apply again
+                store.queue_finish(pid, "pending", {"error": str(e), "failed_at": int(time.time())})
+            if kind == "sync":
+                store.set_meta("last_sync_result", json.dumps({"error": str(e), "at": int(time.time())}))
                 self.syncing = False
-                out = {"status": "failed", "error": str(e)}
-            try:   # recorded before task_done(), so wait() returns with the job listed
-                photo = store.photo(pid) if kind in PHOTO_JOBS else None
+            self.processing.discard(pid)
+            out = {"status": "failed", "error": str(e)}
+        try:   # recorded before the lane marks it done, so wait() returns with the job listed
+            photo = store.photo(pid) if kind in PHOTO_JOBS else None
+            with self._recent_lock:
                 self._seq += 1
                 self.recent.append({"seq": self._seq, "kind": kind, "photo_id": pid, "status": out["status"],
                                     "title": OTHER_JOBS.get(kind) or (photo["title"] if photo else "") or pid,
                                     "rows": out.get("rows"), "calls": out.get("calls"),
-                                    "flickr_calls": getattr(self.client, "call_count", 0) - calls0,
+                                    "flickr_calls": thread_calls() - calls0,    # this job's, not other lanes'
                                     "applied": out.get("stats", {}).get("applied", 0),
                                     "failed": out.get("stats", {}).get("failed", 0), "error": out.get("error", ""),
                                     "started": started, "seconds": round(time.time() - started, 1),
                                     "input_tokens": out.get("input_tokens", 0),
                                     "output_tokens": out.get("output_tokens", 0)})
-                self._log_job(self.recent[-1])
-            finally:
-                if kind in ("process", "undo", "replan"):     # done, or failed: either way not to be redone
-                    store.job_done(kind, pid)
-                self.running = None
-                self.jobs.task_done()
+                done = self.recent[-1]
+            self._log_job(done)
+        finally:
+            if kind in ("process", "undo", "replan"):     # done, or failed: either way not to be redone
+                store.job_done(kind, pid)
 
     @staticmethod
     def _log_job(j: dict) -> None:

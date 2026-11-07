@@ -1,6 +1,6 @@
 // The Status page: how everything the app depends on is doing, and everything it asks of the outside world.
-// Top to bottom, by why you'd open it: what's wrong (only when something is), the jobs (the one running now
-// and the line behind it, which one worker takes in order), each service's health, limit and use (inside a job
+// Top to bottom, by why you'd open it: what's wrong (only when something is), the jobs (a lane per service, each
+// with its own worker and line, ordered by priority: jobs.py), each service's health, limit and use (inside a job
 // each call still waits for its service's rate limit, and those waits show on its card), and the activity log:
 // every call, stream message and finished job as it happens. Pick a service's card to filter the log.
 import { html, useState, useEffect, useRef, num, api, every, HealthPanel } from "./lib.js";
@@ -16,6 +16,7 @@ const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an 
                profiles: "Artist profiles" };
 const SERVICE = { apply: "flickr", undo: "flickr", sync: "flickr", process: "vision", wx: "weatherflow", replan: "jobs", music: "apple-music",
                   musicbrainz: "musicbrainz", profiles: "vision" };
+const LANE = { flickr: "Flickr", vision: "Vision", weather: "WeatherFlow", music: "Apple Music", musicbrainz: "MusicBrainz" };
 const HEALTH_OF = { "wx-stream": "weatherflow", "apple-music": "music" };     // the /api/status row a card shows (else its own id)
 const label = (s) => (SOURCES[s] || [s])[0];
 const dot = (s) => html`<i class="srcdot" style=${`background: var(${(SOURCES[s] || [, "--muted"])[1]})`}></i>`;
@@ -33,7 +34,7 @@ function Job({ j, now, running }) {
     ${j.thumb ? html`<img src=${j.thumb} alt="" loading="lazy" />` : html`<span class="jobicon">${dot(SERVICE[j.kind])}</span>`}
     <span class="jobwhat"><b>${j.title || "Untitled"}</b>
       <span class="muted">${KIND[j.kind] || j.kind}${j.kind === "sync" && j.mode && j.mode !== "due" ? ` (${j.mode})` : ""}
-        · ${label(SERVICE[j.kind])}</span></span>
+        · ${LANE[j.lane] || j.lane} lane${j.priority === "you asked" ? " · you asked" : ""}</span></span>
     <span class="jobwhen">${running ? html`${dur(now - j.started)}${j.typical ? html`<small>usually ${dur(j.typical)}</small>` : ""}`
       : j.starts_in != null ? soon(j.starts_in) : html`<span class="muted">–</span>`}</span>
   </li>`;
@@ -45,16 +46,22 @@ function Jobs({ q, now }) {
   return html`<div class="card jobs">
     <h2>Jobs <span class="badge">${num(q.waiting)}</span>
       ${q.done_in != null && q.waiting ? html`<span class="muted">all done ${soon(q.done_in)}</span>` : ""}</h2>
+    ${q.lanes.some((l) => l.running || l.waiting) && html`<p class="jobkinds">${q.lanes.filter((l) => l.running || l.waiting).map((l) => html`<span key=${l.id}>
+      <b>${l.name}</b> ${l.running ? `${l.running} running` : "idle"}${l.waiting ? `, ${num(l.waiting)} waiting` : ""}${l.waiting && l.done_in != null ? html` <small>done ${soon(l.done_in)}</small>` : ""}</span>`)}</p>`}
     ${Object.keys(q.by_kind).length > 0 && html`<p class="jobkinds">${Object.entries(q.by_kind).map(([k, n]) => html`<span key=${k}>
       ${dot(SERVICE[k])}${num(n)} ${(KIND[k] || k).toLowerCase()}${q.took[k] ? html` <small>~${dur(q.took[k])} each</small>` : ""}</span>`)}</p>`}
     <ol class="joblist">
-      ${q.running ? html`<${Job} j=${q.running} now=${now} running=${true} />` : html`<li class="jobrow idle muted">The worker is idle.</li>`}
-      ${shown.map((j) => html`<${Job} key=${j.kind + j.position} j=${j} now=${now} />`)}
+      ${q.running.length ? q.running.map((j) => html`<${Job} key=${"run" + j.kind + j.lane + (j.photo_id || "")} j=${j} now=${now} running=${true} />`)
+        : html`<li class="jobrow idle muted">Every lane is idle.</li>`}
+      ${shown.map((j) => html`<${Job} key=${j.lane + j.kind + j.position} j=${j} now=${now} />`)}
     </ol>
     ${q.line.length > shown.length || all ? html`<button class="link" onClick=${() => setAll(!all)}>
       ${all ? "Show fewer" : `Show all ${num(q.line.length)}${q.waiting > q.line.length ? ` (of ${num(q.waiting)})` : ""}`}</button>` : ""}
-    <p class="why">One worker runs these in order, one at a time. Start times come from how long recent jobs of the same
-      kind took, including their waits for the rate limit; none are shown until a job of a kind has finished.</p>
+    <p class="why">Each service has its own lane, so a long Flickr sync doesn't hold up Apple Music, MusicBrainz, WeatherFlow
+      or the vision model. A lane takes what you asked for first, then quick jobs, then scheduled ones, then filling in;
+      Flickr's lane has a second worker just for what you asked for. Numbers are places in each lane's line. Start times
+      come from how long recent jobs of the same kind took, including their waits for the rate limit; none are shown until
+      a job of a kind has finished.</p>
   </div>`;
 }
 
@@ -156,8 +163,8 @@ export function StatusPage({ health }) {
   const has = (s) => a.sources[s];
   return html`
     <h1 class="title">Status</h1>
-    <p class="muted">How everything the app depends on is doing, and everything it asks of other services. Jobs wait in one
-      line; inside a job, each call waits its turn under that service's rate limit. Pick a service to see only its activity below.</p>
+    <p class="muted">How everything the app depends on is doing, and everything it asks of other services. Jobs wait in their
+      service's lane; inside a job, each call waits its turn under that service's rate limit. Pick a service to see only its activity below.</p>
     <${HealthPanel} health=${health} fix=${true} here="#/status" />
     <${Jobs} q=${q} now=${a.now} />
     <div class="svcs">

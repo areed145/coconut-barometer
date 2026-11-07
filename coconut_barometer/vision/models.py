@@ -10,6 +10,8 @@ import time
 
 import requests
 
+from .. import activity
+
 # When the provider can't be asked (no key yet, offline): the current Claude models, cheapest first.
 BUILT_IN = {"claude": [{"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5"},
                        {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5"},
@@ -48,15 +50,17 @@ class Models:
         hit = self._cache.get(key)
         if hit and time.monotonic() - hit[0] < TTL:
             return hit[1]
-        if key[0] == "claude":
-            out = [{"id": m.id, "label": m.display_name or m.id} for m in self._claude(vcfg).models.list(limit=100)
-                   if getattr(m, "lifecycle", "active") != "retired"
-                   and not (m.capabilities and not m.capabilities.image_input.supported)]
-        else:
-            headers = {"Authorization": f"Bearer {vcfg['api_key']}"} if vcfg["api_key"] else {}
-            r = requests.get(_base_url(vcfg).rstrip("/") + "/models", headers=headers, timeout=TIMEOUT)
-            r.raise_for_status()
-            out = sorted(({"id": m["id"], "label": m["id"]} for m in r.json().get("data", [])), key=lambda m: m["id"])
+        with activity.log.call("vision", "model list", key[0]) as a:          # every call out is logged (#197)
+            if key[0] == "claude":
+                out = [{"id": m.id, "label": m.display_name or m.id} for m in self._claude(vcfg).models.list(limit=100)
+                       if getattr(m, "lifecycle", "active") != "retired"
+                       and not (m.capabilities and not m.capabilities.image_input.supported)]
+            else:
+                headers = {"Authorization": f"Bearer {vcfg['api_key']}"} if vcfg["api_key"] else {}
+                r = requests.get(_base_url(vcfg).rstrip("/") + "/models", headers=headers, timeout=TIMEOUT)
+                r.raise_for_status()
+                out = sorted(({"id": m["id"], "label": m["id"]} for m in r.json().get("data", [])), key=lambda m: m["id"])
+            a["detail"] = f"{key[0]} · {len(out)} models"
         self._cache[key] = (time.monotonic(), out)
         return out
 

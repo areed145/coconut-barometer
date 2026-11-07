@@ -1,7 +1,7 @@
-"""What a running web app holds: the config, the Flickr client, the review worker (which
-also runs syncs) and the scheduler that asks it to sync every web.sync_every_minutes.
+"""What a running web app holds: the config, the Flickr client, the review app's job lanes (jobs.py: a worker per
+outside service, which also run syncs) and the scheduler that asks for a sync every web.sync_every_minutes.
 
-All Flickr calls go through the one worker, in order, under the shared rate limit."""
+Every Flickr call, from any lane or request, goes under the one shared rate limit."""
 from __future__ import annotations
 
 import logging
@@ -142,9 +142,9 @@ class Runtime:
     def _watch_memory(self) -> None:
         """The memory watchdog (memory.py, #197), with what the big holders hold for its reports."""
         def jobs():
-            running = self.review.running
-            return f"{(running or {}).get('kind', 'idle')} running, {len(self.review.jobs.queue)} waiting"
-        watchdog.describe("Worker", jobs)
+            running = ", ".join(f"{j.kind} ({j.lane})" for j in self.review.jobs.running()) or "nothing"
+            return f"{running} running, {self.review.jobs.qsize()} waiting"
+        watchdog.describe("Jobs", jobs)
         watchdog.describe("Radar", lambda: f"{len(self.radar._stored)} loop frames held")
         watchdog.describe("Activity log", lambda: f"{sum(len(e) for e in activity.log.entries.values()):,} entries")
         watchdog.start(self._stop, os.path.dirname(os.path.abspath(self.db_path)))

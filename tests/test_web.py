@@ -301,7 +301,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/status/jobs").status_code, 401)
         self.login()
         q = self.c.get("/api/status/jobs").json()
-        self.assertEqual(set(q), {"running", "waiting", "line", "by_kind", "took", "done_in", "services", "recent"})
+        self.assertEqual(set(q), {"running", "lanes", "waiting", "line", "by_kind", "took", "done_in", "services", "recent"})
         self.assertEqual(self.c.get("/api/status/activity").status_code, 200)
 
     # ---- security -----------------------------------------------------------

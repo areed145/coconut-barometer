@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from .. import assets
+from ... import activity
 from ... import apple_music as M
 from ... import local
 from ... import music_graph as G
@@ -158,7 +159,8 @@ def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(stor
     if not template:
         raise HTTPException(404, "no cover")
     try:
-        r = requests.get(_cover_url(template, s), timeout=20, allow_redirects=False)
+        with activity.log.call("apple-music", "album cover", f"{s} px"):     # logged (#197); then kept on disk
+            r = requests.get(_cover_url(template, s), timeout=20, allow_redirects=False)
     except requests.RequestException:
         raise HTTPException(502, "Apple's image host didn't answer") from None
     if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/") or len(r.content) > ART_MAX_BYTES:
