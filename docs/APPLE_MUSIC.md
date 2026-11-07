@@ -56,7 +56,7 @@ Both files are in the export's `Apple Music Activity` folder. Then upload `music
 - **Hourly plays start after the first read.** That read only records where your list stands, because Apple doesn't say when those tracks were played.
 - **Check for missing plays first.** Play something from your library and from one of your own playlists, wait for the next read, and see whether they show up. Developers have reported these plays missing from Apple's API for some accounts, so this tells you how complete your numbers will be.
 - **Times are estimates.** Apple gives no play times, so each play is placed within the hour between two reads. Days and hours are close, not exact.
-- **Counts can run low.** Apple can collapse a track played several times in a row into one, and some plays may never appear. A read every hour can also lose plays if you get through more than about 50 tracks between reads.
+- **Counts can run low.** Apple can collapse a track played several times in a row into one, and some plays may never appear. A read every hour can also lose plays if you get through more than about 130 tracks between reads.
 - **Hours assume whole tracks.** Skipped tracks can count in full.
 
 ## When it stops
