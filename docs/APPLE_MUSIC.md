@@ -51,6 +51,14 @@ Both files are in the export's `Apple Music Activity` folder. Then upload `music
 - **Skips are left out.** A play counts if it finished or lasted 30 seconds.
 - **Importing again replaces the last import**, so you can use a newer export to fill the gap before your first hourly read. Anything after that first read stays with the hourly reads.
 
+## Covers and colors
+
+Once your key is saved, the site fills in each track's cover and colors from Apple's catalog, 300 tracks a minute, so a large history takes a couple of hours. That powers the color strip, monthly palettes, album wall, cover thumbnails, the **Poster** button, and the soundtrack on each photo trip. All of it is signed in only.
+
+Your server fetches each cover once and keeps its own copy in `music_art/` next to the database, so the site's security rules stay as they are and Apple's image host never sees your browser.
+
+**Rain or shine** needs weather stations and at least 30 plays on rainy days, so it stays hidden until then.
+
 ## What to expect
 
 - **Hourly plays start after the first read.** That read only records where your list stands, because Apple doesn't say when those tracks were played.

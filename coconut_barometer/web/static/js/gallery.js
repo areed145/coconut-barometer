@@ -232,7 +232,8 @@ export function Photos({ params = {} }) {
     ${f.trip && !f.album && html`<a href="#/photos/trips">← Trips</a>
       <h1 class="title">${trip ? tripName(trip) : "…"}</h1>
       ${trip && html`<p class="muted">${tripDates(trip)} · ${num(trip.count)} photos</p>`}
-      <${PointsMap} points=${tripPoints} />`}
+      <${PointsMap} points=${tripPoints} />
+      ${signedIn() && html`<${TripSoundtrack} id=${f.trip} />`}`}
     ${f.tag && !f.album && !f.trip && html`<h1 class="title">#${f.tag}</h1>`}
     <div class="toolbar">
       <input type="search" placeholder="Search titles, descriptions, tags" value=${q}
@@ -333,6 +334,21 @@ function tripDates(t) {
   const a = new Date(`${t.first}T12:00:00`), b = new Date(`${t.last}T12:00:00`);
   const sameYear = a.getFullYear() === b.getFullYear();
   return `${a.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} – ${longDay(t.last)}`;
+}
+
+// What was playing on a trip (Apple Music, music_insights.py): signed in only, and only once there's something to show.
+function TripSoundtrack({ id }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    setD(null);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    api(`/api/music/trip/${encodeURIComponent(id)}`, { params: { tz } }).then(setD).catch(() => {});
+  }, [id]);
+  if (!d?.plays) return null;
+  return html`<div class="card"><h2>Soundtrack</h2>
+    <p class="muted">${num(d.plays)} plays${d.tracks[0] ? html` · most played: ${d.tracks[0].label}` : ""}</p>
+    <div class="soundtrack">${d.albums.map((a) => html`<figure key=${a.label} style=${a.bg ? `background:#${a.bg}` : ""}>
+      <img loading="lazy" alt="" src=${`/api/music/art/${encodeURIComponent(a.art)}?s=160`} /><figcaption>${a.label}</figcaption></figure>`)}</div></div>`;
 }
 
 export function Trips() {

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .db import Database
 
-TRACK_COLUMNS = ("id", "kind", "name", "artist", "album", "genres", "duration_ms", "release_date", "isrc", "artwork", "url")
+TRACK_COLUMNS = ("id", "kind", "name", "artist", "album", "genres", "duration_ms", "release_date", "isrc", "artwork", "url", "bg_color", "text_color")
 EXPORT_COLUMNS = ("{started: 'BIGINT', track_id: 'VARCHAR', song: 'VARCHAR', artist: 'VARCHAR', album: 'VARCHAR', "
                   "duration_ms: 'BIGINT', listened_ms: 'BIGINT', end_reason: 'VARCHAR', utc_offset: 'BIGINT', "
                   "container_type: 'VARCHAR', feature: 'VARCHAR', match: 'VARCHAR'}")
@@ -56,8 +56,8 @@ class MusicStore(Database):
         return {"plays": r[0], "until": r[1]}
 
     def music_to_enrich(self, limit: int) -> list[str]:
-        """Imported tracks with a catalog number the catalog hasn't been asked about."""
-        return [r[0] for r in self.db.execute("SELECT id FROM music_tracks WHERE kind = 'export' AND enriched IS NULL "
+        """Tracks with a catalog number the catalog hasn't been asked about."""
+        return [r[0] for r in self.db.execute("SELECT id FROM music_tracks WHERE enriched IS NULL "
                                               "AND regexp_full_match(id, '[0-9]+') ORDER BY id LIMIT ?", (limit,))]
 
     def music_enrich(self, ids: list[str], tracks: list[dict], now: int) -> None:
@@ -65,15 +65,28 @@ class MusicStore(Database):
         with self.db:
             for t in tracks:
                 self.db.execute("UPDATE music_tracks SET name=?, artist=?, album=?, genres=?, duration_ms=?, release_date=?, "
-                                "isrc=?, artwork=?, url=? WHERE id=?", (*[t[c] for c in TRACK_COLUMNS[2:]], t["id"]))
+                                "isrc=?, artwork=?, url=?, bg_color=?, text_color=? WHERE id=?", (*[t[c] for c in TRACK_COLUMNS[2:]], t["id"]))
             marks = ", ".join("?" * len(ids))
             self.db.execute(f"UPDATE music_tracks SET enriched=? WHERE id IN ({marks})", (now, *ids))
 
     def music_plays(self, since: int) -> list[dict]:
         return [dict(r) for r in self.db.execute(
-            "SELECT p.played_at, p.seen_at, p.window_start, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, t.artist, "
-            "t.album, t.genres, t.url FROM music_plays p JOIN music_tracks t ON t.id = p.track_id "
+            "SELECT p.track_id, p.played_at, p.seen_at, p.window_start, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, "
+            "t.artist, t.album, t.genres, t.url, t.artwork IS NOT NULL AS has_art, t.bg_color, t.text_color FROM music_plays p JOIN music_tracks t ON t.id = p.track_id "
             "WHERE p.played_at >= ? ORDER BY p.played_at", (since,))]
+
+    def music_between(self, start: int, end: int) -> list[dict]:
+        return [r for r in self.music_plays(start) if r["played_at"] < end]
+
+    def music_artwork(self, track_id: str) -> str | None:
+        r = self.db.execute("SELECT artwork FROM music_tracks WHERE id = ?", (track_id,)).fetchone()
+        return r[0] if r else None
+
+    def music_rain(self, since: int) -> tuple[list[tuple], int | None, int | None]:
+        """Every wet minute from `since`, and the time the stations cover."""
+        wet = [tuple(r) for r in self.db.execute("SELECT device_id, ts, rain FROM wx_obs WHERE rain > 0 AND ts >= ?", (since,))]
+        first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM wx_obs").fetchone()
+        return wet, first, last
 
     def music_play_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM music_plays").fetchone()[0]
