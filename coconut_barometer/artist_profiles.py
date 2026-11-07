@@ -9,7 +9,7 @@ Labels only match when they're spelled the same, so each request lists the scene
 MusicBrainz's genres) and asks Claude to reuse one when it fits. Everything is kept lower case.
 
 Like MusicBrainz, this runs as ("profiles", "") jobs at the back of the review worker's line: a batch of BATCH of
-your top artists not asked about yet, one request each, at most artist_profiles.daily_calls requests a day. It uses
+the artists with over MIN_PLAYS plays not asked about yet, most played first, one request each, at most artist_profiles.daily_calls requests a day. It uses
 the Anthropic connection Vision uses. Off until Settings → Music turns it on. Not in local mode."""
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .errors import caught
 
 logger = logging.getLogger(__name__)
 
-TOP = 200                         # the artists profiled: as many as the graph draws at most
+MIN_PLAYS = 10                    # an artist is profiled once it has more plays than this, wherever it ranks
 BATCH = 25
 CHECK_EVERY = 300
 MAX_SCENES, MAX_STYLES = 3, 5
@@ -65,8 +65,9 @@ def clean(entry: dict, this_year: int) -> dict:
             "decades": decades, "country": country if re.fullmatch(r"[A-Z]{2}", country) else None}
 
 
-def top_artists(store, limit: int = TOP) -> list[str]:
-    """The most played main artists ("A feat. B" is A's play), as the graph counts them."""
+def eligible_artists(store) -> list[str]:
+    """The main artists ("A feat. B" is A's play, as the graph counts them) with over MIN_PLAYS plays, most played
+    first. Not just the most played: the graph can draw any range, and more of your listening is worth exploring."""
     from .music_graph import credited
 
     rows = store.music_artist_plays()
@@ -74,7 +75,7 @@ def top_artists(store, limit: int = TOP) -> list[str]:
     plays: Counter = Counter()
     for artist, n in rows:
         plays[credited(artist, "", known)[0]] += n
-    return [a for a, _ in plays.most_common(limit)]
+    return [a for a, n in plays.most_common() if n > MIN_PLAYS]
 
 
 class ArtistProfiles:
@@ -107,7 +108,7 @@ class ArtistProfiles:
     # ---- one batch ----------------------------------------------------------------------------------------
     def to_ask(self, store, limit: int | None = None) -> list[str]:
         asked = set(store.profiles())
-        return [a for a in top_artists(store) if a not in asked][:limit or BATCH]
+        return [a for a in eligible_artists(store) if a not in asked][:limit or BATCH]
 
     def prompt(self, store, names: list[str]) -> str:
         have = store.profiles().values()
@@ -127,7 +128,7 @@ class ArtistProfiles:
                 + "\n".join(f"- {n}" for n in names) + "\n\nRecord your answer by calling record_profiles.")
 
     def run_once(self, store, now: float | None = None) -> dict:
-        """One job: a batch of the top artists not profiled yet, one request."""
+        """One job: a batch of the artists not profiled yet, most played first, one request."""
         now = now if now is not None else time.time()
         if not self.ready():
             return {"status": "skipped", "error": "turned off, or no Anthropic key in Settings → Vision"}
@@ -169,7 +170,7 @@ class ArtistProfiles:
         return self.ready() and not self.limit_reached(store, now) and bool(self.to_ask(store, 1))
 
     def run(self, stop, store, queue) -> None:
-        """Every few minutes: a job on the worker, queue(), if a top artist isn't profiled and today allows it."""
+        """Every few minutes: a job on the worker, queue(), if an artist isn't profiled and today allows it."""
         while not stop.wait(CHECK_EVERY):
             try:
                 if self.due(store()):
@@ -178,8 +179,8 @@ class ArtistProfiles:
                 caught(e, "artist profiles")
 
     def state(self, store) -> dict:
-        top = top_artists(store)
+        eligible = eligible_artists(store)
         have = store.profiles()
         return {"enabled": bool(self.settings().get("enabled")), "can_ask": can_ask(self.cfg), "ready": self.ready(),
-                "top": len(top), "asked": sum(1 for a in top if a in have),
+                "eligible": len(eligible), "min_plays": MIN_PLAYS, "asked": sum(1 for a in eligible if a in have),
                 "calls_today": self.calls_today(store), "daily_calls": int(self.settings().get("daily_calls") or 0)}

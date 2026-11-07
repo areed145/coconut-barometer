@@ -304,8 +304,8 @@ function ProfilesNote({ p, onAsk, onReset, asking }) {
   if (!p) return null;
   if (!p.enabled) return html`<p class="muted small">Turn on artist profiles in <a href="#/settings/music">Settings → Music</a> to link artists by scene, era and sound.</p>`;
   if (!p.can_ask) return html`<p class="muted small">Artist profiles need the Anthropic key in <a href="#/settings/vision">Settings → Vision</a>.</p>`;
-  const left = p.top - p.asked;
-  return html`<p class="muted small">Artist profiles: ${num(p.asked)} of your top ${num(p.top)} artists, ${num(p.calls_today)} of ${num(p.daily_calls)} requests today.
+  const left = p.eligible - p.asked;
+  return html`<p class="muted small">Artist profiles: ${num(p.asked)} of your ${num(p.eligible)} artists with over ${num(p.min_plays)} plays, ${num(p.calls_today)} of ${num(p.daily_calls)} requests today.
     ${left > 0 ? " They run as jobs of 25 artists, and profile matches fill in as they finish." : ""}
     ${left > 0 && !p.local && p.calls_today < p.daily_calls && html` <button class="link" disabled=${asking} onClick=${onAsk}>Profile more now</button>`}
     ${p.asked > 0 && html` <button class="link" onClick=${onReset}>Start over</button>`}</p>`;
@@ -327,7 +327,7 @@ export function ArtistNetwork({ focus }) {
   const load = () => api("/api/music/graph", { params: { days, limit } }).then((x) => { setG(x); setError(null); }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [days, limit]);
   const filling = !!(g?.musicbrainz?.ready && g.musicbrainz.asked < g.musicbrainz.tracks)
-    || !!(g?.profiles?.ready && g.profiles.asked < g.profiles.top && g.profiles.calls_today < g.profiles.daily_calls);
+    || !!(g?.profiles?.ready && g.profiles.asked < g.profiles.eligible && g.profiles.calls_today < g.profiles.daily_calls);
   useEffect(() => (filling ? every(load, 120000) : undefined), [filling, days, limit]);   // links arrive as the jobs finish
   useEffect(() => { if (focus && g?.nodes.some((n) => n.id === focus)) go(focus); }, [focus, !!g]);
   const ask = async () => {

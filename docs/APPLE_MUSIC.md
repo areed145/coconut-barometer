@@ -78,7 +78,7 @@ Each artist lookup also keeps what MusicBrainz knows about the artist: group or 
 - **Each artist keeps at most its 4 closest matches**, so the network doesn't turn into a hairball.
 - **Clusters are named** after a scene most of their members share, else the genres they have most of.
 
-To fill in scenes, styles and decades, turn on **Profile artists with Claude** in **Settings → Music**. It uses the Anthropic key from **Settings → Vision**. Your top 200 artists are each asked about once, 25 at a time, as **Artist profiles** jobs at the back of the Status page's job line. Claude picks from the labels already in use where one fits, so matching labels are spelled the same. **Requests a day** caps the cost (20 by default; the first 200 artists take 8 requests). New artists are asked about as they enter your top 200.
+To fill in scenes, styles and decades, turn on **Profile artists with Claude** in **Settings → Music**. It uses the Anthropic key from **Settings → Vision**. Every artist with over 10 plays is asked about once, most played first, 25 at a time, as **Artist profiles** jobs at the back of the Status page's job line. Claude picks from the labels already in use where one fits, so matching labels are spelled the same. **Requests a day** caps the cost (20 by default; 1,000 artists take 40 requests, so a big library fills in over a few days). New artists are asked about once they pass 10 plays.
 
 The graph page shows how many artists have profiles, with **Profile more now** to queue a job straight away and **Start over** to forget every profile and ask again, for example after switching models. Profiles are held in local mode.
 
