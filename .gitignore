@@ -19,3 +19,6 @@ restored-*
 .env*
 TODO.md
 geoip/
+
+# Apple data exports: they hold IP addresses, locations and account numbers
+Apple Music*.csv

@@ -70,14 +70,14 @@ export function Table({ rows, cols, onPick, initial }) {
 }
 
 // 7 rows × 24 columns of counts; rows/cols are labels.
-export function Heatmap({ cells, rows, cols }) {
+export function Heatmap({ cells, rows, cols, unit = "faves" }) {
   useThemeTick();
   const max = Math.max(...cells.flat(), 1);
   return html`<div class="heat">
     <span></span>${cols.map((c, i) => html`<span class=${"hcol" + (i % 6 === 0 ? " hcol6" : i % 3 === 0 ? " hcol3" : "")}>${i % 3 === 0 ? c : ""}</span>`)}
     ${rows.map((r, y) => html`<span class="hrow"><span class="hday-full">${r}</span><span class="hday-short">${r[0]}</span></span>${cells[y].map((v, x) => html`<span
         class="hcell" style=${v > 0 ? `background:${shade(logShare(v, max))}` : ""} title=${`${r} ${cols[x]}:00 · ${num(v)}`}></span>`)}`)}
-  </div><p class="muted heatkey"><span>fewer</span><i style=${`background:${ramp()}`}></i><span>more faves in that hour</span></p>`;
+  </div><p class="muted heatkey"><span>fewer</span><i style=${`background:${ramp()}`}></i><span>more ${unit} in that hour</span></p>`;
 }
 
 // A number with its change against the period before.

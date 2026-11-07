@@ -260,6 +260,23 @@ def _visitors(rt, now) -> dict:
                v["geoip_error"] if stale else None, href, v["flushed_at"])
 
 
+def _music(rt, db, now) -> dict:
+    href = "#/settings/connections"
+    if local.on():
+        return row("music", "Apple Music", "off", local.STATE)
+    s = rt.music.state(db)
+    if not s["connected"]:
+        return row("music", "Apple Music", "off", "not connected", href=href)
+    if s["error"]:
+        return row("music", "Apple Music", "bad" if s["reconnect"] else "warn", "needs connecting again" if s["reconnect"]
+                   else "last read failed", s["error"], href, s["last_ok"])
+    if not s["last_ok"]:
+        return row("music", "Apple Music", "ok", "first read coming up", href=href)
+    late = now - s["last_ok"] > s["every_minutes"] * 180
+    return row("music", "Apple Music", "warn" if late else "ok",
+               f"{db.music_play_count():,} plays · read {_ago(now, s['last_ok'])}", None, href, s["last_ok"])
+
+
 def _error_reports(now) -> dict:
     r = reporter.status()
     if local.on():
@@ -282,7 +299,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     rows = [_weatherflow(rt, db, now), _aprs(rt, now), _igate(rt, db, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
     if me is not None:
         rows += [_qc(rt, db, now), _cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now),
-                 _visitors(rt, now), _error_reports(now)]
+                 _visitors(rt, now), _music(rt, db, now), _error_reports(now)]
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]

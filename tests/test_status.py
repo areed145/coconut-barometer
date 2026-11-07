@@ -53,7 +53,7 @@ class StatusTest(unittest.TestCase):
         self.assertTrue(all(r["detail"] is None and r["href"] is None for r in d["rows"]))
         self.login()
         self.assertEqual(set(self.rows(self.get())), {"weatherflow", "aprs", "igate", "imagery", "radar", "lightning", "fronts",
-                                                      "hazards", "qc", "cwop", "flickr", "vision", "backups", "visitors", "errors"})
+                                                      "hazards", "qc", "cwop", "flickr", "vision", "backups", "visitors", "music", "errors"})
 
     def test_the_igate_row(self):
         """Off (can't tell) until APRS-IS has been connected a while; then the last hour against its usual, red when

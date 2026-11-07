@@ -65,6 +65,16 @@ META = {
                        "Developer settings, for the one repository, with Issues: read and write. Empty: off.",
                        group="Error reports"),
     "github.repo": _m("connections", "Repository", "owner/name.", group="Error reports"),
+    "apple_music.team_id": _m("connections", "Team ID", "10 characters, from developer.apple.com → Account → Membership "
+                              "details.", group="Apple Music"),
+    "apple_music.key_id": _m("connections", "Key ID", "10 characters, shown with the key under Certificates, IDs & "
+                             "Profiles → Keys.", group="Apple Music"),
+    "apple_music.private_key": _m("connections", "Private key", "The whole .p8 file, opened in a text editor and pasted "
+                                  "(Apple only lets you download it once).", group="Apple Music"),
+    "apple_music.user_token": _m("connections", "Your account's token", "Filled in by Connect Apple Music above. "
+                                 "Clearing it stops the reads.", group="Apple Music"),
+    "apple_music.every_minutes": _m("connections", "Read every (minutes)", "More often keeps the estimated times closer "
+                                    "and loses fewer plays on long listening days.", group="Apple Music"),
 
     # ---- Photos: Sync
     "web.sync_every_minutes": _sync("Sync every (minutes)", "Whatever is due below. 0 turns syncing off.",
