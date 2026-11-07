@@ -265,8 +265,8 @@ def radar(bbox: str | None = Query(None, max_length=100), zoom: float | None = Q
 
 @router.get("/radar/snapshot.png")
 def radar_snapshot(request: Request, theme: Literal["dark", "light"] = "dark", scale: int = Query(1, ge=1, le=2),
-                   t: int | None = None, db=Depends(store), rt=Depends(runtime), _=Depends(session)):
-    """Home's Radar card (#77): the newest radar around the stations as a PNG (weather/snapshot.py), rendered once per
+                   t: int | None = None, db=Depends(store), rt=Depends(runtime)):
+    """Home's Radar card (#77), public like the Radar page (which shows the stations too): the newest radar around the stations as a PNG (weather/snapshot.py), rendered once per
     MRMS frame and theme. `t` (the frame's time) only makes each frame its own address, for the browser's cache.
     No frame yet, or a stale one: the basemap saying "Radar unavailable", not an error."""
     stations = rt.radar.stations(db)
@@ -279,7 +279,7 @@ def radar_snapshot(request: Request, theme: Literal["dark", "light"] = "dark", s
 
 
 @router.get("/radar/glance")
-def radar_glance(db=Depends(store), rt=Depends(runtime), _=Depends(session)):
+def radar_glance(db=Depends(store), rt=Depends(runtime)):
     """Home's Radar card's lines: the frame's time, the nearest rain to the first station (how far, which way), and
     how many storm cells are within Settings → Alerts → storm distance of any station."""
     from ...weather.radar import _km, nearest, where_at

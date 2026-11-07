@@ -150,7 +150,7 @@ def _imagery(now) -> dict:
     down = {k: v["error"] for k, v in frames["satellite"].items() if v.get("error")}
     return row("imagery", "Satellite", "warn" if down else "ok",
                f"{', '.join(down)} unavailable" if down else f"all frames available · checked {_ago(now, at)}",
-               "; ".join(f"{k}: {e}" for k, e in down.items()) or None, "#/weather/map", int(at))
+               "; ".join(f"{k}: {e}" for k, e in down.items()) or None, "#/radar", int(at))
 
 
 def _feed(id_, name, feed, now, describe, newest=None) -> dict:
@@ -160,7 +160,7 @@ def _feed(id_, name, feed, now, describe, newest=None) -> dict:
     with feed._lock:
         data, checked, error = feed.data, feed.checked_at, feed.error
     if checked is None:
-        return row(id_, name, "ok", "checked when the weather map shows it", href="#/weather/map")
+        return row(id_, name, "ok", "checked when the weather map shows it", href="#/radar")
     t = newest(data) if newest and data else None
     warn, bad = FEED_LATE.get(id_, (None, None))
     late = t is not None and warn is not None and checked - t > warn
@@ -169,7 +169,7 @@ def _feed(id_, name, feed, now, describe, newest=None) -> dict:
     state = (describe(data) if data else "nothing yet") + f" · checked {_ago(now, checked)}"
     if error:
         state = "last check failed · " + state
-    return row(id_, name, level, state, error, "#/weather/map", int(t or checked))
+    return row(id_, name, level, state, error, "#/radar", int(t or checked))
 
 
 def _lightning(now) -> dict:
@@ -224,7 +224,7 @@ def _radar(rt, now) -> dict:
     state = f"MRMS frame {_ago(now, t)}" if t else "no frame yet"
     if snap["cells_at"]:
         state += f" · {len(snap['cells'])} nationwide storm cell{'s' if len(snap['cells']) != 1 else ''}"
-    return row("radar", "Radar", level, state, snap["error"], "#/weather/map", t)
+    return row("radar", "Radar", level, state, snap["error"], "#/radar", t)
 
 
 def _backups(rt, db, now) -> dict:

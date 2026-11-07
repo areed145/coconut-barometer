@@ -464,10 +464,7 @@ class SnapshotTest(unittest.TestCase):
         for got, w in zip((r, g, b), want):
             self.assertAlmostEqual(got, w, delta=2)
 
-    def test_endpoint_needs_a_login_and_renders_once_per_frame(self):
-        self.assertEqual(self.c.get("/api/wx/radar/snapshot.png").status_code, 401)
-        self.assertEqual(self.c.get("/api/wx/radar/glance").status_code, 401)
-        self.c.post("/api/auth/login", json={"username": "owner", "password": "correct horse battery"})
+    def test_endpoint_is_public_and_renders_once_per_frame(self):
         self.rt.radar.field = self.field(blob(20, radius_px=12))
         self.rt.radar.cells = [CellsTest.cell(None, valid=int(time.time()))]
         r = self.c.get("/api/wx/radar/snapshot.png?theme=light")

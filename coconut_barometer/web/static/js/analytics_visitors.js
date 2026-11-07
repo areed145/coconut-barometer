@@ -7,7 +7,7 @@ import { Kpi, Bars, Table, TopGrid, usePhotoBox, Range } from "./viz.js";
 const PAGES = {
   "/home": "Home", "/photos": "Photos", "/photos/photostream": "Photos", "/photos/albums": "Albums",
   "/photos/map": "Photo map", "/photos/photo/:id": "A photo", "/weather": "Weather: live", "/weather/live": "Weather: live",
-  "/weather/history": "Weather: history", "/weather/records": "Weather: records", "/weather/map": "Weather: map",
+  "/weather/history": "Weather: history", "/weather/records": "Weather: records", "/weather/map": "Weather: map", "/radar": "Radar",
   "/aprs": "APRS: tracking", "/aprs/tracking": "APRS: tracking", "/aprs/igate": "APRS: igate", "/login": "Sign in",
 };
 const page = (route) => PAGES[route] || route;

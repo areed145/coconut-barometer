@@ -84,6 +84,13 @@ class MusicStore(Database):
             "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.artist, t.genres, t.composer FROM music_plays p "
             "JOIN music_tracks t ON t.id = p.track_id WHERE t.artist <> '' ORDER BY p.played_at")]
 
+    def music_recent(self, limit: int) -> list[dict]:
+        """The newest plays, each track once (at its latest play), newest first."""
+        return [dict(r) for r in self.db.execute(
+            "SELECT p.track_id, MAX(p.played_at) AS played_at, ANY_VALUE(t.name) AS name, ANY_VALUE(t.artist) AS artist, "
+            "ANY_VALUE(t.album) AS album, BOOL_OR(t.artwork IS NOT NULL) AS has_art, ANY_VALUE(t.bg_color) AS bg_color "
+            "FROM music_plays p JOIN music_tracks t ON t.id = p.track_id GROUP BY p.track_id ORDER BY played_at DESC LIMIT ?", (limit,))]
+
     def music_artwork(self, track_id: str) -> str | None:
         r = self.db.execute("SELECT artwork FROM music_tracks WHERE id = ?", (track_id,)).fetchone()
         return r[0] if r else None

@@ -62,7 +62,7 @@ class FrontendTest(unittest.TestCase):
         self.assertNotIn("StreamBadge", weather)
         self.assertIn('export function WxStations()', weather)
         main = open(os.path.join(STATIC, "js", "main.js")).read()
-        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"], ["qc", "QC"]];', main)   # Stations is in Settings
+        self.assertIn('WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["qc", "QC"]];', main)   # Stations is in Settings; the map is Radar
         self.assertIn('section === "weather" && html`<${WxStations} />`', admin)
         self.assertIn(".wxstatus-dot {", css)
 
@@ -604,7 +604,7 @@ class FrontendTest(unittest.TestCase):
         self.assertNotIn('"visitors"', analytics)
         home = open(os.path.join(STATIC, "js", "home.js")).read()
         self.assertIn('<a href="#/visitors">Visitors</a>', home)
-        self.assertIn('<${AprsCard} />${session && html`<${VisitorsCard} />`}', home)   # Home's card: signed in only
+        self.assertIn('<${MusicCard} />${session && html`<${VisitorsCard} />`}', home)   # Home's card: signed in only
 
     def test_home_is_the_front_page(self):
         lib = open(os.path.join(STATIC, "js", "lib.js")).read()
@@ -613,14 +613,20 @@ class FrontendTest(unittest.TestCase):
         self.assertIn('const parts = (path || "home").split("/");', lib)          # an empty address is Home
         self.assertIn('<a class="brand" href="#/" aria-label="Coconut Barometer: Home">', main)
         self.assertIn('if (tab === "home") page = html`<${Home}', main)
-        self.assertIn('!["home", "weather", "aprs", "music", "visitors", "status", "settings", "login", "alerts"].includes(tab)', main)   # not a Photos page
+        self.assertIn('!["home", "weather", "radar", "aprs", "music", "visitors", "status", "settings", "login", "alerts"].includes(tab)', main)   # not a Photos page
         for href in ('"#/photos"', '"#/weather"', '"#/aprs"'):
             self.assertIn(f"href={href}", home)
         self.assertIn('${session && html`<nav class="homelinks"', home)           # private pages: signed in only
         self.assertNotRegex(home, r"\.(lat|lon)\b")                              # no station or beacon positions
-        # The Radar card (#77): after Weather, signed in only (its picture shows where the stations are), with alt text
-        self.assertIn('<${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />', home)
-        self.assertIn('href="#/weather/map" title="Radar"', home)
+        # The Radar card (#77): after Weather, public (the Radar page shows the stations too), with alt text; then
+        # APRS and the Music card's slideshow of covers, also public
+        self.assertIn('<${WeatherCard} /><${RadarCard} /><${AprsCard} /><${MusicCard} />${session && html`<${VisitorsCard} />`}', home)
+        self.assertIn('href="#/radar" title="Radar"', home)
+        self.assertIn('useGlance("/api/music/glance", 120000)', home)
+        # Radar is its own page; Weather → Map's old links go there
+        self.assertIn('${link("weather", "Weather")}${link("radar", "Radar")}${link("aprs", "APRS")}', main)
+        self.assertIn('else if (tab === "radar") page = html`<${Radar} />`;', main)
+        self.assertIn('location.replace("#/radar")', main)
         self.assertIn("/api/wx/radar/snapshot.png?theme=", home)
         self.assertIn("alt=${alt}", home)
 

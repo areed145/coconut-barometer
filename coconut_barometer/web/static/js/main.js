@@ -1,5 +1,5 @@
-// The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather
-// and APRS are public; Review, Analytics, Music, Visitors, Status and Settings need a login (and their tabs only show once signed in).
+// The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather,
+// Radar and APRS are public; Review, Analytics, Music, Visitors, Status and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot, OfflineNote } from "./lib.js";
 import { Home } from "./home.js";
 
@@ -33,6 +33,7 @@ const MapPage = lazy(() => import("./map.js"), "MapPage");
 const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
 const Weather = lazy(() => import("./weather.js"), "Weather");
+const Radar = lazy(() => import("./weather.js"), "Radar");
 const AlertPage = lazy(() => import("./alert_page.js"), "AlertPage");
 const AlertsLog = lazy(() => import("./alerts_log.js"), "AlertsLog");
 const Aprs = lazy(() => import("./aprs.js"), "Aprs");
@@ -102,7 +103,7 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trip
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["music", "visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
-const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"], ["qc", "QC"]];
+const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["qc", "QC"]];
 const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
 
 function Shell({ session, onLogin, onLogout }) {       // session null: a visitor, who sees the public pages
@@ -131,12 +132,14 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["home", "weather", "aprs", "music", "visitors", "status", "settings", "login", "alerts"].includes(tab);
+  const inPhotos = !["home", "weather", "radar", "aprs", "music", "visitors", "status", "settings", "login", "alerts"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
   // Visitors was a tab of Photos → Analytics: its old links open the page.
   useEffect(() => { if (sub === "analytics" && route[2] === "visitors") location.replace("#/visitors"); }, [sub, route[2]]);
+  // The radar map was Weather → Map: its old links (alerts, bookmarks) open Radar.
+  useEffect(() => { if (tab === "weather" && route[1] === "map") location.replace("#/radar"); }, [tab, route[1]]);
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
@@ -151,6 +154,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else page = html`<${Photos} params=${route.params} />`;
   if (tab === "home") page = html`<${Home} session=${session} pending=${pending} queued=${queued} health=${health} />`;
   else if (tab === "weather") page = html`<${Weather} tab=${route[1]} params=${route.params} />`;
+  else if (tab === "radar") page = html`<${Radar} />`;
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />`
     : route[1] === "trips" ? html`<${AprsTrips} call=${route[2] && decodeURIComponent(route[2])} />` : html`<${Aprs} />`;
   else if (tab === "visitors") page = html`<${Visitors} />`;
@@ -186,7 +190,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
           title=${health.rows.filter((r) => r.level === health.overall).map((r) => `${r.name}: ${r.state}`).join("\n")}
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
-        ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
+        ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("radar", "Radar")}${link("aprs", "APRS")}
         ${session && link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">

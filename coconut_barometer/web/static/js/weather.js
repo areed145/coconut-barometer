@@ -1,4 +1,4 @@
-// The Weather section: Live (the stations now), History (charts), Map. The stations themselves (what's stored, the
+// The Weather section: Live (the stations now), History (charts), Records, QC; and Radar, the weather map, its own page. The stations themselves (what's stored, the
 // stream, sync) are under Settings → Weather.
 // Everything is stored metric; Settings → Display → Units only changes how it's shown here (units.js).
 import uPlot from "../vendor/uPlot.esm.js";
@@ -697,8 +697,9 @@ export function WxStations() {
     </div>`;
 }
 
+export const Radar = () => html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />`;
+
 export function Weather({ tab = "live", params = {} }) {
   return tab === "history" ? html`<${History} params=${params} />` : tab === "records" ? html`<${Records} />`
-    : tab === "map" ? html`<${WxMap} show=${show} unitsFor=${unitsFor} compass=${compass} />`
     : tab === "qc" ? html`<${StationQc} />` : html`<${Live} />`;
 }

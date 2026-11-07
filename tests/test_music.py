@@ -521,6 +521,28 @@ class WebTest(unittest.TestCase):
     def add_track(self, artwork):
         self.rt.store().db.execute("INSERT INTO music_tracks (id, name, artwork) VALUES ('77', 'S', ?)", (artwork,))
 
+    def test_homes_glance_is_public_and_visitors_get_only_its_covers(self):
+        db = self.rt.store().db
+        db.execute("INSERT INTO music_tracks (id, name, artist, album, artwork, bg_color) VALUES "
+                   "('77', 'S', 'A', 'B', 'https://is1-ssl.mzstatic.com/x/{w}x{h}bb.jpg', '112233'), ('78', 'T', 'A', 'B', NULL, NULL)")
+        for i in range(12):
+            db.execute("INSERT INTO music_tracks (id, name, artwork) VALUES (?, 'old', 'https://is1-ssl.mzstatic.com/o/{w}x{h}bb.jpg')", (f"o{i}",))
+            db.execute("INSERT INTO music_plays (track_id, played_at) VALUES (?, ?)", (f"o{i}", NOON - 1000 + i))
+        for tid, at in (("77", NOON), ("78", NOON + 60), ("77", NOON + 120)):
+            db.execute("INSERT INTO music_plays (track_id, played_at) VALUES (?, ?)", (tid, at))
+        tracks = self.c.get("/api/music/glance").json()["tracks"]
+        self.assertEqual(len(tracks), music_api.GLANCE_TRACKS)
+        self.assertEqual(tracks[:2], [{"name": "S", "artist": "A", "album": "B", "played_at": NOON + 120, "art": "77", "bg": "112233"},
+                                      {"name": "T", "artist": "A", "album": "B", "played_at": NOON + 60, "art": None, "bg": None}])
+
+        class Image:
+            status_code, content, headers = 200, b"jpeg-bytes", {"content-type": "image/jpeg"}
+        original = music_api.requests.get
+        self.addCleanup(setattr, music_api.requests, "get", original)
+        music_api.requests.get = lambda url, **k: Image
+        self.assertEqual(self.c.get("/api/music/art/77", params={"s": 640}).status_code, 200)    # on the card
+        self.assertEqual(self.c.get("/api/music/art/o0").status_code, 401)                       # older: signed in only
+
     def test_covers_are_signed_in_kept_and_only_from_apple(self):
         self.assertEqual(self.c.get("/api/music/art/77").status_code, 401)
         self.login()

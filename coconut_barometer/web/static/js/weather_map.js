@@ -1,4 +1,4 @@
-// The Weather → Map tab: radar and GOES-East satellite over the stations, with the stations' current readings
+// The Radar page (#/radar, was Weather → Map): radar and GOES-East satellite over the stations, with the stations' current readings
 // and their recent lightning. Radar (NOAA MRMS as shapes per dBZ level, in Settings → Display → Radar colors) and
 // storm tracks (the cells the NWS radars track, and where they're heading) are layers of their own. Radar, storm
 // tracks and satellite share one timeline over the last hour or so, opening on now; the radar's past frames load
