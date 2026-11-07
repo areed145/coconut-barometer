@@ -6,7 +6,7 @@
                  long was heard, how it ended, and what it was played from
   mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not, and each
                  artist's facts (type, origin, years, genres, tags)
-  artist_profiles  what Claude says about each top artist: scenes, styles, decades, country (artist_profiles.py)"""
+  artist_profiles  what Claude says about each artist with over 10 plays: scenes, styles, decades, country (artist_profiles.py)"""
 from __future__ import annotations
 
 import json

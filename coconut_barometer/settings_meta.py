@@ -328,11 +328,11 @@ META = {
                               "name a way to reach whoever runs it, and it's sent with each request. Lookups wait for it.",
                               group="MusicBrainz"),
     "artist_profiles.enabled": _m("music", "Profile artists with Claude", "Scenes, styles, decades and country for "
-                                  "your top 200 artists, each asked about once, so the artist graph can link the ones "
+                                  "every artist with over 10 plays, each asked about once, so the artist graph can link the ones "
                                   "alike on paper. Uses the Anthropic key in Settings → Vision, as jobs of 25 artists.",
                                   group="Artist profiles"),
     "artist_profiles.daily_calls": _m("music", "Requests a day (at most)", "Each asks about 25 artists, a few thousand "
-                                      "tokens. 200 artists take 8.", group="Artist profiles"),
+                                      "tokens. 1,000 artists take 40.", group="Artist profiles"),
     "visitors.enabled": _m("visitors", "Count visitors", "Off: nothing new is recorded; what's kept stays."),
     "visitors.keep_days": _m("visitors", "Keep page views for (days)", "Older days keep only their visitor and page "
                              "view totals."),

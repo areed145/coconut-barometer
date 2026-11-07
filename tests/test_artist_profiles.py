@@ -47,7 +47,7 @@ class Jobs(unittest.TestCase):
     def setUp(self):
         self.store = Store(os.path.join(tempfile.mkdtemp(), "t.duckdb"))
         self.addCleanup(self.store.close)
-        fill(self.store, {"Band": 9, "Band feat. Guest": 3, "Solo": 5, "Quiet": 1})
+        fill(self.store, {"Band": 9, "Band feat. Guest": 3, "Solo": 15, "Quiet": 11, "Rare": 10})
         self.prompts = []
 
     def profiles(self, answer=None, cfg=ON, batch=None):
@@ -58,8 +58,8 @@ class Jobs(unittest.TestCase):
                 {"name": "Ghost", "known": True, "scenes": ["made up"]}]}), 100, 50
         return AP.ArtistProfiles(cfg, ask=ask)
 
-    def test_the_top_artists_count_their_features(self):
-        self.assertEqual(AP.top_artists(self.store), ["Band", "Solo", "Quiet"])
+    def test_artists_over_ten_plays_count_their_features(self):
+        self.assertEqual(AP.eligible_artists(self.store), ["Solo", "Band", "Quiet"])         # Rare has only 10
 
     def test_a_job_asks_once_and_keeps_only_listed_names(self):
         p = self.profiles()
@@ -99,7 +99,7 @@ class Jobs(unittest.TestCase):
     def test_the_state(self):
         self.profiles().run_once(self.store, NOON)
         s = self.profiles().state(self.store)
-        self.assertEqual((s["top"], s["asked"], s["daily_calls"]), (3, 3, 2))
+        self.assertEqual((s["eligible"], s["asked"], s["daily_calls"], s["min_plays"]), (3, 3, 2, 10))
 
 
 class Api(unittest.TestCase):
@@ -138,7 +138,7 @@ class Api(unittest.TestCase):
 
     def test_the_graph_says_how_far_they_are_and_the_old_button_is_gone(self):
         g = self.c.get("/api/music/graph", params={"limit": 50}).json()
-        self.assertEqual((g["profiles"]["enabled"], g["profiles"]["top"]), (False, 0))
+        self.assertEqual((g["profiles"]["enabled"], g["profiles"]["eligible"]), (False, 0))
         self.assertNotIn("can_ask", g)
         self.assertEqual(self.c.post("/api/music/graph/ask", headers={"X-CSRF-Token": self.csrf}).status_code, 404)
 
