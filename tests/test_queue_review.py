@@ -423,6 +423,24 @@ class NewPhotosTest(unittest.TestCase):
         self.assertEqual(self.app.queue(), ["9"])
         self.assertEqual(self.app.send("1")["status"], "pending")      # from the gallery: processed too
 
+    def test_new_photos_are_processed_in_the_order_the_list_shows_them(self):
+        """Newest first, as the review list's default sort: the top of the list is done first (#197)."""
+        self.app.background = True                      # queued, but no worker takes them: the line stays put
+        self.fl.photos.append({**photo("9", title="IMG_9"), "dateupload": "1700000500"})
+        self.fl.photos.append({**photo("10", title="IMG_10"), "dateupload": "1700000600"})
+        self.app._sync(self.store, "full")
+        self.assertEqual(self.app.queue(), ["10", "9"])
+        self.assertEqual(list(self.app.jobs.queue), [("process", "10"), ("process", "9")])
+
+    def test_waiting_photos_are_processed_on_startup_newest_first(self):
+        for pid in ("1", "2", "3"):
+            self.store.queue_add(pid)
+        shown = self.app.queue()                        # the review list's order
+        app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: FakeVision("m1"),
+                        process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
+        app.wait()
+        self.assertEqual([j["photo_id"] for j in app.recent], shown)
+
     def test_waiting_photos_are_processed_on_startup(self):
         self.store.queue_add("2")                                      # left waiting (say, queue mode until now)
         app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: FakeVision("m1"),

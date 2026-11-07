@@ -114,10 +114,11 @@ class ReviewApp:
         if pruned:
             logger.warning("removed %d photo(s) from review that are no longer in the library", pruned)
         if background:
-            for pid in reversed(store.queue_ids(["applying"])):   # oldest first
+            # In the order the review list shows them (newest first), so the top of the list is done first (#197).
+            for pid in store.queue_ids(["applying"]):
                 self.jobs.put(("apply", pid))
             if self._process_on_arrival():
-                for pid in reversed(store.queue_ids(["new"])):
+                for pid in store.queue_ids(["new"]):
                     try:
                         self.process(pid, if_new=True)
                     except KeyError:      # gone from the library since
@@ -655,7 +656,7 @@ class ReviewApp:
                 self._vision()
             except RuntimeError:          # no vision key yet: they wait in review
                 return len(new)
-            for pid in reversed(new):     # oldest first
+            for pid in new:               # newest first, as the review list shows them (#197)
                 self.process(pid, if_new=True)
         return len(new)
 
