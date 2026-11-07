@@ -92,27 +92,42 @@ class TokenTest(unittest.TestCase):
 
 class NewPlaysTest(unittest.TestCase):
     def test_nothing_played(self):
-        self.assertEqual(M.new_count(list("abc"), list("abc")), 0)
+        self.assertEqual(len(M.new_plays(list("abc"), list("abc"))), 0)
 
     def test_new_tracks_on_top(self):
-        self.assertEqual(M.new_count(list("abc"), list("xyabc")), 2)
+        self.assertEqual(len(M.new_plays(list("abc"), list("xyabc"))), 2)
 
     def test_old_tracks_played_again_move_up(self):
-        self.assertEqual(M.new_count(list("abc"), list("cab")), 1)
-        self.assertEqual(M.new_count(list("abc"), list("bca")), 2)
+        self.assertEqual(len(M.new_plays(list("abc"), list("cab"))), 1)
+        self.assertEqual(len(M.new_plays(list("abc"), list("bca"))), 2)
 
     def test_a_repeat_the_list_keeps_twice(self):
-        self.assertEqual(M.new_count(list("abc"), list("aabc")), 1)
+        self.assertEqual(len(M.new_plays(list("abc"), list("aabc"))), 1)
 
     def test_the_end_falling_off_isnt_a_play(self):
-        self.assertEqual(M.new_count(list("abcd"), list("xabc")), 1)
+        self.assertEqual(len(M.new_plays(list("abcd"), list("xabc"))), 1)
 
     def test_older_tracks_a_longer_list_reaches_arent_plays(self):
-        self.assertEqual(M.new_count(list("ab"), list("abcd")), 0)
-        self.assertEqual(M.new_count(list("ab"), list("xabcd")), 1)
+        self.assertEqual(len(M.new_plays(list("ab"), list("abcd"))), 0)
+        self.assertEqual(len(M.new_plays(list("ab"), list("xabcd"))), 1)
 
     def test_everything_new(self):
-        self.assertEqual(M.new_count(list("abc"), list("xyz")), 3)
+        self.assertEqual(len(M.new_plays(list("abc"), list("xyz"))), 3)
+
+    def test_a_late_play_below_ones_already_read_is_new_and_nothing_else_is(self):
+        before = ["comp", "o1", "o2", "o3"]
+        self.assertEqual(M.new_plays(before, ["phone", "comp", "o1", "o2", "o3"]), [0])
+        self.assertEqual(M.new_plays(before, ["comp", "phone", "o1", "o2", "o3"]), [1])
+        self.assertEqual(M.new_plays(before, ["comp", "o1", "o2", "phone", "o3"]), [3])
+        self.assertEqual(M.new_plays(before, ["comp", "o1", "o2", "o3", "phone"]), [])   # older than all we know
+
+    def test_a_late_play_and_a_track_played_again(self):
+        self.assertEqual(M.new_plays(list("abc"), list("cayb")), [0, 2])
+
+    def test_the_order_remembered_puts_back_what_a_read_left_out(self):
+        self.assertEqual(M._remember(list("ac"), list("abc")), list("abc"))
+        self.assertEqual(M._remember(list("bc"), list("abc")), list("abc"))
+        self.assertEqual(M._remember(list("xcab"), list("abc")), list("xcab"))
 
     def test_times_stack_back_from_the_read_and_stop_at_the_last_one(self):
         self.assertEqual(M.play_times([100, 200], 0, 1000), [900, 700])
@@ -140,6 +155,35 @@ class ReadsTest(unittest.TestCase):
         p = self.store.music_plays(0)[0]
         self.assertEqual((p["name"], p["played_at"], p["seen_at"], p["window_start"]),
                          ("Song x", NOON + 3600 - 240, NOON + 3600, NOON))
+
+    def test_library_songs_are_asked_for_and_kept_without_a_foreign_cover(self):
+        urls = []
+        lib = {"id": "i.abc", "type": "library-songs",
+               "attributes": {"name": "Lay Down Sally", "artistName": "Jerry Garcia Band", "durationInMillis": 300000,
+                              "artwork": {"url": "https://blobstore.apple.com/{w}x{h}.jpg"}}}
+
+        def get(url, headers, timeout):
+            urls.append(url)
+            return Answer({"data": [lib, song("a")] if len(urls) > 1 else [song("a")]})
+        self.music.poll(self.store, NOON, get=get)
+        self.assertIn("types=songs,library-songs", urls[0])
+        self.assertEqual(self.music.poll(self.store, NOON + 3600, get=get), 1)
+        p = self.store.music_plays(0)[0]
+        self.assertEqual((p["name"], p["artist"], p["has_art"]), ("Lay Down Sally", "Jerry Garcia Band", False))
+        self.assertEqual(self.store.music_to_enrich(10), [])          # the catalog doesn't know library ids
+
+    def test_switching_types_counts_only_whats_above_the_old_list(self):
+        self.read("a", "b", "c")
+        self.store.set_meta("music_types", "")                         # a list read before library songs were asked for
+        self.assertEqual(self.read("x", "a", "lib1", "b", "lib2", "c", at=NOON + 3600), 1)
+        self.assertEqual(self.read("x", "a", "lib1", "b", "lib2", "c", at=NOON + 7200), 0)
+        self.assertEqual(self.read("y", "x", "a", "lib1", "b", "lib2", "c", at=NOON + 10800), 1)
+
+    def test_a_late_play_is_counted_once_without_counting_the_ones_above_it(self):
+        self.read("comp", "o1", "o2")
+        self.assertEqual(self.read("comp", "phone", "o1", "o2", at=NOON + 3600), 1)
+        self.assertEqual([p["name"] for p in self.store.music_plays(0)], ["Song phone"])
+        self.assertEqual(self.read("comp", "phone", "o1", "o2", at=NOON + 7200), 0)
 
     def test_a_track_left_out_once_isnt_new_when_it_comes_back(self):
         self.read("a", "b", "c")

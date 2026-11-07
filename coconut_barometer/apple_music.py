@@ -8,13 +8,15 @@ after months, at which point a read answers 401 or 403 and the Status page asks 
 
 What the API can't tell us shapes the rest. GET /v1/me/recent/played/tracks is just the latest tracks (about 130 in the
 five pages read), newest first, with no times and with repeats often collapsed, so:
-  - a new play is one that moved to, or appeared at, the top since the last read (new_count)
+  - a new play is one that moved to the top since the last read, or appeared anywhere above the old list: a phone's
+    plays can reach Apple late, below ones already read (new_plays)
   - the time is an estimate: the new plays are stacked back from this read by their lengths, never earlier than the
     last read (play_times); window_start keeps how far off it could be
   - minutes assume each track played to its end
   - the first read only takes the list as a starting point: those plays have no time to give them
   - more new plays than the list holds between two reads are lost (counted in music_missed)
-Plays the API leaves out never arrive: developers report library and own-playlist plays missing for some accounts.
+Library songs only come when asked for by type (TYPES), and Apple counts some songs played from search as library
+songs. Plays the API leaves out never arrive.
 
 Apple's data export fills in the time before the first read, with exact times and what was really heard
 (apple_export.py). It has no genres, so its tracks are looked up in Apple's catalog, a batch a minute (enrich)."""
@@ -41,7 +43,8 @@ from .errors import caught
 logger = logging.getLogger(__name__)
 
 API = "https://api.music.apple.com"
-RECENT = "/v1/me/recent/played/tracks?limit=10"     # 10 a page is the size every report agrees works
+TYPES = "songs,library-songs"                       # unasked, Apple leaves out library songs
+RECENT = f"/v1/me/recent/played/tracks?limit=10&types={TYPES}"   # 10 a page is the size every report agrees works
 CATALOG = "/v1/catalog/us/songs"                    # needs only the developer token
 CATALOG_BATCH = 300                                 # Apple's most ids in a request
 MAX_PAGES = 5
@@ -149,13 +152,26 @@ def _subsequence(short: list, long: list) -> bool:
     return all(x in rest for x in short)
 
 
-def new_count(before: list[str], after: list[str]) -> int:
-    """How many at the top of `after` are new plays. What's below them is the old list, in its old order, with gaps
-    where tracks moved up, so it's the fewest from the top that leave the rest in the order `before` had. Unknown
+def new_plays(before: list[str], after: list[str]) -> list[int]:
+    """Where in `after` the new plays are, top first. A track not seen before is new wherever it is above the last
+    known one: a phone's play can reach Apple late and land below plays already read. Known tracks played again move
+    to the top, so they're the fewest known ones from the top that leave the rest in the order `before` had. Unknown
     tracks below the last known one are older ones a longer list reached, not plays."""
     known = set(before)
     end = next((i for i in range(len(after), 0, -1) if after[i - 1] in known), len(after))
-    return next(k for k in range(end + 1) if _subsequence(after[k:end], before))
+    seen = [i for i in range(end) if after[i] in known]
+    k = next(k for k in range(len(seen) + 1) if _subsequence([after[i] for i in seen[k:]], before))
+    return sorted([i for i in range(end) if after[i] not in known] + seen[:k])
+
+
+def _remember(after: list[str], before: list[str]) -> list[str]:
+    """The order to compare the next read with: this one, and each remembered track it left out back after the one
+    above it, so a track the API leaves out once isn't new when it comes back."""
+    out = list(after)
+    for n, i in enumerate(before):
+        if i not in out:
+            out.insert(out.index(before[n - 1]) + 1 if n else 0, i)
+    return out[:KEEP_IDS]
 
 
 def play_times(durations: list[float], start: float, now: float) -> list[int]:
@@ -169,10 +185,13 @@ def play_times(durations: list[float], start: float, now: float) -> list[int]:
 
 def _track(item: dict) -> dict:
     a = item.get("attributes") or {}
+    art = (a.get("artwork") or {}).get("url")
+    if art and not re.match(r"https://[^/]*\.mzstatic\.com/", art):   # a library song's own upload: /art won't fetch it
+        art = None
     return {"id": item["id"], "kind": item.get("type"), "name": a.get("name") or "Unknown", "artist": a.get("artistName") or "Unknown",
             "album": a.get("albumName") or "", "genres": json.dumps([g for g in a.get("genreNames") or [] if g != "Music"]),
             "duration_ms": int(a.get("durationInMillis") or 0), "release_date": a.get("releaseDate"), "isrc": a.get("isrc"),
-            "artwork": (a.get("artwork") or {}).get("url"), "url": a.get("url"),
+            "artwork": art, "url": a.get("url"),
             "bg_color": (a.get("artwork") or {}).get("bgColor"), "text_color": (a.get("artwork") or {}).get("textColor1"),
             "composer": a.get("composerName") or ""}
 
@@ -190,18 +209,21 @@ class Music:
         tracks = [_track(i) for i in items]
         if raw is None:                                # the starting point: no times to give these
             store.music_save(tracks, [], json.dumps(ids), now, 0)
+            store.set_meta("music_types", TYPES)
             logger.info("Apple Music: %d tracks as the starting point", len(ids))
             return 0
         before = json.loads(raw)
         start = int(store.get_meta("music_last_ok") or now)
-        count = new_count(before, ids)
-        fresh, moved = tracks[:count], set(ids[:count]) - set(ids[count:])
-        # The old order, less what moved up, so a track the API leaves out once isn't new when it comes back.
-        remembered = (ids[:count] + [i for i in before if i not in moved])[:KEEP_IDS]
+        if store.get_meta("music_types") == TYPES:
+            found = new_plays(before, ids)
+        else:   # the last list was asked for with other types: what it lacked is old, so only what's above it is new
+            found = list(range(next((n for n, i in enumerate(ids) if i in set(before)), len(ids))))
+        fresh = [tracks[n] for n in found]
         times = play_times([t["duration_ms"] / 1000 for t in fresh], start, now)
         plays = [(t["id"], at, now, start) for t, at in zip(fresh, times)]
         overflow = 1 if before and len(fresh) == len(ids) >= MAX_PAGES * 10 else 0   # the whole list is new: some fell off it
-        store.music_save(tracks, plays, json.dumps(remembered), now, overflow)
+        store.music_save(tracks, plays, json.dumps(_remember(ids, before)), now, overflow)
+        store.set_meta("music_types", TYPES)
         return len(plays)
 
     def due(self, store, now: float | None = None) -> bool:
