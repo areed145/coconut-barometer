@@ -70,7 +70,8 @@ Each track is looked up once: by its ISRC, else by title and main artist (kept o
 ## What to expect
 
 - **Hourly plays start after the first read.** That read only records where your list stands, because Apple doesn't say when those tracks were played.
-- **Check for missing plays first.** Play something from your library and from one of your own playlists, wait for the next read, and see whether they show up. Developers have reported these plays missing from Apple's API for some accounts, so this tells you how complete your numbers will be.
+- **Library songs are included.** Apple's list leaves them out unless asked, and it counts some songs played from search as library songs (live albums especially). They have no genres, and some have no cover, since Apple's catalog can't look them up.
+- **Plays from your phone can arrive late.** A phone can send a play to Apple after plays from another device were already read. It's still counted once, at the next read.
 - **Times are estimates.** Apple gives no play times, so each play is placed within the hour between two reads. Days and hours are close, not exact.
 - **Counts can run low.** Apple can collapse a track played several times in a row into one, and some plays may never appear. A read every hour can also lose plays if you get through more than about 130 tracks between reads.
 - **Hours assume whole tracks.** Skipped tracks can count in full.
