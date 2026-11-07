@@ -281,6 +281,40 @@ function FlickrPanel() {
   </div>`;
 }
 
+function MusicPanel() {
+  const [s, setS] = useState(null);
+  const [file, setFile] = useState(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api("/api/music/state").then(setS).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const send = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { plays } = await upload("/api/music/import", file, { "X-Confirm-Password": password });
+      toast(`${plays.toLocaleString()} plays imported`);
+      setPassword(""); load();
+    } catch (err) { toast(err.message); }
+    setBusy(false);
+  };
+  if (!s) return null;
+  return html`<div class="card"><h2>Apple Music</h2>
+    <p>${s.connected && !s.error ? html`<b class="up">Connected</b>${s.last_ok && html` <span class="muted">· read ${ago(s.last_ok)}</span>`}`
+      : s.error ? html`<b class="problem">${s.error}</b>` : html`<b class="problem">Not connected</b>`}</p>
+    ${!s.keys_set ? html`<p class="why">Set the Team ID, Key ID and private key below first. <code>docs/APPLE_MUSIC.md</code> has the steps.</p>`
+      : html`<button class=${s.connected && !s.reconnect ? "" : "primary"} onClick=${() => { location.href = "/api/music/connect"; }}>${s.connected ? "Connect again" : "Connect Apple Music"}</button>
+        <p class="why">Signs in with Apple. Do this on the live site, not a local copy.</p>`}
+    <h3>Earlier history</h3>
+    <p>${s.imported.plays ? html`${s.imported.plays.toLocaleString()} plays imported, up to ${day(s.imported.until)}.` : html`<span class="muted">None imported.</span>`}</p>
+    <form class="secretform" onSubmit=${send}>
+      <input type="file" accept=".gz" required onChange=${(e) => setFile(e.target.files[0])} />
+      <input type="password" autocomplete="current-password" placeholder="Your password" required value=${password} onInput=${(e) => setPassword(e.target.value)} />
+      <button disabled=${busy}>${busy ? "Importing…" : "Import"}</button></form>
+    <p class="why">The small file from <code>coconut-barometer music-export</code>, not Apple's own. Importing again replaces it.</p>
+  </div>`;
+}
+
 function AprsStream() {
   const [d, setD] = useState(null);
   const load = () => api("/api/aprs/stations").then(setD).catch(() => {});
@@ -495,6 +529,7 @@ export function Admin({ at }) {
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "connections" && html`<${FlickrPanel} />`}
+        ${section === "connections" && html`<${MusicPanel} />`}
         ${section === "display" && html`<${ThemeSetting} />`}
         ${section === "weather" && html`<${WxStations} />`}
         ${section === "aprs" && html`<${AprsStream} />`}

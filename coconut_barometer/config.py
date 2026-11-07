@@ -92,6 +92,13 @@ DEFAULTS: dict[str, Any] = {
         "token": None,                # fine-grained, Issues: read and write; set: unexpected errors become issues
         "repo": "areed145/coconut-barometer",   # owner/name the issues go to
     },
+    "apple_music": {
+        "team_id": None,              # from the Apple Developer account; docs/APPLE_MUSIC.md
+        "key_id": None,
+        "private_key": None,          # the MusicKit key: the contents of its .p8 file
+        "user_token": None,           # your account's consent, from the Connect button
+        "every_minutes": 60,          # how often the recently played list is read
+    },
     "database": "db.duckdb",
     "albums": {"create_missing": False},
     "groups": {
@@ -196,14 +203,15 @@ FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("aprs",
 # Settings whose default is None but that take a value.
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
             ("vision", "base_url"): str, ("aprs", "passcode"): str, ("github", "token"): str, ("vision", "describe", "instructions"): str,
-            ("vision", "title", "instructions"): str}
+            ("vision", "title", "instructions"): str, ("apple_music", "team_id"): str, ("apple_music", "key_id"): str,
+            ("apple_music", "private_key"): str, ("apple_music", "user_token"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("review", "when_queued"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
 RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),
           ("vision", "describe", "max_words"): (5, 200), ("vision", "title", "max_words"): (2, 20),
           ("schedule", "full_every_days"): (1, 365),
           ("schedule", "photo_list_every_hours"): (1, 24 * 30), ("schedule", "backfill_days_per_run"): (0, 400),
-          ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365), ("visitors", "keep_days"): (7, 3650),
+          ("backup", "every_hours"): (0, 24 * 30), ("backup", "keep"): (1, 365), ("visitors", "keep_days"): (7, 3650), ("apple_music", "every_minutes"): (15, 24 * 60),
           ("web", "port"): (1, 65535), ("web", "session_days"): (1, 365), ("web", "sync_every_minutes"): (0, 24 * 60),
           ("map", "expand_at"): (2, 200), ("weatherflow", "backfill_days"): (0, 3650),
           ("trips", "gap_hours"): (1, 24 * 14), ("trips", "jump_km"): (1, 20000), ("trips", "min_photos"): (2, 1000),

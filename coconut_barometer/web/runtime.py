@@ -13,6 +13,7 @@ import time
 
 from .. import local
 from ..alerts import CHECK_EVERY, Alerts
+from ..apple_music import Music
 from ..errors import caught
 from ..review import ReviewApp
 from ..schedule import due
@@ -47,6 +48,7 @@ class Runtime:
         self.qc = QcService(cfg, self.radar)          # station QC's reference samples and checks (#105)
         self.alerts = Alerts(cfg, self.aprs.callsigns, self.radar, self.aprs.igate, self.aprs.hub.snapshot)
         self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
+        self.music = Music(cfg)                       # Apple Music listening history
         self.vision_models = Models()                 # the vision provider's models, for Settings (#167)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
@@ -120,6 +122,10 @@ class Runtime:
             local.held("sampling for station QC")
         else:
             self.qc.start(self._stop, self.store)    # station QC (weather/qc/)
+        if local.on():                              # each read builds on the last: one copy keeps the history
+            local.held("reading Apple Music")
+        else:
+            threading.Thread(target=self.music.run, args=(self._stop, self.store), name="music", daemon=True).start()
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
         threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 

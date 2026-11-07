@@ -535,6 +535,11 @@ def main(argv=None):
     p = sub.add_parser("user", help="the web app's login: add | passwd | list | remove")
     p.add_argument("action", choices=["add", "passwd", "list", "remove"])
     p.add_argument("name", nargs="?")
+    p = sub.add_parser("music-export", help="reduce Apple's data export to a small file for Settings → Connections "
+                                            "(no database needed; nothing is sent)")
+    p.add_argument("activity", help="Apple Music Play Activity.csv")
+    p.add_argument("daily", help="Apple Music - Play History Daily Tracks.csv")
+    p.add_argument("-o", "--output", default="music-history.csv.gz")
     p = sub.add_parser("serve", help="run the web app (API, frontend, review worker, sync scheduler)")
     p.add_argument("--host")
     p.add_argument("--port", type=int)
@@ -548,6 +553,11 @@ def main(argv=None):
     p.add_argument("--list", action="store_true", help="list every change, not just the totals")
     p.add_argument("--photo", action="append", help="only this photo id (repeatable)")
     args = ap.parse_args(argv)
+    if args.cmd == "music-export":            # on your own machine, with or without a database
+        from .apple_export import slim
+
+        slim(args.activity, args.daily, args.output)
+        return
     if args.cmd == "check":   # before load_config, which stops at the first config error
         sys.exit(cmd_check(args.config))
 

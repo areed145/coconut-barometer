@@ -62,6 +62,8 @@ CREATE SEQUENCE IF NOT EXISTS alerts_log_id_seq START 1;
 CREATE TABLE IF NOT EXISTS alerts_log (id BIGINT PRIMARY KEY DEFAULT nextval('alerts_log_id_seq'), "at" BIGINT, alert_key TEXT, title TEXT, body TEXT, url TEXT, evidence TEXT, device_id TEXT, device_label TEXT, username TEXT, status TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS site_hits (ts BIGINT, day TEXT, visitor TEXT, session TEXT, kind TEXT, route TEXT, item TEXT, ref_host TEXT, utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, city TEXT, region TEXT, country TEXT, country_code TEXT, device TEXT, browser TEXT, os TEXT, width INTEGER);
 CREATE TABLE IF NOT EXISTS site_days (day TEXT PRIMARY KEY, visitors INTEGER, views INTEGER);
+CREATE TABLE IF NOT EXISTS music_tracks (id TEXT PRIMARY KEY, kind TEXT, name TEXT, artist TEXT, album TEXT, genres TEXT, duration_ms BIGINT, release_date TEXT, isrc TEXT, artwork TEXT, url TEXT, first_seen BIGINT, enriched BIGINT);
+CREATE TABLE IF NOT EXISTS music_plays (track_id TEXT, played_at BIGINT, seen_at BIGINT, window_start BIGINT, source TEXT, listened_ms BIGINT, end_reason TEXT, context TEXT);
 """
 
 

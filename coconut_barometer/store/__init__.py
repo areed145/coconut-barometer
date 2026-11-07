@@ -14,6 +14,7 @@ One connection, methods grouped by area:
   weather.py     WeatherFlow stations and observations
   aprs.py        APRS positions heard for the tracked callsigns, and the packets the igate gated
   visitors.py    the site's own visitors: page views, link previews, and each day's totals once pruned
+  music.py       Apple Music listening history
 
 Tables
   photos           mirror of your photos (refreshed on every sync)
@@ -49,6 +50,7 @@ Tables
   aprs_igate       each packet APRS-IS credits the igate with gating: who, where (if it said), heard direct or not
   site_hits        each page view of this site (no IPs: a visitor is a hash salted per day), for visitors.keep_days
   site_days        each day's visitors and page views, once its site_hits are pruned
+  music_tracks     each Apple Music track seen; music_plays: each play found, with its estimated time (apple_music.py)
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations
@@ -62,6 +64,7 @@ from .db import SCHEMA_VERSION, Database, SchemaTooNew
 from .engagement import EngagementStore
 from .gallery import GalleryStore
 from .library import LibraryStore
+from .music import MusicStore
 from .qc import QcStore
 from .queue import QueueStore
 from .settings import SettingsStore
@@ -73,7 +76,7 @@ __all__ = ["Store", "Database", "SCHEMA_VERSION", "SchemaTooNew"]
 
 
 class Store(LibraryStore, CacheStore, QueueStore, EngagementStore, StatsStore, AuthStore, AlertsStore,
-            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, QcStore, AprsStore, VisitorsStore):
+            GalleryStore, AnalyticsStore, SettingsStore, WeatherStore, QcStore, AprsStore, VisitorsStore, MusicStore):
     def counts(self) -> dict[str, int]:
         q = lambda sql: self.db.execute(sql).fetchone()[0]
         return {

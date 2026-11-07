@@ -1,5 +1,5 @@
 // The app shell: first-run setup, top bar (tabs, review count, the Status dot), and the pages: Home (#/), Photos, Weather
-// and APRS are public; Review, Analytics, Visitors, Status and Settings need a login (and their tabs only show once signed in).
+// and APRS are public; Review, Analytics, Music, Visitors, Status and Settings need a login (and their tabs only show once signed in).
 import { html, render, useState, useEffect, api, setCsrf, useRoute, Toasts, photosLink, loadTheme, every, StatusDot, OfflineNote } from "./lib.js";
 import { Home } from "./home.js";
 
@@ -28,6 +28,7 @@ const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
 const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
+const Music = lazy(() => import("./music.js"), "Music");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
 const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
@@ -99,7 +100,7 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trips", "Trips"], ["map", "Map"], ["gear", "Gear"],
                     ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
-const PRIVATE_TABS = ["visitors", "status", "settings"];
+const PRIVATE_TABS = ["music", "visitors", "status", "settings"];
 const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["map", "Map"], ["qc", "QC"]];
 const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
@@ -130,7 +131,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   const logout = async () => { try { await api("/api/auth/logout", { method: "POST" }); } finally { onLogout(); } };
   // Photos is a section: #/photos/<photostream|albums|map|analytics|review>. An album's photos are the
   // photostream filtered to it, so they're listed under Albums.
-  const inPhotos = !["home", "weather", "aprs", "visitors", "status", "settings", "login", "alerts"].includes(tab);
+  const inPhotos = !["home", "weather", "aprs", "music", "visitors", "status", "settings", "login", "alerts"].includes(tab);
   const sub = tab === "photos" && route[1] || "photostream";
   const next = route.params.next || "#/";
   useEffect(() => { if (session && tab === "login") location.replace(next); }, [session, tab]);
@@ -153,6 +154,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />`
     : route[1] === "trips" ? html`<${AprsTrips} call=${route[2] && decodeURIComponent(route[2])} />` : html`<${Aprs} />`;
   else if (tab === "visitors") page = html`<${Visitors} />`;
+  else if (tab === "music") page = html`<${Music} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   else if (tab === "alerts") page = !session ? html`<${Login} onLogin=${onLogin} />`
@@ -185,7 +187,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("aprs", "APRS")}
-        ${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
+        ${session && link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings" || tab === "alerts"} />

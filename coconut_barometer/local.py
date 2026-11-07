@@ -5,7 +5,8 @@ Local mode leaves out everything that sends: APRS-IS (the tracking stream logs i
 CWOP sends its weather reports), push notifications (to the real phones), GitHub error reports (to the real repo),
 Flickr (syncing and applying review changes write to the real account), and the scheduled backups. Station QC's
 sampling is held too: it only reads, but it's the server's job (a month of RTMA backfilled into a local copy is work
-for nothing), and so is the duplicate check on new uploads (its first run fingerprints the whole library). What's
+for nothing), and so is the duplicate check on new uploads (its first run fingerprints the whole library), and so are Apple Music
+reads (each works from the one before, so two copies reading would each keep a different history). What's
 only read for the pages stays on: WeatherFlow, radar, satellite and the rest of the Weather map, all that's needed
 to look at the site.
 Each place that would send asks on() and logs what it held back instead; the Status page shows them "off".
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 HELD_BACK = ("APRS-IS and CWOP, push notifications, GitHub error reports, Flickr (syncing and applying), backups, "
-             "station QC sampling, the duplicate check on new uploads")
+             "station QC sampling, the duplicate check on new uploads, Apple Music reads")
 STATE = "local mode: off"            # how the Status page shows what's held back
 _on = False
 
