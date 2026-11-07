@@ -8,35 +8,41 @@ about a playlist or a shuffle than about the music):
              played on or featured on another's tracks, or is in their band; or two share a producer, writer, player or
              member. Artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when
              exactly one drawn artist has it
-  similar    Claude's judgement, from the Anthropic connection Vision uses. Asked on request (ask_similar), kept in
-             the database, and the graph is complete without it
+  profile    alike on paper: each artist's profile (genres from Apple, MusicBrainz and Claude; Claude's scenes; their
+             years; where they're from) compared here, with no model in the loop (profile_links). A rare genre counts
+             for more than one everybody has, and each artist keeps only its closest few
 
-Clusters are found by greedy modularity on the combined weights. Hidden bridges are the modestly played artists whose
-connections reach several clusters: the ones that tie your listening together."""
+Clusters are found by greedy modularity on the combined weights, and named by the scene or genres their members share.
+Hidden bridges are the modestly played artists whose connections reach several clusters: the ones that tie your
+listening together."""
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 from collections import Counter, defaultdict
 
 NODES = 100                      # the most played artists drawn
 CREDIT_MAX_ARTISTS = 8           # a composer behind more artists than this ("Traditional") says nothing
-WEIGHTS = {"collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "similar": 0.8}
+WEIGHTS = {"collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "profile": 0.8}
 MB_VERBS = {"featured": "featured on", "producer": "produced", "performer": "played on", "writer": "wrote for",
             "remixer": "remixed", "arranger": "arranged for"}
 MAX_NODES = 200
 GENERIC_CREDITS = {"traditional", "public domain", "various", "various artists", "unknown", "anonymous"}
-META_SIMILAR, META_LABELS = "music_graph_similar", "music_graph_labels"
+# Profile matches: how much each part counts, how close is close enough, and how many each artist keeps.
+PROFILE_PARTS = {"genre": 0.45, "scene": 0.30, "era": 0.15, "origin": 0.10}
+PROFILE_MIN = 0.45               # the score a pair needs
+PROFILE_MIN_GENRE = 0.3          # and genres at least this alike, or a scene in common: years and places alone aren't
+PROFILE_PER_ARTIST = 4
+SOURCE_WEIGHT = {"apple": 0.5, "musicbrainz": 1.0, "claude": 1.0}   # Apple's genres are broad ("Rock")
+SAME_COUNTRY = 0.4               # of a same-city match
+COMMON_GENRE = 0.25              # a genre more than this share of the artists have (and more than two) tells nothing
 
 FEATURING = re.compile(r"\s+(?:feat\.?|featuring|ft\.?|with)\s+", re.I)
 TITLE_FEAT = re.compile(r"[(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+([^)\]]+)[)\]]", re.I)
 SPLIT = re.compile(r"\s*(?:,|&|\+)\s*|\s+(?:and|x)\s+", re.I)     # a lone "X" or "And" is a name, not a separator
-
-
-class GraphError(RuntimeError):
-    """Claude can't be asked: the message is safe to show."""
 
 
 def _people(text: str) -> list[str]:
@@ -67,9 +73,10 @@ def _pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a < b else (b, a)
 
 
-def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | None = None,
-          limit: int = NODES, mb: dict | None = None) -> dict:
-    """rows: music_graph_plays, in play order (artist, genres, composer, played_at, name, ms)."""
+def build(rows: list[dict], limit: int = NODES, mb: dict | None = None, profiles: dict | None = None,
+          now: float | None = None) -> dict:
+    """rows: music_graph_plays, in play order (artist, genres, composer, played_at, name, ms). mb: store.mb_graph().
+    profiles: store.profiles(), what Claude said about each artist."""
     known = {r["artist"] for r in rows}
     plays: Counter = Counter()
     minutes: Counter = Counter()
@@ -111,16 +118,16 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
                     link(a, b, "credit", 1.0, composer)
     for (a, b), (strength, said) in musicbrainz_links(mb or {}, keep, known).items():
         link(a, b, "musicbrainz", strength, " · ".join(said[:3]))
-    for s in similar or []:
-        link(s["a"], s["b"], "similar", 1.0, s.get("why") or "")
+    year = dt.datetime.fromtimestamp(now if now is not None else dt.datetime.now().timestamp(), dt.timezone.utc).year
+    profile = artist_profiles(nodes, genres, mb or {}, profiles or {}, known, year)
+    for (a, b), (score, why) in profile_links(profile).items():
+        link(a, b, "profile", score, why)
     weight = {pair: e["weight"] for pair, e in edges.items()}
     group = communities(nodes, weight)
     members: dict = defaultdict(list)
     for a in nodes:
         members[group[a]].append(a)
-    names = {}
-    for cid, people in members.items():
-        names[cid] = (labels or {}).get(member_key(people)) or _genre_label([genres[p] for p in people])
+    names = {cid: cluster_label(people, profile, genres) for cid, people in members.items()}
     out_nodes = [{"id": a, "plays": plays[a], "minutes": round(minutes[a]), "cluster": group[a],
                   "genre": genres[a].most_common(1)[0][0] if genres[a] else None,
                   "degree": sum(1 for p in weight if a in p)} for a in nodes]
@@ -138,12 +145,8 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> dict:
     by_name: dict = defaultdict(set)
     for a in keep:
         by_name[norm(a)].add(a)
-    votes: dict = defaultdict(Counter)                   # an MBID -> the drawn artist whose own tracks credit it first
     rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
-    for c in rows:
-        if c["role"] == "artist" and c["main"] in keep and norm(c["name"]) == norm(c["main"]):
-            votes[c["mbid"]][c["main"]] += c["tracks"]
-    node_of = {mbid: v.most_common(1)[0][0] for mbid, v in votes.items()}
+    node_of = mbid_nodes(rows, keep)
     has_id = defaultdict(set)
     for mbid, a in node_of.items():
         has_id[a].add(mbid)
@@ -186,6 +189,122 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> dict:
                     out[_pair(a, b)] = (0.7, [])
                 out[_pair(a, b)][1].append(f"both credit {name} ({', '.join(roles)})")
     return out
+
+
+def mbid_nodes(rows: list[dict], keep: set[str]) -> dict[str, str]:
+    """MBID -> the drawn artist whose own tracks credit it first, by that name. rows: credits with their "main"."""
+    from .musicbrainz import norm
+
+    votes: dict = defaultdict(Counter)
+    for c in rows:
+        if c["role"] == "artist" and c["main"] in keep and norm(c["name"]) == norm(c["main"]):
+            votes[c["mbid"]][c["main"]] += c["tracks"]
+    return {mbid: v.most_common(1)[0][0] for mbid, v in votes.items()}
+
+
+# ---- profiles ---------------------------------------------------------------------------------------------
+
+def artist_profiles(nodes: list[str], genres: dict, mb: dict, said: dict, known: set[str], year: int) -> dict:
+    """artist -> {genres: {label: weight}, scenes: set, span: (from, to) | None, city, country}, from what Apple's
+    tracks, MusicBrainz and Claude say. Claude's decades place an artist best; MusicBrainz's years only for a group
+    (a person's begin is their birth)."""
+    keep = set(nodes)
+    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    facts: dict = {}
+    for mbid, a in mbid_nodes(rows, keep).items():
+        if mbid in (mb.get("artists") or {}) and a not in facts:
+            facts[a] = mb["artists"][mbid]
+    out = {}
+    for a in nodes:
+        f, c = facts.get(a) or {}, said.get(a) or {}
+        g: Counter = Counter()
+        total = sum(genres[a].values()) or 1
+        for label, n in genres[a].items():
+            g[label.lower()] += SOURCE_WEIGHT["apple"] * n / total
+        top = max((v for _, v in f.get("genres") or []), default=0)
+        for label, votes in f.get("genres") or []:
+            g[label] += SOURCE_WEIGHT["musicbrainz"] * votes / top
+        for label in c.get("styles") or []:
+            g[label] += SOURCE_WEIGHT["claude"]
+        span = None
+        if c.get("decades"):
+            span = (min(c["decades"]), max(c["decades"]) + 9)
+        elif f.get("type") == "Group" and f.get("begin_year"):
+            span = (f["begin_year"], f.get("end_year") or year)
+        out[a] = {"genres": dict(g), "scenes": set(c.get("scenes") or []), "span": span,
+                  "city": f.get("area") if f.get("area") and f.get("country") else None,
+                  "country": f.get("country") or c.get("country")}
+    return out
+
+
+def _decades(lo: int, hi: int) -> str:
+    a, b = lo // 10 * 10, hi // 10 * 10
+    return f"{a}s" if a == b else f"{a}s–{str(b)[2:]}s" if a // 100 == b // 100 else f"{a}s–{b}s"
+
+
+def profile_links(profile: dict) -> dict:
+    """(a, b) -> (score, why) for the pairs alike enough, each artist keeping its closest PROFILE_PER_ARTIST. Genres
+    are compared by cosine, each weighted by how rare it is among the artists drawn, and one most of them share is
+    left out: two artists known only as "Rock" aren't alike."""
+    names = sorted(profile)
+    n = len(names)
+    df: Counter = Counter(label for a in names for label in profile[a]["genres"])
+    idf = {label: 0.0 if k > max(2, COMMON_GENRE * n) else math.log(n / k) for label, k in df.items()}
+    vec = {a: {label: w * idf[label] for label, w in profile[a]["genres"].items() if idf[label] > 0} for a in names}
+    size = {a: math.sqrt(sum(w * w for w in vec[a].values())) for a in names}
+    found = []
+    for i, a in enumerate(names):
+        pa = profile[a]
+        for b in names[i + 1:]:
+            pb = profile[b]
+            shared = set(vec[a]) & set(vec[b])
+            genre = sum(vec[a][x] * vec[b][x] for x in shared) / (size[a] * size[b]) if shared else 0.0
+            scenes = sorted(pa["scenes"] & pb["scenes"])
+            if genre < PROFILE_MIN_GENRE and not scenes:
+                continue
+            era, overlap = 0.0, None
+            if pa["span"] and pb["span"]:
+                lo, hi = max(pa["span"][0], pb["span"][0]), min(pa["span"][1], pb["span"][1])
+                if hi >= lo:
+                    overlap = (lo, hi)
+                    era = min(1.0, (hi - lo + 1) / min(pa["span"][1] - pa["span"][0] + 1, pb["span"][1] - pb["span"][0] + 1))
+            place = ""
+            origin = 0.0
+            if pa["city"] and pa["city"] == pb["city"]:
+                origin, place = 1.0, pa["city"]
+            elif pa["country"] and pa["country"] == pb["country"]:
+                origin, place = SAME_COUNTRY, pa["country"]
+            score = (PROFILE_PARTS["genre"] * genre + PROFILE_PARTS["scene"] * bool(scenes)
+                     + PROFILE_PARTS["era"] * era + PROFILE_PARTS["origin"] * origin)
+            if score < PROFILE_MIN:
+                continue
+            top = sorted(shared, key=lambda x: -vec[a][x] * vec[b][x])[:2]
+            why = scenes[:2] + [x for x in top if x not in scenes] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
+            found.append((score, a, b, " · ".join(why)))
+    kept: Counter = Counter()
+    out = {}
+    for score, a, b, why in sorted(found, key=lambda f: (-f[0], f[1], f[2])):
+        if kept[a] < PROFILE_PER_ARTIST and kept[b] < PROFILE_PER_ARTIST:
+            kept[a] += 1
+            kept[b] += 1
+            out[_pair(a, b)] = (round(score, 3), why)
+    return out
+
+
+def cluster_label(people: list[str], profile: dict, genres: dict) -> str:
+    """A scene most of the cluster shares, else the genres they have most of (Apple's when there's nothing else)."""
+    scenes = Counter(s for p in people for s in profile[p]["scenes"])
+    if scenes:
+        scene, k = scenes.most_common(1)[0]
+        if k >= 2 and k >= 0.4 * len(people):
+            return scene.title()
+    specific: Counter = Counter()
+    for p in people:
+        apple = {g.lower() for g in genres[p]}
+        specific.update({g: w for g, w in profile[p]["genres"].items() if g not in apple})
+    if len(people) > 1 and specific:
+        return " / ".join(g.title() for g, _ in specific.most_common(2))
+    return _genre_label([genres[p] for p in people])
 
 
 def _genre_label(counters: list[Counter]) -> str:
@@ -263,78 +382,4 @@ def report(store, days: int, now: float | None = None, limit: int = NODES) -> di
     rows = store.music_graph_plays()
     if days < 3650:
         rows = [r for r in rows if r["played_at"] >= now - days * 86400]
-    similar = _load(store, META_SIMILAR, [])
-    labels = _load(store, META_LABELS, {})
-    g = build(rows, similar=similar, labels=labels, limit=max(10, min(MAX_NODES, limit)), mb=store.mb_graph())
-    g["ai"] = {"asked": bool(similar), "links": len([s for s in similar if s["a"] in {n["id"] for n in g["nodes"]}])}
-    return g
-
-
-def _load(store, key: str, default):
-    try:
-        return json.loads(store.get_meta(key) or "") or default
-    except ValueError:
-        return default
-
-
-# ---- Claude -----------------------------------------------------------------------------------------------
-
-def can_ask(cfg: dict) -> bool:
-    v = cfg.get("vision") or {}
-    return v.get("provider") in ("claude", "anthropic") and bool(v.get("api_key"))
-
-
-def _ask(cfg: dict, prompt: str, tool: str, schema: dict) -> dict:
-    if not can_ask(cfg):
-        raise GraphError("needs the Anthropic key in Settings → Vision (provider claude)")
-    import anthropic
-    v = cfg["vision"]
-    client = anthropic.Anthropic(api_key=v["api_key"], max_retries=3, **({"base_url": v["base_url"]} if v.get("base_url") else {}))
-    resp = client.messages.create(
-        model=v["model"], max_tokens=8000, tools=[{"name": tool, "description": "Record the answer.", "input_schema": schema}],
-        tool_choice={"type": "auto"}, messages=[{"role": "user", "content": f"{prompt}\n\nRecord your answer by calling {tool}."}])
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == tool:
-            return dict(block.input)
-    raise GraphError("the model didn't answer")
-
-
-SIMILAR_SCHEMA = {"type": "object", "required": ["links"], "properties": {"links": {"type": "array", "items": {
-    "type": "object", "required": ["a", "b", "why"], "properties": {
-        "a": {"type": "string"}, "b": {"type": "string"}, "why": {"type": "string", "description": "under 12 words"}}}}}}
-LABEL_SCHEMA = {"type": "object", "required": ["labels"], "properties": {"labels": {"type": "array", "items": {
-    "type": "object", "required": ["id", "label"], "properties": {
-        "id": {"type": "string"}, "label": {"type": "string", "description": "2 to 4 words naming the shared sound or scene"}}}}}}
-
-
-def ask_similar(cfg: dict, store, days: int = 3650, limit: int = NODES) -> dict:
-    """Claude links the artists that sound alike or share a scene, era or lineage, then names the clusters those links
-    (and the rest) make. Only names from the list are kept. Kept in the database; returns the new graph."""
-    first = report(store, days, limit=limit)
-    names = [n["id"] for n in first["nodes"]]
-    if len(names) < 3:
-        raise GraphError("not enough artists yet")
-    top = {n["id"]: n["genre"] or "" for n in first["nodes"]}
-    listing = "\n".join(f"- {a}" + (f" ({g})" if g else "") for a, g in top.items())
-    answer = _ask(cfg, "These are the artists one person listens to most. Link pairs that are closely related: same "
-                  "scene, era, label, lineage, influence or sound, or members of the same group. Use each name exactly "
-                  "as written, only names from the list, at most 4 links per artist and about two per artist overall "
-                  "across the list; leave out loose matches. Never invent relationships.\n\n" + listing, "record_links", SIMILAR_SCHEMA)
-    valid = set(names)
-    seen: dict = {}
-    for s in answer.get("links", []):
-        a, b = s.get("a"), s.get("b")
-        if a in valid and b in valid and a != b:
-            seen[_pair(a, b)] = {"a": a, "b": b, "why": str(s.get("why") or "")[:100]}
-    store.set_meta(META_SIMILAR, json.dumps(list(seen.values())))
-    g = report(store, days, limit=limit)
-    labels = _load(store, META_LABELS, {})
-    groups = "\n".join(f"{c['key']}: {', '.join(c['members'])}" for c in g["clusters"] if c["size"] >= 2)
-    if groups:
-        named = _ask(cfg, "Each line is a cluster of artists from one person's listening: an id, then its members. Give "
-                     "each a short name for what they share (a sound, scene or era), not a list of the artists.\n\n" + groups,
-                     "record_labels", LABEL_SCHEMA)
-        ids = {c["key"] for c in g["clusters"]}
-        labels.update({x["id"]: str(x["label"])[:40] for x in named.get("labels", []) if x.get("id") in ids})
-        store.set_meta(META_LABELS, json.dumps(labels))
-    return report(store, days, limit=limit)
+    return build(rows, limit=max(10, min(MAX_NODES, limit)), mb=store.mb_graph(), profiles=store.profiles(), now=now)

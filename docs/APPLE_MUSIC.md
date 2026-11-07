@@ -59,13 +59,28 @@ Your server fetches each cover once and keeps its own copy in `music_art/` next 
 
 **Rain or shine** needs weather stations and at least 30 plays on rainy days, so it stays hidden until then.
 
-## Artist network and MusicBrainz credits
+## Artist network, MusicBrainz credits and artist profiles
 
-**Music → Artist network** (`#/music/graph`) draws your most played artists and how they connect: collaborations in titles, composers from Apple's catalog, and, if you ask, links Claude suggests. Playing two artists back to back doesn't link them, since that says more about a playlist or shuffle than about the music. Pick the range and how many artists to draw (50 to 200). Scroll or pinch to zoom, drag the background to pan, drag an artist to pull it, click one for its connections, double-click to zoom to its neighbours, or type a name in **Find an artist**. Clicking a cluster or a hidden bridge zooms to it. Artists keep their places when you change the range, the number drawn or the link kinds shown, so you can watch the network reshape.
+**Music → Artist network** (`#/music/graph`) draws your most played artists and how they connect: collaborations in titles, composers from Apple's catalog, MusicBrainz credits, and profile matches (below). Playing two artists back to back doesn't link them, since that says more about a playlist or shuffle than about the music. Pick the range and how many artists to draw (50 to 200). Scroll or pinch to zoom, drag the background to pan, drag an artist to pull it, click one for its connections, double-click to zoom to its neighbours, or type a name in **Find an artist**. Clicking a cluster or a hidden bridge zooms to it. Artists keep their places when you change the range, the number drawn or the link kinds shown, so you can watch the network reshape.
 
 For real credits (producers, writers, players, featured artists, band members), turn on **Look up credits on MusicBrainz** in **Settings → Music** and give a **Contact for MusicBrainz** (an email address or URL). MusicBrainz asks every app to name a contact, and it's sent with each request. Lookups don't start without one.
 
 Each track is looked up once: by its ISRC, else by title and main artist (kept only when the match is credited to that same artist), most played first. Then come the artists those tracks are credited to, for their bands and collaborations. The lookups run as **MusicBrainz lookup** jobs at the back of the Status page's job line, about a minute of requests each. Every request waits for one shared limit of one a second, which MusicBrainz requires, so a library of a few thousand tracks takes a few hours the first time. The graph page shows how far along they are and refreshes as they finish. Lookups are held in local mode.
+
+Each artist lookup also keeps what MusicBrainz knows about the artist: group or person, where they started, their years, and the genres its editors voted for.
+
+### Artist profiles and profile matches
+
+**Profile match** links join artists that are alike on paper. Each artist has a profile: genres (from Apple, MusicBrainz and Claude), scenes, the decades they mattered most in, and where they're from. The site compares profiles itself every time the graph loads, with no AI call. Each link names what the two share, for example *bakersfield sound · country rock · 1960s–70s · Bakersfield*.
+
+- **A rare genre counts for more than a common one.** A genre that more than a quarter of the drawn artists share is ignored, so two artists known only as "Rock" aren't linked.
+- **Years and places alone never link two artists.** A pair needs genres that are clearly alike, or a scene in common.
+- **Each artist keeps at most its 4 closest matches**, so the network doesn't turn into a hairball.
+- **Clusters are named** after a scene most of their members share, else the genres they have most of.
+
+To fill in scenes, styles and decades, turn on **Profile artists with Claude** in **Settings → Music**. It uses the Anthropic key from **Settings → Vision**. Your top 200 artists are each asked about once, 25 at a time, as **Artist profiles** jobs at the back of the Status page's job line. Claude picks from the labels already in use where one fits, so matching labels are spelled the same. **Requests a day** caps the cost (20 by default; the first 200 artists take 8 requests). New artists are asked about as they enter your top 200.
+
+The graph page shows how many artists have profiles, with **Profile more now** to queue a job straight away and **Start over** to forget every profile and ask again, for example after switching models. Profiles are held in local mode.
 
 ## What to expect
 

@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from collections import Counter
 
 from coconut_barometer import music_graph as G
 from coconut_barometer.store import Store
@@ -58,54 +59,76 @@ class Build(unittest.TestCase):
         g = G.build([r for n in range(10) for r in session(n * 1000, "A", "B", "C")])
         self.assertEqual(g["edges"], [])
 
-    def test_similar_links_and_labels(self):
-        rows = self.rows()
-        base = G.build(rows)
-        key = base["clusters"][0]["key"]
-        g = G.build(rows, similar=[{"a": "A", "b": "Z", "why": "same scene"}, {"a": "A", "b": "Nobody", "why": "x"}], labels={key: "Test sound"})
-        self.assertEqual(next(e for e in g["edges"] if (e["a"], e["b"]) == ("A", "Z"))["kinds"]["similar"], "same scene")
-        self.assertNotIn("Nobody", [n["id"] for n in g["nodes"]])
-        self.assertIn("Test sound", [c["label"] for c in g["clusters"]])
-
     def test_limit(self):
         self.assertEqual(len(G.build(self.rows(), limit=3)["nodes"]), 3)
 
 
-class Ask(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.store = Store(os.path.join(self.tmp, "t.duckdb"))
-        for i, r in enumerate(Build().rows()):
-            tid = f"{r['artist']}{i}"
-            self.store.db.execute("INSERT INTO music_tracks (id, kind, name, artist, album, genres, composer) VALUES (?,?,?,?,?,?,?)",
-                                  (tid, "songs", r["name"], r["artist"], "", r["genres"], r["composer"]))
-            self.store.db.execute("INSERT INTO music_plays (track_id, played_at, seen_at, source) VALUES (?,?,?, 'export')", (tid, r["played_at"], r["played_at"]))
+def prof(genres=None, scenes=(), span=None, city=None, country=None):
+    return {"genres": genres or {}, "scenes": set(scenes), "span": span, "city": city, "country": country}
 
-    def test_needs_a_key(self):
-        self.assertFalse(G.can_ask({"vision": {"provider": "claude", "api_key": ""}}))
-        with self.assertRaises(G.GraphError):
-            G.ask_similar({"vision": {"provider": "ollama", "api_key": "x"}}, self.store)
 
-    def test_ask_keeps_only_known_names_and_labels_clusters(self):
-        replies = []
+class Profiles(unittest.TestCase):
+    def test_a_rare_scene_and_style_link_and_say_why(self):
+        p = {"Haggard": prof({"rock": 1, "country rock": 1}, ["bakersfield sound"], (1960, 1979), "Bakersfield", "US"),
+             "Owens": prof({"rock": 1, "country rock": 1}, ["bakersfield sound"], (1955, 1975), "Bakersfield", "US"),
+             "Other": prof({"rock": 1, "techno": 1}, [], (1990, 1999), None, "DE")}
+        links = G.profile_links(p)
+        self.assertEqual(list(links), [("Haggard", "Owens")])
+        self.assertEqual(links[("Haggard", "Owens")][1], "bakersfield sound · country rock · 1960s–70s · Bakersfield")
 
-        def fake(cfg, prompt, tool, schema):
-            replies.append(tool)
-            if tool == "record_links":
-                return {"links": [{"a": "A", "b": "Z", "why": "scene"}, {"a": "A", "b": "Ghost", "why": "?"}]}
-            ids = [line.split(":")[0] for line in prompt.splitlines() if ": " in line]
-            return {"labels": [{"id": i, "label": "Named"} for i in ids] + [{"id": "bogus", "label": "No"}]}
-        real, G._ask = G._ask, fake
-        try:
-            g = G.ask_similar({"vision": {"provider": "claude", "api_key": "k", "model": "m"}}, self.store)
-        finally:
-            G._ask = real
-        self.assertEqual(replies, ["record_links", "record_labels"])
-        self.assertTrue(g["ai"]["asked"])
-        self.assertEqual(g["ai"]["links"], 1)
-        self.assertIn("Named", [c["label"] for c in g["clusters"]])
-        self.assertEqual(G.report(self.store, 3650)["ai"]["links"], 1)            # kept
-        self.assertNotIn("Ghost", self.store.get_meta(G.META_SIMILAR))
+    def test_a_genre_everyone_has_years_and_places_link_nothing(self):
+        p = {a: prof({"rock": 1}, [], (1970, 1979), "Austin", "US") for a in "ABC"}
+        p["D"] = prof({"jazz": 1})
+        self.assertEqual(G.profile_links(p), {})
+
+    def test_each_artist_keeps_its_closest_few(self):
+        p = {f"A{i}": prof({"rock": 1, "surf": 1}, ["surf"], (1960, 1969)) for i in range(8)}
+        p.update({f"Z{i}": prof({f"genre {i}": 1}) for i in range(30)})          # surf is rare among them all
+        links = G.profile_links(p)
+        per = {a: sum(a in pair for pair in links) for a in p}
+        self.assertTrue(links)
+        self.assertLessEqual(max(per.values()), G.PROFILE_PER_ARTIST)
+
+    def test_profiles_take_musicbrainz_and_claude(self):
+        mb = {"credits": [{"artist": "Band", "role": "artist", "name": "Band", "mbid": "m1", "tracks": 3},
+                          {"artist": "Singer", "role": "artist", "name": "Singer", "mbid": "m2", "tracks": 3}],
+              "artists": {"m1": {"type": "Group", "country": "US", "area": "Athens", "begin_year": 1980, "end_year": None,
+                                 "genres": [["jangle pop", 4], ["rock", 2]], "tags": []},
+                          "m2": {"type": "Person", "country": "US", "area": "Tulsa", "begin_year": 1950, "end_year": None,
+                                 "genres": [], "tags": []}}}
+        said = {"Singer": {"scenes": ["red dirt"], "styles": ["americana"], "decades": [1990, 2000], "country": "US"}}
+        genres = {"Band": Counter({"Rock": 2}), "Singer": Counter()}
+        p = G.artist_profiles(["Band", "Singer"], genres, mb, said, {"Band", "Singer"}, 2026)
+        self.assertEqual(p["Band"]["span"], (1980, 2026))            # a group's years, still going
+        self.assertEqual(p["Band"]["genres"]["jangle pop"], 1.0)
+        self.assertAlmostEqual(p["Band"]["genres"]["rock"], 0.5 + 0.5)  # Apple's half, MusicBrainz's half
+        self.assertEqual(p["Singer"]["span"], (1990, 2009))           # Claude's decades, not a birth year
+        self.assertEqual((p["Singer"]["scenes"], p["Singer"]["city"]), ({"red dirt"}, "Tulsa"))
+
+    def test_clusters_are_named_by_a_shared_scene_else_their_genres(self):
+        p = {"A": prof({"surf": 1}, ["surf"]), "B": prof({"surf": 1}, ["surf"]), "C": prof({"hot rod": 1})}
+        genres = {a: Counter({"Rock": 1}) for a in "ABC"}
+        self.assertEqual(G.cluster_label(["A", "B", "C"], p, genres), "Surf")
+        self.assertEqual(G.cluster_label(["C", "A"], {"A": prof({"surf": 1}), "C": prof({"hot rod": 2})}, genres), "Hot Rod / Surf")
+        self.assertEqual(G.cluster_label(["C"], p, genres), "Rock")
+
+    def test_the_graph_draws_profile_matches(self):
+        rows = [play(i * 100, a, genre="Rock") for i, a in enumerate(["A", "B", "C"] * 3)]
+        said = {a: {"scenes": ["paisley underground"], "styles": ["jangle pop"], "decades": [1980], "country": "US"} for a in "AB"}
+        g = G.build(rows, profiles=said, now=1_800_000_000)
+        self.assertEqual([(e["a"], e["b"], list(e["kinds"])) for e in g["edges"]], [("A", "B", ["profile"])])
+
+
+class Report(unittest.TestCase):
+    def test_the_report_reads_profiles_from_the_store(self):
+        store = Store(os.path.join(tempfile.mkdtemp(), "t.duckdb"))
+        for i, a in enumerate(["A", "B", "C"] * 3):
+            store.db.execute("INSERT INTO music_tracks (id, kind, name, artist, album, genres) VALUES (?, 'songs', 'x', ?, '', '[]') ON CONFLICT DO NOTHING", (a, a))
+            store.db.execute("INSERT INTO music_plays (track_id, played_at, seen_at, source) VALUES (?, ?, ?, 'export')", (a, i, i))
+        store.profiles_save([{"artist": a, "scenes": ["surf"], "styles": ["surf rock"], "decades": [1960], "country": "US"} for a in "AB"], "m", 1)
+        g = G.report(store, 3650)
+        self.assertEqual([(e["a"], e["b"]) for e in g["edges"]], [("A", "B")])
+        self.assertNotIn("ai", g)
 
 
 if __name__ == "__main__":

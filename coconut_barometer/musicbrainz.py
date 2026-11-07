@@ -5,7 +5,8 @@ featured artists, and which artists are members of which bands. Each track is lo
   - by the ISRC Apple gave it (music_tracks.isrc), else a search for its title and main artist, kept only when the
     best match is credited to that same artist
   - then the recording, with its artist relations and its work's (the writers)
-  - and later each matched artist, for its band memberships and collaborations
+  - and later each matched artist, for its band memberships and collaborations, and its facts: group or person,
+    where it's from, its years, and the genres and tags MusicBrainz's editors voted for (the graph's profiles)
 Answers, found or not, are kept (mb_recordings, mb_credits, mb_artists, mb_artist_rels), so nothing is asked twice.
 
 MusicBrainz asks for at most one request a second and a User-Agent naming the app and a way to reach whoever runs it
@@ -42,6 +43,8 @@ RECORDING_ROLES = {"producer": "producer", "co-producer": "producer", "instrumen
                    "remixer": "remixer", "arranger": "arranger"}
 WORK_ROLES = {"composer": "writer", "lyricist": "writer", "writer": "writer", "librettist": "writer"}
 ARTIST_ROLES = {"member of band": "member", "collaboration": "collaboration"}
+ARTIST_INC = "artist-rels+genres+tags"
+MAX_TAGS = 15
 # Kept from the looked-up artist's side: "in band" (it's in the other), "band of" (the other is in it), "collaboration".
 FEAT_IN_TITLE = re.compile(r"\s*[(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^)\]]*[)\]]", re.I)
 
@@ -131,6 +134,25 @@ def artist_rels(artist: dict) -> list[dict]:
     return out
 
 
+def _year(date: str | None) -> int | None:
+    m = re.match(r"(\d{4})", date or "")
+    return int(m.group(1)) if m else None
+
+
+def artist_facts(artist: dict) -> dict:
+    """What the graph's profiles take from an artist: type, country (a code), area (the place it began: its plain
+    area is often only a country), begin and end years, and its genres and tags as [name, votes], most voted first."""
+    life = artist.get("life-span") or {}
+
+    def voted(key):
+        got = [(t.get("name", "").strip().lower(), int(t.get("count") or 0)) for t in artist.get(key) or []]
+        return [[n, c] for n, c in sorted(got, key=lambda x: -x[1]) if n and c > 0][:MAX_TAGS]
+    return {"type": artist.get("type"), "country": artist.get("country"),
+            "area": (artist.get("begin-area") or {}).get("name"),
+            "begin_year": _year(life.get("begin")), "end_year": _year(life.get("end")),
+            "genres": voted("genres"), "tags": voted("tags")}
+
+
 def _quote(text: str) -> str:
     return '"' + re.sub(r'([\\"])', r"\\\1", text) + '"'
 
@@ -213,8 +235,9 @@ class MusicBrainz:
             for a in store.mb_artists_to_ask(budget):
                 if self.calls - start + 1 > budget:
                     break
-                found = self._ask(f"artist/{a['mbid']}", "artist", a["name"][:80], inc="artist-rels")
-                store.mb_save_artist(a["mbid"], (found or {}).get("name") or a["name"], artist_rels(found or {}), now)
+                found = self._ask(f"artist/{a['mbid']}", "artist", a["name"][:80], inc=ARTIST_INC)
+                store.mb_save_artist(a["mbid"], (found or {}).get("name") or a["name"], artist_rels(found or {}), now,
+                                     artist_facts(found or {}))
                 artists += 1
         except Busy as e:
             return {"status": "failed", "error": str(e), "rows": tracks, "artists": artists, "calls": self.calls - start}

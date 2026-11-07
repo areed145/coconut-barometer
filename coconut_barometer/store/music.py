@@ -4,8 +4,12 @@
   music_plays    each play. source 'hourly': an estimated start, the read that found it and the read before (it began
                  after that). source 'export': from Apple's data export (apple_export.py), with the exact start, how
                  long was heard, how it ended, and what it was played from
-  mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not"""
+  mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not, and each
+                 artist's facts (type, origin, years, genres, tags)
+  artist_profiles  what Claude says about each top artist: scenes, styles, decades, country (artist_profiles.py)"""
 from __future__ import annotations
+
+import json
 
 from .db import Database
 
@@ -127,19 +131,25 @@ class MusicStore(Database):
                             (track_id, recording, how, now))
 
     def mb_artists_to_ask(self, limit: int) -> list[dict]:
-        """The artists your tracks are credited to (main or featured) not looked up yet, most played first."""
+        """The artists your tracks are credited to (main or featured) not looked up yet, or looked up before their
+        facts were kept, most played first."""
         return [dict(r) for r in self.db.execute(
             f"SELECT c.mbid, any_value(c.name) AS name FROM mb_credits c {self._MB_PLAYS.format('c.track_id')} "
-            "WHERE c.role IN ('artist', 'featured') AND c.mbid NOT IN (SELECT mbid FROM mb_artists) "
+            "WHERE c.role IN ('artist', 'featured') AND c.mbid NOT IN (SELECT mbid FROM mb_artists WHERE profiled IS NOT NULL) "
             "GROUP BY c.mbid ORDER BY SUM(COALESCE(p.n, 0)) DESC, c.mbid LIMIT ?", (limit,))]
 
-    def mb_save_artist(self, mbid: str, name: str, rels: list[dict], now: int) -> None:
+    def mb_save_artist(self, mbid: str, name: str, rels: list[dict], now: int, facts: dict | None = None) -> None:
+        """facts: musicbrainz.artist_facts (type, country, area, begin_year, end_year, genres, tags)."""
+        f = facts or {}
         with self.db:
             self.db.execute("DELETE FROM mb_artist_rels WHERE mbid = ?", (mbid,))
             for r in rels:
                 self.db.execute("INSERT INTO mb_artist_rels (mbid, role, other, other_name) VALUES (?, ?, ?, ?)",
                                 (mbid, r["role"], r["mbid"], r["name"]))
-            self.db.execute("INSERT OR REPLACE INTO mb_artists (mbid, name, asked) VALUES (?, ?, ?)", (mbid, name, now))
+            self.db.execute("INSERT OR REPLACE INTO mb_artists (mbid, name, asked, type, country, area, begin_year, end_year, "
+                            "genres, tags, profiled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (mbid, name, now, f.get("type"), f.get("country"), f.get("area"), f.get("begin_year"),
+                             f.get("end_year"), json.dumps(f.get("genres") or []), json.dumps(f.get("tags") or []), now))
 
     def mb_graph(self) -> dict:
         """What the artist graph reads: each (track artist, role, credited name, MBID) with its track count, and the
@@ -149,10 +159,36 @@ class MusicStore(Database):
             "GROUP BY t.artist, c.role, c.name, c.mbid")]
         rels = [dict(r) for r in self.db.execute(
             "SELECT r.mbid, a.name, r.role, r.other, r.other_name FROM mb_artist_rels r JOIN mb_artists a ON a.mbid = r.mbid")]
-        return {"credits": credits, "rels": rels}
+        artists = {r["mbid"]: {**dict(r), "genres": json.loads(r["genres"] or "[]"), "tags": json.loads(r["tags"] or "[]")}
+                   for r in self.db.execute("SELECT mbid, type, country, area, begin_year, end_year, genres, tags "
+                                            "FROM mb_artists WHERE profiled IS NOT NULL")}
+        return {"credits": credits, "rels": rels, "artists": artists}
 
     def mb_progress(self) -> dict:
         r = self.db.execute("SELECT COUNT(*), COUNT(recording) FROM mb_recordings").fetchone()
         total = self.db.execute("SELECT COUNT(*) FROM music_tracks WHERE artist <> ''").fetchone()[0]
         artists = self.db.execute("SELECT COUNT(*) FROM mb_artists").fetchone()[0]
         return {"asked": r[0], "found": r[1], "tracks": total, "artists": artists}
+
+    # ---- artist profiles (artist_profiles.py) -------------------------------------------------------------
+    def music_artist_plays(self) -> list[tuple[str, int]]:
+        """(track artist, plays), most played first: credited() turns these into main artists."""
+        return [tuple(r) for r in self.db.execute(
+            "SELECT t.artist, COUNT(*) AS n FROM music_plays p JOIN music_tracks t ON t.id = p.track_id "
+            "WHERE t.artist <> '' GROUP BY t.artist ORDER BY n DESC, t.artist")]
+
+    def profiles(self) -> dict[str, dict]:
+        """artist -> what Claude said: scenes, styles, decades (lists), country. An artist it didn't know has empty ones."""
+        return {r["artist"]: {"scenes": json.loads(r["scenes"] or "[]"), "styles": json.loads(r["styles"] or "[]"),
+                              "decades": json.loads(r["decades"] or "[]"), "country": r["country"]}
+                for r in self.db.execute("SELECT artist, scenes, styles, decades, country FROM artist_profiles")}
+
+    def profiles_save(self, rows: list[dict], model: str, now: int) -> None:
+        with self.db:
+            for r in rows:
+                self.db.execute("INSERT OR REPLACE INTO artist_profiles (artist, scenes, styles, decades, country, model, asked) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?)", (r["artist"], json.dumps(r["scenes"]), json.dumps(r["styles"]),
+                                                                json.dumps(r["decades"]), r["country"], model, now))
+
+    def profiles_clear(self) -> None:
+        self.db.execute("DELETE FROM artist_profiles")
