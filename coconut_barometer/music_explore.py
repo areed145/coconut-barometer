@@ -30,8 +30,10 @@ class NotFound(LookupError):
 class Whole:
     """The whole graph, indexed for the queries."""
 
-    def __init__(self, g: dict, built: float, seconds: float):
+    def __init__(self, g: dict, built: float, seconds: float, plays: list[tuple[str, int]] | None = None):
+        """plays: (main artist, played_at) of every play, for questions about when (music_ask.py)."""
         self.built, self.seconds = built, seconds
+        self.plays = plays or []
         self.nodes = {n["id"]: n for n in g["nodes"]}
         self.edges = {(e["a"], e["b"]): e for e in g["edges"]}
         self.clusters = g["clusters"]
@@ -150,7 +152,11 @@ class Explorer:
         with self._lock:
             if self._whole is None or key != self._key:
                 started = time.perf_counter()
-                g = G.build(store.music_graph_plays(), limit=None, mb=store.mb_graph(), profiles=store.profiles(),
-                            now=self.clock(), min_plays=MIN_PLAYS)
-                self._whole, self._key = Whole(g, self.clock(), time.perf_counter() - started), key
+                rows = store.music_graph_plays()
+                g = G.build(rows, limit=None, mb=store.mb_graph(), profiles=store.profiles(), now=self.clock(),
+                            min_plays=MIN_PLAYS)
+                known = {r["artist"] for r in rows}
+                main = {a: G.credited(a, "", known)[0] for a in known}
+                plays = [(main[r["artist"]], r["played_at"]) for r in rows]
+                self._whole, self._key = Whole(g, self.clock(), time.perf_counter() - started, plays), key
             return self._whole

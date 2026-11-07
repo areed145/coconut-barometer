@@ -1,6 +1,7 @@
 // Music → Explore (#/music/explore, music_explore.py, issue #204): the whole artist graph, a piece at a time. Start
 // from an artist, a scene, a genre, a decade or a country; show an artist's neighbours to grow the map; ask how two
-// artists connect. Each answer joins what's shown, with its links to it, and the network moves to make room.
+// artists connect; or ask a question (music_ask.py), whose answer lights up the artists and links behind it. Each
+// answer joins what's shown, with its links to it, and the network moves to make room.
 import { html, useState, useEffect, useMemo, useRef, api, num, toast } from "./lib.js";
 import { Network, Detail, KINDS, pairKey, why } from "./music_graph.js";
 
@@ -41,6 +42,9 @@ export function Explorer({ start }) {
   const [value, setValue] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState(null);
+  const [asking, setAsking] = useState(false);
   const shown = useRef(EMPTY);
   shown.current = map;
 
@@ -84,6 +88,21 @@ export function Explorer({ start }) {
     setPath(r); setSelected(null);
     setHighlight({ nodes: new Set(r.path), edges: new Set(r.steps.map((s) => pairKey(s.a, s.b))) });
   };
+  const askClaude = async (e) => {
+    e.preventDefault();
+    const q = question.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    const r = await ask("ask", { question: q });
+    setAsking(false);
+    if (!r) return;
+    setAnswer({ question: q, ...r });
+    setSelected(null); setPath(null);
+    if (r.artists.length) {
+      setHighlight({ nodes: new Set(r.artists), edges: new Set(r.links.map((l) => pairKey(l.a, l.b))) });
+      setFitOn(Date.now());
+    }
+  };
   const begin = (e) => {
     e.preventDefault();
     const v = value.trim();
@@ -97,7 +116,7 @@ export function Explorer({ start }) {
     for (const [k, e] of edges) if (e.a === id || e.b === id) edges.delete(k);
     setMap({ nodes, edges }); setSelected(null);
   };
-  const clear = () => { setMap(EMPTY); setSelected(null); setHighlight(null); setPath(null); };
+  const clear = () => { setMap(EMPTY); setSelected(null); setHighlight(null); setPath(null); setAnswer(null); };
   useEffect(() => { if (start && facets) expand(start); }, [start, !!facets]);
 
   // What the network draws: the clusters present, numbered from 0 so their colors spread.
@@ -129,16 +148,25 @@ export function Explorer({ start }) {
       <datalist id="explore-options">${options[kind].map((o) => html`<option key=${o} value=${o} />`)}</datalist>
       <button class="primary" disabled=${busy}>Add</button></form>
     ${map.nodes.size > 0 && html`<button onClick=${clear}>Start over</button>`}</div>`;
+  const askCard = html`<div class="card"><h2>Ask about your listening</h2>
+    ${facets.can_ask ? html`<form class="netstart" onSubmit=${askClaude}>
+        <input type="search" class="netask" aria-label="Question" maxlength="500" placeholder="What connects my bluegrass and my jazz?"
+          value=${question} onInput=${(e) => setQuestion(e.target.value)} />
+        <button class="primary" disabled=${asking || busy}>${asking ? "Asking Claude…" : "Ask"}</button></form>
+      ${answer && html`<div class="netanswer"><p class="muted small">${answer.question}</p><p>${answer.text}</p>
+        ${answer.artists.length > 0 && html`<p class="small"><span class="netchips">${answer.artists.map((a) =>
+          html`<button key=${a} class="chip" onClick=${() => go(a)}>${a}</button>`)}</span></p>`}</div>`}`
+      : html`<p class="muted small">Add the Anthropic key in <a href="#/settings/vision">Settings → Vision</a> to ask questions about your listening.</p>`}</div>`;
   const detailExtra = selected && map.nodes.has(selected) && html`<p class="small netactions">
     <button class="link" disabled=${busy} onClick=${() => expand(selected)}>Show neighbours</button>
     <button class="link" disabled=${busy} onClick=${() => expand(selected, 2)}>Two steps out</button>
     <button class="link" onClick=${() => { setFrom(selected); toast("Now pick who to connect to, below"); }}>Connect from here</button>
     <button class="link" onClick=${() => remove(selected)}>Remove</button></p>`;
-  return html`${toolbar}
+  return html`${toolbar}${askCard}
     ${map.nodes.size === 0 ? html`<${Start} facets=${facets} onArtist=${expand} onFilter=${filter} />` : html`
     <div class="card"><h2>Explore</h2>
       <p class="muted small">${num(map.nodes.size)} of ${num(facets.artists.length)} artists shown. Click an artist for its connections and to show its neighbours.
-        ${highlight && html` <button class="link" onClick=${() => { setHighlight(null); setPath(null); }}>Clear highlight</button>`}</p>
+        ${highlight && html` <button class="link" onClick=${() => { setHighlight(null); setPath(null); setAnswer(null); }}>Clear highlight</button>`}</p>
       <div class="netkinds">${Object.entries(KINDS).map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
           ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>
       <${Network} graph=${graph} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${null} focusOn=${focusOn} highlight=${highlight} fitOn=${fitOn} />

@@ -25,7 +25,9 @@ from .. import assets
 from ... import activity
 from ... import apple_music as M
 from ... import local
+from ... import music_ask as Q
 from ... import music_explore as X
+from ...artist_profiles import can_ask
 from ... import music_graph as G
 from ... import settings as S
 from ..deps import runtime, session, store, viewer
@@ -141,7 +143,7 @@ def _explore(fn):
 
 @router.get("/explore/facets", dependencies=[Depends(session)])
 def explore_facets(rt=Depends(runtime), db=Depends(store)):
-    return rt.explorer.whole(db).facets()
+    return {**rt.explorer.whole(db).facets(), "can_ask": can_ask(rt.cfg)}
 
 
 @router.post("/explore/neighbourhood", dependencies=[Depends(session)])
@@ -155,6 +157,25 @@ def explore_filter(body: Matching, rt=Depends(runtime), db=Depends(store)):
         raise HTTPException(400, "pick a scene, genre, decade or country")
     return rt.explorer.whole(db).filter(body.size, body.have, scene=body.scene, genre=body.genre, decade=body.decade,
                                         country=body.country)
+
+
+class Question(Have):
+    question: str = Field(min_length=1, max_length=Q.MAX_QUESTION)
+
+
+@router.post("/explore/ask", dependencies=[Depends(session)])
+def explore_ask(body: Question, rt=Depends(runtime), db=Depends(store)):
+    """Ask Claude about your listening (music_ask.py): its answer, and the piece of the graph to light up."""
+    import anthropic
+
+    whole = rt.explorer.whole(db)
+    try:
+        got = Q.ask(rt.cfg, whole, body.question)
+    except Q.AskError as e:
+        raise HTTPException(409, str(e))
+    except anthropic.APIError as e:
+        raise HTTPException(502, f"Claude didn't answer: {type(e).__name__}")
+    return {**got, **whole.piece(got["artists"], body.have)}
 
 
 @router.post("/explore/path", dependencies=[Depends(session)])
