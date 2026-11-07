@@ -33,19 +33,19 @@ class Credits(unittest.TestCase):
 class Build(unittest.TestCase):
     def rows(self):
         out = []
-        for n in range(4):                           # A, B, C play together; X, Y, Z play together; never across
-            out += session(1000 + n * 10000, "A", "B", "C", "A")
-            out += session(500000 + n * 10000, "X", "Y", "Z", "X")
-        out += [play(900000, "A", "Hit (feat. X)"), play(1_000_000, "M", composer="A")]
-        out += session(2_000_000, "B", "M", "Y", "B", "M", "Y", "B", "M", "Y")     # M bridges both worlds
-        return sorted(out, key=lambda r: r["played_at"])
+        for n in range(4):                           # A, B, C work together; X, Y, Z work together; once across
+            out += session(1000 + n * 10000, "A", "B", "C")
+            out += session(500000 + n * 10000, "X", "Y", "Z")
+        for a, b in (("A", "B"), ("B", "C"), ("C", "A"), ("X", "Y"), ("Y", "Z"), ("Z", "X"), ("A", "X")):
+            out.append(play(800000 + len(out), a, f"Hit (feat. {b})"))
+        out += [play(1_000_000, "M", "One (with B)"), play(1_000_100, "M", "Two (with Y)"), play(1_000_200, "M", composer="A")]
+        return sorted(out, key=lambda r: r["played_at"])           # M bridges both worlds
 
     def test_edges_and_clusters(self):
         g = G.build(self.rows())
         by = {(e["a"], e["b"]): e for e in g["edges"]}
-        self.assertIn("colisten", by[("A", "B")]["kinds"])
         self.assertEqual(by[("A", "X")]["kinds"]["collab"], 1)
-        self.assertIn("credit", by[("A", "M")]["kinds"]) if ("A", "M") in by else None
+        self.assertIn("credit", by[("A", "M")]["kinds"])
         group = {n["id"]: n["cluster"] for n in g["nodes"]}
         self.assertEqual(group["A"], group["B"])
         self.assertEqual(group["X"], group["Y"])
@@ -54,8 +54,8 @@ class Build(unittest.TestCase):
         g = G.build(self.rows())
         self.assertIn("M", [b["id"] for b in g["bridges"]])
 
-    def test_unconnected_sessions_are_not_linked(self):
-        g = G.build(session(0, "A", "B") + session(100000, "C", "D"))
+    def test_playing_back_to_back_links_nothing(self):
+        g = G.build([r for n in range(10) for r in session(n * 1000, "A", "B", "C")])
         self.assertEqual(g["edges"], [])
 
     def test_similar_links_and_labels(self):

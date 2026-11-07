@@ -7,13 +7,12 @@ import { html, useState, useEffect, useRef, useMemo, api, num, toast, every, use
 import { Range } from "./viz.js";
 
 const KINDS = {
-  colisten: { label: "Played together", dash: [], width: 1 },
   collab: { label: "Collaborations", dash: [], width: 3 },
   musicbrainz: { label: "MusicBrainz credits", dash: [], width: 2, color: "--chart-3" },
   credit: { label: "Composers", dash: [7, 4], width: 1.5 },
   similar: { label: "AI: similar", dash: [2, 4], width: 1.5, color: "--accent" },
 };
-const DRAW_ORDER = ["collab", "musicbrainz", "credit", "colisten", "similar"];   // a link is drawn as its first kind shown
+const DRAW_ORDER = ["collab", "musicbrainz", "credit", "similar"];   // a link is drawn as its first kind shown
 const SIZES = [50, 100, 150, 200];
 const ALL = 3650;
 const hue = (c, n) => Math.round((c * 360) / Math.max(n, 5) + 20) % 360;
@@ -274,7 +273,7 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
   </div>`;
 }
 
-const why = (k, v) => k === "colisten" ? `played together ${v}×` : k === "collab" ? `${v} shared track${v > 1 ? "s" : ""}`
+const why = (k, v) => k === "collab" ? `${v} shared track${v > 1 ? "s" : ""}`
   : k === "credit" ? (typeof v === "number" ? `wrote ${v} track${v > 1 ? "s" : ""} for` : `composer ${v}`)
   : k === "musicbrainz" ? v || "MusicBrainz" : v || "similar";
 
@@ -306,7 +305,7 @@ export function ArtistNetwork({ focus }) {
   const [limit, setLimit] = useState(100);
   const [g, setG] = useState(null);
   const [error, setError] = useState(null);
-  const [kinds, setKinds] = useState({ colisten: true, collab: true, musicbrainz: true, credit: true, similar: true });
+  const [kinds, setKinds] = useState({ collab: true, musicbrainz: true, credit: true, similar: true });
   const [selected, setSelected] = useState(null);
   const [cluster, setCluster] = useState(null);
   const [focusOn, setFocusOn] = useState(null);
