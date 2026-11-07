@@ -993,6 +993,9 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .netpath { margin: var(--s2) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .netpath .step { padding-left: var(--s3); }
 .netpath li { padding: 2px 0; }
+.netstart input.netask { flex: 1 1 260px; max-width: none; }
+.netanswer { margin-top: var(--s2); }
+.netanswer p { margin: var(--s1) 0; }
 .netdetail ul, .netlist { margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .netdetail li, .netlist li { padding: 2px 0; }
 .netlist i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: var(--s2); }
