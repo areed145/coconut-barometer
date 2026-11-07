@@ -173,7 +173,8 @@ def _track(item: dict) -> dict:
             "album": a.get("albumName") or "", "genres": json.dumps([g for g in a.get("genreNames") or [] if g != "Music"]),
             "duration_ms": int(a.get("durationInMillis") or 0), "release_date": a.get("releaseDate"), "isrc": a.get("isrc"),
             "artwork": (a.get("artwork") or {}).get("url"), "url": a.get("url"),
-            "bg_color": (a.get("artwork") or {}).get("bgColor"), "text_color": (a.get("artwork") or {}).get("textColor1")}
+            "bg_color": (a.get("artwork") or {}).get("bgColor"), "text_color": (a.get("artwork") or {}).get("textColor1"),
+            "composer": a.get("composerName") or ""}
 
 
 class Music:

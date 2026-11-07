@@ -397,7 +397,7 @@ class CoversTest(unittest.TestCase):
     def test_the_upgrade_adds_colors_and_asks_about_every_track_again(self):
         self.store.db.execute("ALTER TABLE music_tracks DROP COLUMN bg_color")
         self.store.db.execute("ALTER TABLE music_tracks DROP COLUMN text_color")
-        self.store.db.execute("INSERT INTO music_tracks (id, name, enriched) VALUES ('123', 'S', 5)")
+        self.store.db.execute("INSERT INTO music_tracks (id, name, enriched, composer) VALUES ('123', 'S', 5, '')")
         self.store.set_meta("schema_version", 15)
         self.assertEqual(self.store.music_to_enrich(10), [])
         self.store.migrate()
