@@ -968,6 +968,13 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .wall button.mid { grid-column: span 2; grid-row: span 2; }
 .wall button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wall img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.netgraph { display: block; width: 100%; background: var(--surface-2); border-radius: var(--r-sm); touch-action: none; }
+.netkinds { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s2); font-size: var(--text-sm); }
+.netdetail { margin-top: var(--s2); }
+.netdetail ul, .netlist { margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.netdetail li, .netlist li { padding: 2px 0; }
+.netlist i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: var(--s2); }
+.netlist button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; font-weight: 600; }
 .palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: var(--s3); }
 .palette { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 2px var(--s2); align-items: center; font-size: var(--text-sm); }
 .palette img { grid-row: span 3; width: 56px; height: 56px; border-radius: var(--r-sm); object-fit: cover; background: var(--surface-2); }

@@ -24,7 +24,9 @@ from pydantic import BaseModel, Field
 from .. import assets
 from ... import apple_music as M
 from ... import local
+from ... import music_graph as G
 from ... import settings as S
+from ...errors import expected
 from ..deps import runtime, session, store
 from .admin import _confirm_password
 
@@ -63,6 +65,25 @@ class Connect(BaseModel):
 @router.get("/analytics", dependencies=[Depends(session)])
 def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), rt=Depends(runtime), db=Depends(store)):
     return rt.music.report(db, days, tz)
+
+
+@router.get("/graph", dependencies=[Depends(session)])
+def graph(days: int = Query(M.ALL, ge=1, le=M.ALL), rt=Depends(runtime), db=Depends(store)):
+    """The artist network (music_graph.py), with what Claude said about it if it's been asked."""
+    return {**G.report(db, days), "can_ask": G.can_ask(rt.cfg)}
+
+
+@router.post("/graph/ask", dependencies=[Depends(session)])
+def graph_ask(days: int = Query(M.ALL, ge=1, le=M.ALL), rt=Depends(runtime), db=Depends(store)):
+    """Ask Claude which artists are related, and to name the clusters: a few thousand tokens, so on request."""
+    try:
+        return {**G.ask_similar(rt.cfg, db, days), "can_ask": True}
+    except G.GraphError as e:
+        raise HTTPException(409, str(e))
+    except Exception as e:
+        if not expected(e):
+            raise
+        raise HTTPException(502, f"Claude didn't answer: {type(e).__name__}")
 
 
 @router.get("/state", dependencies=[Depends(session)])
