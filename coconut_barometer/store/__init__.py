@@ -51,6 +51,8 @@ Tables
   site_hits        each page view of this site (no IPs: a visitor is a hash salted per day), for visitors.keep_days
   site_days        each day's visitors and page views, once its site_hits are pruned
   music_tracks     each Apple Music track seen; music_plays: each play found, with its estimated time (apple_music.py)
+  mb_recordings    each track looked up on MusicBrainz (found or not); mb_credits: who its recording credits;
+                   mb_artists, mb_artist_rels: the matched artists' bands and collaborations (musicbrainz.py)
   meta             key/values: schema_version, nsid, last_sync, licenses
 """
 from __future__ import annotations

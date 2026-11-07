@@ -4,6 +4,10 @@ Edges, each a different reason two artists are linked:
   colisten   played back to back (a session), counted from the play order
   collab     named together: "A feat. B", "(with B)" in a song's title, or "A & B" when both are artists on their own
   credit     a composer in Apple's catalog who is also an artist you play, or who wrote for several of them
+  musicbrainz  recording credits and band memberships from MusicBrainz (musicbrainz.py): one artist produced, wrote for,
+             played on or featured on another's tracks, or is in their band; or two share a producer, writer, player or
+             member. Artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when
+             exactly one drawn artist has it
   similar    Claude's judgement, from the Anthropic connection Vision uses. Asked on request (ask_similar), kept in
              the database, and the graph is complete without it
 
@@ -23,7 +27,10 @@ SESSION_GAP = 15 * 60            # seconds between two plays that are still one 
 MIN_COLISTEN = 3                 # fewer back-to-back plays than this is chance
 MIN_COLISTEN_SCORE = 0.04        # and of the plays the two share out between them
 CREDIT_MAX_ARTISTS = 8           # a composer behind more artists than this ("Traditional") says nothing
-WEIGHTS = {"colisten": 1.0, "collab": 1.0, "credit": 0.6, "similar": 0.8}
+WEIGHTS = {"colisten": 1.0, "collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "similar": 0.8}
+MB_VERBS = {"featured": "featured on", "producer": "produced", "performer": "played on", "writer": "wrote for",
+            "remixer": "remixed", "arranger": "arranged for"}
+MAX_NODES = 200
 GENERIC_CREDITS = {"traditional", "public domain", "various", "various artists", "unknown", "anonymous"}
 META_SIMILAR, META_LABELS = "music_graph_similar", "music_graph_labels"
 
@@ -65,7 +72,7 @@ def _pair(a: str, b: str) -> tuple[str, str]:
 
 
 def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | None = None,
-          limit: int = NODES) -> dict:
+          limit: int = NODES, mb: dict | None = None) -> dict:
     """rows: music_graph_plays, in play order (artist, genres, composer, played_at, name, ms)."""
     known = {r["artist"] for r in rows}
     plays: Counter = Counter()
@@ -115,6 +122,8 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
             for i, a in enumerate(names):
                 for b in names[i + 1:]:
                     link(a, b, "credit", 1.0, composer)
+    for (a, b), (strength, said) in musicbrainz_links(mb or {}, keep, known).items():
+        link(a, b, "musicbrainz", strength, " · ".join(said[:3]))
     for s in similar or []:
         link(s["a"], s["b"], "similar", 1.0, s.get("why") or "")
     weight = {pair: e["weight"] for pair, e in edges.items()}
@@ -133,6 +142,63 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
             "clusters": [{"id": cid, "label": names[cid], "size": len(people), "members": people[:12],
                           "key": member_key(people)} for cid, people in sorted(members.items())],
             "bridges": bridges(nodes, weight, group, plays, names), "total_artists": len(plays)}
+
+
+def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> dict:
+    """(a, b) -> (strength, what MusicBrainz says links them, the most tracks first), between drawn artists only."""
+    from .musicbrainz import norm
+
+    by_name: dict = defaultdict(set)
+    for a in keep:
+        by_name[norm(a)].add(a)
+    votes: dict = defaultdict(Counter)                   # an MBID -> the drawn artist whose own tracks credit it first
+    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    for c in rows:
+        if c["role"] == "artist" and c["main"] in keep and norm(c["name"]) == norm(c["main"]):
+            votes[c["mbid"]][c["main"]] += c["tracks"]
+    node_of = {mbid: v.most_common(1)[0][0] for mbid, v in votes.items()}
+    has_id = defaultdict(set)
+    for mbid, a in node_of.items():
+        has_id[a].add(mbid)
+
+    def node(mbid, name):
+        if mbid in node_of:
+            return node_of[mbid]
+        hit = by_name.get(norm(name)) or set()
+        if len(hit) != 1:
+            return None
+        a = next(iter(hit))
+        return None if has_id[a] else a                  # same name, another MusicBrainz artist: someone else
+
+    said: dict = defaultdict(Counter)                    # pair -> phrase -> tracks
+    shared: dict = defaultdict(lambda: defaultdict(Counter))   # (mbid, name) not drawn -> drawn artist -> role -> tracks
+    for c in rows:
+        if c["role"] == "artist" or c["main"] not in keep:
+            continue
+        other = node(c["mbid"], c["name"])
+        if other and other != c["main"]:
+            said[_pair(c["main"], other)][f"{other} {MB_VERBS.get(c['role'], c['role'])} {c['main']}"] += c["tracks"]
+        elif not other:
+            shared[(c["mbid"], c["name"])][c["main"]][c["role"]] += c["tracks"]
+    for r in mb.get("rels") or []:
+        a, b = node(r["mbid"], r["name"]), node(r["other"], r["other_name"])
+        if a and b and a != b:
+            phrase = f"{a} is in {b}" if r["role"] == "in band" else f"{b} is in {a}" if r["role"] == "band of" else f"{a} and {b} collaborated"
+            said[_pair(a, b)][phrase] += 1
+        elif a and not b and r["role"] != "collaboration":
+            shared[(r["other"], r["other_name"])][a]["member"] += 1
+    out = {pair: (1.0, [p for p, _ in n.most_common()]) for pair, n in said.items()}
+    for (mbid, name), by in shared.items():
+        if not 2 <= len(by) <= CREDIT_MAX_ARTISTS or name.lower() in GENERIC_CREDITS:
+            continue
+        names = sorted(by)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                roles = sorted(set(by[a]) | set(by[b]))
+                if _pair(a, b) not in out:
+                    out[_pair(a, b)] = (0.7, [])
+                out[_pair(a, b)][1].append(f"both credit {name} ({', '.join(roles)})")
+    return out
 
 
 def _genre_label(counters: list[Counter]) -> str:
@@ -205,14 +271,14 @@ def bridges(nodes, weight, group, plays, names, limit: int = 8) -> list[dict]:
     return sorted(out, key=lambda b: -b["score"])[:limit]
 
 
-def report(store, days: int, now: float | None = None, ai: bool = False) -> dict:
+def report(store, days: int, now: float | None = None, limit: int = NODES) -> dict:
     now = now if now is not None else dt.datetime.now(dt.timezone.utc).timestamp()
     rows = store.music_graph_plays()
     if days < 3650:
         rows = [r for r in rows if r["played_at"] >= now - days * 86400]
     similar = _load(store, META_SIMILAR, [])
     labels = _load(store, META_LABELS, {})
-    g = build(rows, similar=similar, labels=labels)
+    g = build(rows, similar=similar, labels=labels, limit=max(10, min(MAX_NODES, limit)), mb=store.mb_graph())
     g["ai"] = {"asked": bool(similar), "links": len([s for s in similar if s["a"] in {n["id"] for n in g["nodes"]}])}
     return g
 
@@ -254,10 +320,10 @@ LABEL_SCHEMA = {"type": "object", "required": ["labels"], "properties": {"labels
         "id": {"type": "string"}, "label": {"type": "string", "description": "2 to 4 words naming the shared sound or scene"}}}}}}
 
 
-def ask_similar(cfg: dict, store, days: int = 3650) -> dict:
+def ask_similar(cfg: dict, store, days: int = 3650, limit: int = NODES) -> dict:
     """Claude links the artists that sound alike or share a scene, era or lineage, then names the clusters those links
     (and the rest) make. Only names from the list are kept. Kept in the database; returns the new graph."""
-    first = report(store, days)
+    first = report(store, days, limit=limit)
     names = [n["id"] for n in first["nodes"]]
     if len(names) < 3:
         raise GraphError("not enough artists yet")
@@ -274,7 +340,7 @@ def ask_similar(cfg: dict, store, days: int = 3650) -> dict:
         if a in valid and b in valid and a != b:
             seen[_pair(a, b)] = {"a": a, "b": b, "why": str(s.get("why") or "")[:100]}
     store.set_meta(META_SIMILAR, json.dumps(list(seen.values())))
-    g = report(store, days)
+    g = report(store, days, limit=limit)
     labels = _load(store, META_LABELS, {})
     groups = "\n".join(f"{c['key']}: {', '.join(c['members'])}" for c in g["clusters"] if c["size"] >= 2)
     if groups:
@@ -284,4 +350,4 @@ def ask_similar(cfg: dict, store, days: int = 3650) -> dict:
         ids = {c["key"] for c in g["clusters"]}
         labels.update({x["id"]: str(x["label"])[:40] for x in named.get("labels", []) if x.get("id") in ids})
         store.set_meta(META_LABELS, json.dumps(labels))
-    return report(store, days)
+    return report(store, days, limit=limit)

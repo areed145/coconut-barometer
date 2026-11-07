@@ -968,7 +968,15 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .wall button.mid { grid-column: span 2; grid-row: span 2; }
 .wall button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wall img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.netgraph { display: block; width: 100%; background: var(--surface-2); border-radius: var(--r-sm); touch-action: none; }
+.netbox { position: relative; }
+.netgraph { display: block; width: 100%; background: var(--surface-2); border-radius: var(--r-sm); touch-action: none; cursor: grab; }
+.netgraph:active { cursor: grabbing; }
+.nettip { position: absolute; pointer-events: none; padding: 4px var(--s2); background: var(--surface); color: var(--fg); border: 1px solid var(--line);
+  border-radius: var(--r-sm); font-size: var(--text-sm); white-space: nowrap; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); }
+.netzoom { position: absolute; top: var(--s2); right: var(--s2); display: flex; gap: var(--s1); }
+.netzoom button { min-width: 2.2em; background: var(--surface); }
+.netsearch { flex: 1 1 200px; max-width: 320px; display: flex; }
+.netsearch input { flex: 1; }
 .netkinds { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s2); font-size: var(--text-sm); }
 .netdetail { margin-top: var(--s2); }
 .netdetail ul, .netlist { margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }

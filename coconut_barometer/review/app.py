@@ -19,6 +19,7 @@ from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
 from ..errors import caught
 from ..flickr_client import FlickrCallError
+from ..musicbrainz import CALLS_PER_SECOND as MB_CALLS_PER_SECOND
 from ..planner import photo_page
 from ..util import norm_tag
 
@@ -28,11 +29,12 @@ STATUSES = ("new", "pending", "applying")
 
 
 JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "undo": "undo an apply", "sync": "Flickr sync",
-             "wx": "WeatherFlow sync", "replan": "re-plan review", "music": "Apple Music read"}
+             "wx": "WeatherFlow sync", "replan": "re-plan review", "music": "Apple Music read",
+             "musicbrainz": "MusicBrainz lookup"}
 logger = logging.getLogger(__name__)
 PHOTO_NOT_FOUND = 1      # flickr.photos.getInfo's "Photo not found" (other methods number their errors their own way)
-PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan", "music"
-OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music": "Apple Music"}
+PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan", "music", "musicbrainz"
+OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music": "Apple Music", "musicbrainz": "MusicBrainz"}
 
 
 class JobQueue(queue.Queue):
@@ -97,6 +99,7 @@ class ReviewApp:
         self.jobs = JobQueue()   # ("apply"|"process", photo_id) or ("sync", mode); what you ask for by hand goes first
         self.syncing = False
         self.music = None                               # the web app's Music, for ("music", "") jobs
+        self.musicbrainz = None                         # the web app's MusicBrainz, for ("musicbrainz", "") jobs
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
@@ -167,6 +170,15 @@ class ReviewApp:
         if (self.running or {}).get("kind") == "music" or any(kind == "music" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put_front(("music", ""))
+        return {"status": "queued"}
+
+    def musicbrainz_lookup(self) -> dict:
+        """Queue a batch of MusicBrainz lookups at the back of the line: it's filling in, never urgent. One at a time."""
+        if self.musicbrainz is None or not self.musicbrainz.ready():
+            return {"status": "not_ready"}
+        if (self.running or {}).get("kind") == "musicbrainz" or any(kind == "musicbrainz" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        self.jobs.put(("musicbrainz", ""))
         return {"status": "queued"}
 
     def summary(self) -> dict:
@@ -502,6 +514,7 @@ class ReviewApp:
         wx = self.weather.client if self.weather else None
         cfg = self.cfg or {}
         limiter = getattr(self.client, "limiter", None)
+        mb = self.musicbrainz
         return {
             "running": running, "waiting": len(waiting), "line": line, "by_kind": by_kind,
             "took": {k: round(v, 1) for k, v in took.items()}, "done_in": None if eta is None else round(eta),
@@ -513,6 +526,9 @@ class ReviewApp:
                                 "calls_per_second": WEATHERFLOW_CALLS_PER_SECOND},
                 "vision": {"model": cfg.get("vision", {}).get("model"), "provider": cfg.get("vision", {}).get("provider"),
                            "concurrency": VISION_CONCURRENCY, **self.vision_usage},
+                "musicbrainz": {"configured": bool(mb and mb.ready()), "calls": mb.calls if mb else 0,
+                                "calls_per_second": MB_CALLS_PER_SECOND,
+                                "next_slot": mb.limiter.next_free() if mb else None},
             },
             "recent": list(reversed(self.recent)),
         }
@@ -534,6 +550,8 @@ class ReviewApp:
                     out = self.weather.sync(store, log=self.log)
                 elif kind == "music":
                     out = self.music.run_once(store)
+                elif kind == "musicbrainz":
+                    out = self.musicbrainz.run_once(store)
                 elif kind == "undo":
                     out = self._undo(store, pid)
                 elif kind == "replan":
@@ -580,6 +598,8 @@ class ReviewApp:
             bits.append(f"{j['rows']} rows, {j['calls']} calls")
         if j["kind"] == "music" and j["rows"] is not None:
             bits.append(f"{j['rows']} new plays")
+        if j["kind"] == "musicbrainz" and j["rows"] is not None:
+            bits.append(f"{j['rows']} tracks, {j['calls']} calls")
         if j["input_tokens"]:
             bits.append(f"{j['input_tokens'] + j['output_tokens']} tokens")
         if j["error"]:

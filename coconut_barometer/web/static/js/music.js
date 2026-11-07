@@ -3,7 +3,6 @@
 import { html, useState, useEffect, useMemo, useRef, api, num, ago, toast } from "./lib.js";
 import { Chart } from "./chart.js";
 import { Kpi, Bars, Heatmap, Range } from "./viz.js";
-import { MusicGraph } from "./music_graph.js";
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -146,7 +145,6 @@ export function Music() {
     <div class="cols"><${Top} title="Top albums" rows=${d.albums} /><${Top} title="Genres" rows=${d.genres} covers=${false} /></div>
     <${Palettes} months=${d.palettes} />
     <div class="card"><h2>When you listen</h2><${Heatmap} cells=${d.heat} rows=${WEEK} cols=${HOURS} unit="plays" /></div>
-    <${MusicGraph} days=${days} />
     <${RainOrShine} days=${days} />
     <div class="card"><h2>Latest plays</h2>
       ${d.recent.length ? html`<div class="tablewrap"><table class="data"><thead><tr><th></th><th>Song</th><th>Artist</th><th>Album</th><th>About</th></tr></thead>

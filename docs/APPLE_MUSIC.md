@@ -59,6 +59,14 @@ Your server fetches each cover once and keeps its own copy in `music_art/` next 
 
 **Rain or shine** needs weather stations and at least 30 plays on rainy days, so it stays hidden until then.
 
+## Artist network and MusicBrainz credits
+
+**Music → Artist network** (`#/music/graph`) draws your most played artists and how they connect: played back to back, collaborations in titles, composers from Apple's catalog, and, if you ask, links Claude suggests. Pick the range and how many artists to draw (50 to 200). Scroll or pinch to zoom, drag the background to pan, drag an artist to pull it, click one for its connections, double-click to zoom to its neighbours, or type a name in **Find an artist**. Clicking a cluster or a hidden bridge zooms to it. Artists keep their places when you change the range, the number drawn or the link kinds shown, so you can watch the network reshape.
+
+For real credits (producers, writers, players, featured artists, band members), turn on **Look up credits on MusicBrainz** in **Settings → Music** and give a **Contact for MusicBrainz** (an email address or URL). MusicBrainz asks every app to name a contact, and it's sent with each request. Lookups don't start without one.
+
+Each track is looked up once: by its ISRC, else by title and main artist (kept only when the match is credited to that same artist), most played first. Then come the artists those tracks are credited to, for their bands and collaborations. The lookups run as **MusicBrainz lookup** jobs at the back of the Status page's job line, about a minute of requests each. Every request waits for one shared limit of one a second, which MusicBrainz requires, so a library of a few thousand tracks takes a few hours the first time. The graph page shows how far along they are and refreshes as they finish. Lookups are held in local mode.
+
 ## What to expect
 
 - **Hourly plays start after the first read.** That read only records where your list stands, because Apple doesn't say when those tracks were played.

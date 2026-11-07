@@ -3,7 +3,8 @@
   music_tracks   each track seen, as Apple described it then; enriched: when the catalog filled in an imported one
   music_plays    each play. source 'hourly': an estimated start, the read that found it and the read before (it began
                  after that). source 'export': from Apple's data export (apple_export.py), with the exact start, how
-                 long was heard, how it ended, and what it was played from"""
+                 long was heard, how it ended, and what it was played from
+  mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not"""
 from __future__ import annotations
 
 from .db import Database
@@ -81,7 +82,7 @@ class MusicStore(Database):
     def music_graph_plays(self) -> list[dict]:
         """Every play in order, with what the artist graph reads."""
         return [dict(r) for r in self.db.execute(
-            "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.artist, t.genres, t.composer FROM music_plays p "
+            "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, t.artist, t.genres, t.composer FROM music_plays p "
             "JOIN music_tracks t ON t.id = p.track_id WHERE t.artist <> '' ORDER BY p.played_at")]
 
     def music_artwork(self, track_id: str) -> str | None:
@@ -96,3 +97,55 @@ class MusicStore(Database):
 
     def music_play_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM music_plays").fetchone()[0]
+
+    # ---- MusicBrainz (musicbrainz.py) ---------------------------------------------------------------------
+    _MB_PLAYS = "LEFT JOIN (SELECT track_id, COUNT(*) AS n FROM music_plays GROUP BY track_id) p ON p.track_id = {}"
+
+    def mb_to_ask(self, limit: int) -> list[dict]:
+        """Tracks MusicBrainz hasn't been asked about, most played first. One Apple's catalog will still fill in (its
+        ISRC, from an imported track) waits for that."""
+        return [dict(r) for r in self.db.execute(
+            f"SELECT t.id, t.name, t.artist, t.isrc FROM music_tracks t {self._MB_PLAYS.format('t.id')} "
+            "WHERE t.artist <> '' AND t.id NOT IN (SELECT track_id FROM mb_recordings) "
+            "AND (t.isrc IS NOT NULL OR t.enriched IS NOT NULL OR NOT regexp_full_match(t.id, '[0-9]+')) "
+            "ORDER BY COALESCE(p.n, 0) DESC, t.id LIMIT ?", (limit,))]
+
+    def mb_save_track(self, track_id: str, recording: str | None, how: str, credits: list[dict], now: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM mb_credits WHERE track_id = ?", (track_id,))
+            for c in credits:
+                self.db.execute("INSERT INTO mb_credits (track_id, role, name, mbid) VALUES (?, ?, ?, ?)",
+                                (track_id, c["role"], c["name"], c["mbid"]))
+            self.db.execute("INSERT OR REPLACE INTO mb_recordings (track_id, recording, how, asked) VALUES (?, ?, ?, ?)",
+                            (track_id, recording, how, now))
+
+    def mb_artists_to_ask(self, limit: int) -> list[dict]:
+        """The artists your tracks are credited to (main or featured) not looked up yet, most played first."""
+        return [dict(r) for r in self.db.execute(
+            f"SELECT c.mbid, any_value(c.name) AS name FROM mb_credits c {self._MB_PLAYS.format('c.track_id')} "
+            "WHERE c.role IN ('artist', 'featured') AND c.mbid NOT IN (SELECT mbid FROM mb_artists) "
+            "GROUP BY c.mbid ORDER BY SUM(COALESCE(p.n, 0)) DESC, c.mbid LIMIT ?", (limit,))]
+
+    def mb_save_artist(self, mbid: str, name: str, rels: list[dict], now: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM mb_artist_rels WHERE mbid = ?", (mbid,))
+            for r in rels:
+                self.db.execute("INSERT INTO mb_artist_rels (mbid, role, other, other_name) VALUES (?, ?, ?, ?)",
+                                (mbid, r["role"], r["mbid"], r["name"]))
+            self.db.execute("INSERT OR REPLACE INTO mb_artists (mbid, name, asked) VALUES (?, ?, ?)", (mbid, name, now))
+
+    def mb_graph(self) -> dict:
+        """What the artist graph reads: each (track artist, role, credited name, MBID) with its track count, and the
+        artists' relations."""
+        credits = [dict(r) for r in self.db.execute(
+            "SELECT t.artist, c.role, c.name, c.mbid, COUNT(*) AS tracks FROM mb_credits c JOIN music_tracks t ON t.id = c.track_id "
+            "GROUP BY t.artist, c.role, c.name, c.mbid")]
+        rels = [dict(r) for r in self.db.execute(
+            "SELECT r.mbid, a.name, r.role, r.other, r.other_name FROM mb_artist_rels r JOIN mb_artists a ON a.mbid = r.mbid")]
+        return {"credits": credits, "rels": rels}
+
+    def mb_progress(self) -> dict:
+        r = self.db.execute("SELECT COUNT(*), COUNT(recording) FROM mb_recordings").fetchone()
+        total = self.db.execute("SELECT COUNT(*) FROM music_tracks WHERE artist <> ''").fetchone()[0]
+        artists = self.db.execute("SELECT COUNT(*) FROM mb_artists").fetchone()[0]
+        return {"asked": r[0], "found": r[1], "tracks": total, "artists": artists}

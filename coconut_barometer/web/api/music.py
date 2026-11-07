@@ -67,17 +67,32 @@ def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_
     return rt.music.report(db, days, tz)
 
 
+def _graph_extras(rt, db) -> dict:
+    return {"can_ask": G.can_ask(rt.cfg), "musicbrainz": {**rt.musicbrainz.state(db), "local": local.on()}}
+
+
 @router.get("/graph", dependencies=[Depends(session)])
-def graph(days: int = Query(M.ALL, ge=1, le=M.ALL), rt=Depends(runtime), db=Depends(store)):
-    """The artist network (music_graph.py), with what Claude said about it if it's been asked."""
-    return {**G.report(db, days), "can_ask": G.can_ask(rt.cfg)}
+def graph(days: int = Query(M.ALL, ge=1, le=M.ALL), limit: int = Query(G.NODES, ge=10, le=G.MAX_NODES),
+          rt=Depends(runtime), db=Depends(store)):
+    """The artist network (music_graph.py, #/music/graph), with what Claude and MusicBrainz said about it."""
+    return {**G.report(db, days, limit=limit), **_graph_extras(rt, db)}
+
+
+@router.post("/graph/musicbrainz", dependencies=[Depends(session)])
+def graph_musicbrainz(rt=Depends(runtime)):
+    """A batch of MusicBrainz lookups now, as a job at the back of the line (they also queue themselves while any
+    track is left). Not in local mode."""
+    if local.on():
+        raise HTTPException(409, "lookups are held in local mode")
+    return rt.review.musicbrainz_lookup()
 
 
 @router.post("/graph/ask", dependencies=[Depends(session)])
-def graph_ask(days: int = Query(M.ALL, ge=1, le=M.ALL), rt=Depends(runtime), db=Depends(store)):
+def graph_ask(days: int = Query(M.ALL, ge=1, le=M.ALL), limit: int = Query(G.NODES, ge=10, le=G.MAX_NODES),
+              rt=Depends(runtime), db=Depends(store)):
     """Ask Claude which artists are related, and to name the clusters: a few thousand tokens, so on request."""
     try:
-        return {**G.ask_similar(rt.cfg, db, days), "can_ask": True}
+        return {**G.ask_similar(rt.cfg, db, days, limit), **_graph_extras(rt, db)}
     except G.GraphError as e:
         raise HTTPException(409, str(e))
     except Exception as e:
