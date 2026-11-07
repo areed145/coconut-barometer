@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Query
 from ... import activity, local
 from ...aprs.health import health
 from ...errors import reporter
+from ...memory import mb, watchdog
 from ..deps import runtime, session, store, viewer
 from . import weather as wx_api
 
@@ -290,6 +291,18 @@ def _error_reports(now) -> dict:
     return row("errors", "Error reports", "ok", f"{r['repo']} · {sent}", None, "#/settings/connections", r["last_at"])
 
 
+def _memory(now) -> dict:
+    """The process against its memory limit (memory.py, #197): amber from 80%, red from 90%."""
+    m = watchdog.status()
+    if not m["watched"] or m["rss"] is None:
+        return row("memory", "Memory", "off", "not watched here")
+    of = f" of {mb(m['limit'])} ({m['rss'] / m['limit']:.0%})" if m["limit"] else " (no limit found)"
+    state = f"{mb(m['rss'])}{of} · peak {mb(m['peak'])} {_ago(now, m['peak_at'])}"
+    level = {"soft": "warn", "hard": "bad"}.get(m["level"], "ok")
+    detail = f"reported to GitHub {_ago(now, m['reported_at'])}" if m["reported_at"] else None
+    return row("memory", "Memory", level, state, detail, None, m["peak_at"])
+
+
 @router.get("")
 def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     now = time.time()
@@ -299,7 +312,7 @@ def status(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     rows = [_weatherflow(rt, db, now), _aprs(rt, now), _igate(rt, db, now), _imagery(now), _radar(rt, now), _lightning(now), _fronts(now), _hazards(now)]
     if me is not None:
         rows += [_qc(rt, db, now), _cwop(rt, now), _flickr(rt, db, now), _vision(rt, now), _backups(rt, db, now),
-                 _visitors(rt, now), _music(rt, db, now), _error_reports(now)]
+                 _visitors(rt, now), _music(rt, db, now), _error_reports(now), _memory(now)]
     else:
         rows = [{**r, "detail": None, "href": None} for r in rows if r["id"] in PUBLIC and r["level"] != "off"]
     counted = [r["level"] for r in rows if r["level"] != "off"]
