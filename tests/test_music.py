@@ -327,6 +327,8 @@ class WebTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("https://js-cdn.music.apple.com", r.headers["content-security-policy"])
         self.assertEqual(r.headers["cross-origin-opener-policy"], "unsafe-none")
+        self.assertEqual(r.headers["referrer-policy"], "strict-origin")      # Apple's sign-in fails without it
+        self.assertEqual(self.c.get("/").headers["referrer-policy"], "same-origin")
         self.assertEqual(r.headers["cache-control"], "no-store")
         self.assertIn("frame-ancestors 'none'", r.headers["content-security-policy"])
         self.assertNotIn("PRIVATE KEY", r.text)
