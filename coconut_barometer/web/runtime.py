@@ -16,6 +16,7 @@ from ..memory import watchdog
 from ..alerts import CHECK_EVERY, Alerts
 from ..apple_music import Music
 from ..artist_profiles import ArtistProfiles
+from ..music_explore import Explorer
 from ..musicbrainz import MusicBrainz
 from ..errors import caught
 from ..review import ReviewApp
@@ -54,6 +55,7 @@ class Runtime:
         self.music = self.review.music = Music(cfg)   # Apple Music listening history
         self.musicbrainz = self.review.musicbrainz = MusicBrainz(cfg)   # its credits, for the artist graph (#192)
         self.profiles = self.review.profiles = ArtistProfiles(cfg)       # Claude's profiles, for the same
+        self.explorer = Explorer()                    # the whole artist graph, for #/music/explore (#204)
         self.vision_models = Models()                 # the vision provider's models, for Settings (#167)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)

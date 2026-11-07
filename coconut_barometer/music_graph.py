@@ -32,7 +32,7 @@ MB_VERBS = {"featured": "featured on", "producer": "produced", "performer": "pla
 MAX_NODES = 200
 GENERIC_CREDITS = {"traditional", "public domain", "various", "various artists", "unknown", "anonymous"}
 # Profile matches: how much each part counts, how close is close enough, and how many each artist keeps.
-PROFILE_PARTS = {"genre": 0.45, "scene": 0.30, "era": 0.15, "origin": 0.10}
+PROFILE_PARTS = {"genre": 0.45, "scene": 0.45, "era": 0.15, "origin": 0.10}   # a scene alone links: lineage spans eras
 PROFILE_MIN = 0.45               # the score a pair needs
 PROFILE_MIN_GENRE = 0.3          # and genres at least this alike, or a scene in common: years and places alone aren't
 PROFILE_PER_ARTIST = 4
@@ -73,10 +73,11 @@ def _pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a < b else (b, a)
 
 
-def build(rows: list[dict], limit: int = NODES, mb: dict | None = None, profiles: dict | None = None,
-          now: float | None = None) -> dict:
+def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, profiles: dict | None = None,
+          now: float | None = None, min_plays: int = 0) -> dict:
     """rows: music_graph_plays, in play order (artist, genres, composer, played_at, name, ms). mb: store.mb_graph().
-    profiles: store.profiles(), what Claude said about each artist."""
+    profiles: store.profiles(), what Claude said about each artist. limit: the most played drawn, or None for every
+    artist with over min_plays plays (the explorer's whole graph, music_explore.py)."""
     known = {r["artist"] for r in rows}
     plays: Counter = Counter()
     minutes: Counter = Counter()
@@ -94,7 +95,7 @@ def build(rows: list[dict], limit: int = NODES, mb: dict | None = None, profiles
             plays[o] += 0
         for c in composers(r.get("composer")):
             credit_artists[c][main] += 1
-    nodes = [a for a, n in plays.most_common(limit) if n > 0]
+    nodes = [a for a, n in plays.most_common(limit) if n > max(0, min_plays)]
     keep = set(nodes)
     edges: dict = defaultdict(lambda: {"kinds": {}, "weight": 0.0})
 
@@ -128,9 +129,13 @@ def build(rows: list[dict], limit: int = NODES, mb: dict | None = None, profiles
     for a in nodes:
         members[group[a]].append(a)
     names = {cid: cluster_label(people, profile, genres) for cid, people in members.items()}
+    degree: Counter = Counter()
+    for a, b in weight:
+        degree[a] += 1
+        degree[b] += 1
     out_nodes = [{"id": a, "plays": plays[a], "minutes": round(minutes[a]), "cluster": group[a],
                   "genre": genres[a].most_common(1)[0][0] if genres[a] else None,
-                  "degree": sum(1 for p in weight if a in p)} for a in nodes]
+                  "degree": degree[a], "profile": summary(profile[a])} for a in nodes]
     return {"nodes": out_nodes,
             "edges": [{"a": a, "b": b, "kinds": e["kinds"], "weight": round(e["weight"], 3)} for (a, b), e in sorted(edges.items())],
             "clusters": [{"id": cid, "label": names[cid], "size": len(people), "members": people[:12],
@@ -237,6 +242,13 @@ def artist_profiles(nodes: list[str], genres: dict, mb: dict, said: dict, known:
     return out
 
 
+def summary(p: dict) -> dict:
+    """An artist's profile as the page shows it: scenes, genres (the strongest first), years, place."""
+    return {"scenes": sorted(p["scenes"]), "genres": [g for g, _ in sorted(p["genres"].items(), key=lambda kv: (-kv[1], kv[0]))][:12],
+            "span": list(p["span"]) if p["span"] else None, "era": _decades(*p["span"]) if p["span"] else None,
+            "city": p["city"], "country": p["country"]}
+
+
 def _decades(lo: int, hi: int) -> str:
     a, b = lo // 10 * 10, hi // 10 * 10
     return f"{a}s" if a == b else f"{a}s–{str(b)[2:]}s" if a // 100 == b // 100 else f"{a}s–{b}s"
@@ -252,35 +264,41 @@ def profile_links(profile: dict) -> dict:
     idf = {label: 0.0 if k > max(2, COMMON_GENRE * n) else math.log(n / k) for label, k in df.items()}
     vec = {a: {label: w * idf[label] for label, w in profile[a]["genres"].items() if idf[label] > 0} for a in names}
     size = {a: math.sqrt(sum(w * w for w in vec[a].values())) for a in names}
+    # Only pairs sharing a genre that counts or a scene can link: with thousands of artists, every pair would be slow.
+    holders: dict = defaultdict(list)
+    for a in names:
+        for label in vec[a]:
+            holders[("genre", label)].append(a)
+        for scene in profile[a]["scenes"]:
+            holders[("scene", scene)].append(a)
+    pairs = {(x, y) for group in holders.values() for i, x in enumerate(group) for y in group[i + 1:]}
     found = []
-    for i, a in enumerate(names):
-        pa = profile[a]
-        for b in names[i + 1:]:
-            pb = profile[b]
-            shared = set(vec[a]) & set(vec[b])
-            genre = sum(vec[a][x] * vec[b][x] for x in shared) / (size[a] * size[b]) if shared else 0.0
-            scenes = sorted(pa["scenes"] & pb["scenes"])
-            if genre < PROFILE_MIN_GENRE and not scenes:
-                continue
-            era, overlap = 0.0, None
-            if pa["span"] and pb["span"]:
-                lo, hi = max(pa["span"][0], pb["span"][0]), min(pa["span"][1], pb["span"][1])
-                if hi >= lo:
-                    overlap = (lo, hi)
-                    era = min(1.0, (hi - lo + 1) / min(pa["span"][1] - pa["span"][0] + 1, pb["span"][1] - pb["span"][0] + 1))
-            place = ""
-            origin = 0.0
-            if pa["city"] and pa["city"] == pb["city"]:
-                origin, place = 1.0, pa["city"]
-            elif pa["country"] and pa["country"] == pb["country"]:
-                origin, place = SAME_COUNTRY, pa["country"]
-            score = (PROFILE_PARTS["genre"] * genre + PROFILE_PARTS["scene"] * bool(scenes)
-                     + PROFILE_PARTS["era"] * era + PROFILE_PARTS["origin"] * origin)
-            if score < PROFILE_MIN:
-                continue
-            top = sorted(shared, key=lambda x: -vec[a][x] * vec[b][x])[:2]
-            why = scenes[:2] + [x for x in top if x not in scenes] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
-            found.append((score, a, b, " · ".join(why)))
+    for a, b in sorted(pairs):
+        pa, pb = profile[a], profile[b]
+        shared = set(vec[a]) & set(vec[b])
+        genre = sum(vec[a][x] * vec[b][x] for x in shared) / (size[a] * size[b]) if shared else 0.0
+        scenes = sorted(pa["scenes"] & pb["scenes"])
+        if genre < PROFILE_MIN_GENRE and not scenes:
+            continue
+        era, overlap = 0.0, None
+        if pa["span"] and pb["span"]:
+            lo, hi = max(pa["span"][0], pb["span"][0]), min(pa["span"][1], pb["span"][1])
+            if hi >= lo:
+                overlap = (lo, hi)
+                era = min(1.0, (hi - lo + 1) / min(pa["span"][1] - pa["span"][0] + 1, pb["span"][1] - pb["span"][0] + 1))
+        place = ""
+        origin = 0.0
+        if pa["city"] and pa["city"] == pb["city"]:
+            origin, place = 1.0, pa["city"]
+        elif pa["country"] and pa["country"] == pb["country"]:
+            origin, place = SAME_COUNTRY, pa["country"]
+        score = (PROFILE_PARTS["genre"] * genre + PROFILE_PARTS["scene"] * bool(scenes)
+                 + PROFILE_PARTS["era"] * era + PROFILE_PARTS["origin"] * origin)
+        if score < PROFILE_MIN:
+            continue
+        top = sorted(shared, key=lambda x: -vec[a][x] * vec[b][x])[:2]
+        why = scenes[:2] + [x for x in top if x not in scenes] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
+        found.append((score, a, b, " · ".join(why)))
     kept: Counter = Counter()
     out = {}
     for score, a, b, why in sorted(found, key=lambda f: (-f[0], f[1], f[2])):

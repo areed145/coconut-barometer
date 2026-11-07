@@ -6,7 +6,7 @@
 import { html, useState, useEffect, useRef, useMemo, api, num, toast, every, useThemeTick } from "./lib.js";
 import { Range } from "./viz.js";
 
-const KINDS = {
+export const KINDS = {
   collab: { label: "Collaborations", dash: [], width: 3 },
   musicbrainz: { label: "MusicBrainz credits", dash: [], width: 2, color: "--chart-3" },
   credit: { label: "Composers", dash: [7, 4], width: 1.5 },
@@ -16,7 +16,8 @@ const DRAW_ORDER = ["collab", "musicbrainz", "credit", "profile"];   // a link i
 const SIZES = [50, 100, 150, 200];
 const ALL = 3650;
 const hue = (c, n) => Math.round((c * 360) / Math.max(n, 5) + 20) % 360;
-const color = (c, n) => `hsl(${hue(c, n)} 60% 52%)`;
+export const pairKey = (a, b) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+export const color = (c, n) => `hsl(${hue(c, n)} 60% 52%)`;
 const radius = (n, max) => 5 + 17 * Math.sqrt(n / max);
 const height = () => Math.round(Math.max(420, Math.min(window.innerHeight - 240, 860)));
 
@@ -80,7 +81,9 @@ function bounds(nodes) {
   return { x0, y0, x1, y1 };
 }
 
-function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
+// highlight: { nodes: Set, edges: Set of pairKey } to light up (a path, what a filter found), dimming the rest.
+// fitOn: a new value fits everything in view, once new artists have found their places.
+export function Network({ graph, kinds, selected, setSelected, cluster, focusOn, highlight, fitOn }) {
   const box = useRef(null), canvas = useRef(null), tip = useRef(null), s = useRef({}).current;
   const theme = useThemeTick();
   const [h, setH] = useState(height);
@@ -97,7 +100,7 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
         v.k += (g.k - v.k) * 0.18; v.x += (g.x - v.x) * 0.18; v.y += (g.y - v.y) * 0.18;
         if (Math.abs(g.k - v.k) < 0.002 && Math.abs(g.x - v.x) < 0.5 && Math.abs(g.y - v.y) < 0.5) { Object.assign(v, g); s.goal = null; }
       }
-      if (s.autofit && s.alpha < 0.5) { s.autofit = false; s.fit(); }
+      if (s.autofit && s.alpha < s.autofit) { s.autofit = 0; s.fit(); }   // autofit: fit once the forces cool to it
       s.dash = (t / 60) % 20;
       s.draw?.();
       if (s.alpha > 0.02 || s.goal || s.pinned || s.selected || s.autofit) s.frame = requestAnimationFrame(run);
@@ -137,7 +140,7 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
   useEffect(() => {
     const first = !s.sim;
     s.sim = rebuild(graph, s.sim, s.w, s.h);
-    s.autofit = first;
+    if (first) s.autofit = 0.5;
     s.wake(first ? 1 : 0.5);
   }, [graph]);
   useEffect(() => { s.kinds = kinds; s.wake(0.35); }, [kinds]);
@@ -152,6 +155,16 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
   useEffect(() => {                             // a cluster picked in the list: fit it
     if (cluster != null && s.sim) s.fit(s.sim.nodes.filter((n) => n.cluster === cluster));
   }, [cluster]);
+  useEffect(() => {                             // new artists joined: fit everything once they've settled
+    if (!fitOn || !s.sim) return;
+    s.autofit = 0.12;
+    s.wake(0.5);
+  }, [fitOn]);
+  useEffect(() => {                             // something lit up: fit it, once the new artists have found their places
+    s.highlight = highlight;
+    if (highlight && s.sim) setTimeout(() => s.fit(s.sim.nodes.filter((n) => highlight.nodes.has(n.id))), 400);
+    s.wake();
+  }, [highlight]);
 
   useEffect(() => {
     const el = canvas.current;
@@ -167,27 +180,28 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
       const near = new Set(focus ? [focus] : []);
       if (focus) for (const l of s.sim.links) if ((l.a === focus || l.b === focus) && Object.keys(l.kinds).some((x) => k[x])) { near.add(l.a); near.add(l.b); }
       const inCluster = (n) => s.cluster == null || n.cluster === s.cluster;
+      const hl = s.highlight, lit = (l) => !!hl && hl.edges.has(pairKey(l.a, l.b));
       for (const l of s.sim.links) {
-        const kind = DRAW_ORDER.find((x) => k[x] && x in l.kinds);
+        const kind = DRAW_ORDER.find((x) => k[x] && x in l.kinds) || (lit(l) && Object.keys(l.kinds)[0]);
         if (!kind) continue;
-        const mine = focus && (l.a === focus || l.b === focus), on = focus ? mine : inCluster(l.s) && inCluster(l.t);
-        const style = KINDS[kind], marching = mine && s.selected;
+        const mine = focus && (l.a === focus || l.b === focus), on = focus ? mine : hl ? lit(l) : inCluster(l.s) && inCluster(l.t);
+        const style = KINDS[kind], marching = mine && s.selected, strong = mine || (!focus && lit(l));
         ctx.setLineDash((marching && !style.dash.length ? [6, 4] : style.dash).map((d) => d / v.k));
         ctx.lineDashOffset = marching ? -s.dash / v.k : 0;
-        ctx.lineWidth = (style.width * (0.6 + Math.min(1.5, l.weight) * 0.5)) / Math.sqrt(v.k);
-        ctx.strokeStyle = style.color ? value(style.color, fg) : mine ? fg : line;
+        ctx.lineWidth = (style.width * (0.6 + Math.min(1.5, l.weight) * 0.5) * (!focus && lit(l) ? 1.8 : 1)) / Math.sqrt(v.k);
+        ctx.strokeStyle = style.color ? value(style.color, fg) : strong ? fg : line;
         ctx.globalAlpha = on ? (focus ? 0.95 : 0.7) : 0.08;
         ctx.beginPath(); ctx.moveTo(l.s.x, l.s.y); ctx.lineTo(l.t.x, l.t.y); ctx.stroke();
       }
       ctx.setLineDash([]); ctx.lineDashOffset = 0;
       ctx.font = `${12 / v.k}px 'DM Sans', sans-serif`; ctx.textAlign = "center";
       for (const n of s.sim.nodes) {
-        const on = focus ? near.has(n.id) : inCluster(n);
+        const on = focus ? near.has(n.id) : hl ? hl.nodes.has(n.id) : inCluster(n);
         ctx.globalAlpha = on ? 1 : 0.15;
         ctx.fillStyle = color(n.cluster, clusters);
         ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.283); ctx.fill();
         if (n.id === s.selected || n === s.hover) { ctx.strokeStyle = fg; ctx.lineWidth = 2 / v.k; ctx.stroke(); }
-        if (on && (n.r * v.k > 11 || n.id === s.selected || n === s.hover || (focus && near.has(n.id)) || (s.cluster != null && v.k > 1.2))) {
+        if (on && (n.r * v.k > 11 || n.id === s.selected || n === s.hover || (focus && near.has(n.id)) || (!focus && hl?.nodes.has(n.id)) || (s.cluster != null && v.k > 1.2))) {
           ctx.fillStyle = fg; ctx.fillText(n.id.length > 24 ? `${n.id.slice(0, 23)}…` : n.id, n.x, n.y + n.r + 13 / v.k);
         }
       }
@@ -273,11 +287,15 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
   </div>`;
 }
 
-const why = (k, v) => k === "collab" ? `${v} shared track${v > 1 ? "s" : ""}`
+export const why = (k, v) => k === "collab" ? `${v} shared track${v > 1 ? "s" : ""}`
   : k === "credit" ? (typeof v === "number" ? `wrote ${v} track${v > 1 ? "s" : ""} for` : `composer ${v}`)
   : k === "musicbrainz" ? v || "MusicBrainz" : v || "alike";
 
-function Detail({ graph, id, kinds, go }) {
+// An artist's profile in a line: scenes, years, place, genres.
+export const profileLine = (p) => p && [p.scenes.join(", "), p.era, [p.city, p.country].filter(Boolean).join(", "),
+  p.genres.slice(0, 3).join(", ")].filter(Boolean).join(" · ");
+
+export function Detail({ graph, id, kinds, go, extra }) {
   const node = graph.nodes.find((n) => n.id === id);
   const cluster = graph.clusters[node.cluster];
   const rows = graph.edges.filter((e) => (e.a === id || e.b === id) && Object.keys(e.kinds).some((k) => kinds[k]))
@@ -285,6 +303,8 @@ function Detail({ graph, id, kinds, go }) {
     .sort((a, b) => b.weight - a.weight);
   return html`<div class="netdetail"><h3>${id}</h3>
     <p class="muted small">${num(node.plays)} plays · ${num(node.minutes)} minutes${node.genre ? ` · ${node.genre}` : ""}${cluster ? ` · ${cluster.label}` : ""}</p>
+    ${profileLine(node.profile) && html`<p class="muted small">${profileLine(node.profile)}</p>`}
+    ${extra}
     ${rows.length ? html`<ul>${rows.map((r) => html`<li key=${r.other}><button class="link" onClick=${() => go(r.other)}>${r.other}</button>
         <span class="muted"> ${r.kinds.map(([k, v]) => why(k, v)).join(" · ")}</span></li>`)}</ul>`
       : html`<p class="muted small">No connections shown.</p>`}</div>`;
@@ -380,7 +400,8 @@ export function ArtistNetwork({ focus }) {
       <div class="netkinds">${shown.map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
           ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>
       <${Network} graph=${g} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${cluster} focusOn=${focusOn} />
-      ${selected && g.nodes.some((n) => n.id === selected) && html`<${Detail} graph=${g} id=${selected} kinds=${kinds} go=${go} />`}
+      ${selected && g.nodes.some((n) => n.id === selected) && html`<${Detail} graph=${g} id=${selected} kinds=${kinds} go=${go}
+        extra=${html`<p class="small"><a href=${`#/music/explore?artist=${encodeURIComponent(selected)}`}>Explore from here</a></p>`} />`}
       <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} />
       <${ProfilesNote} p=${g.profiles} onAsk=${ask} onReset=${reset} asking=${asking} /></div>
     <div class="cols"><div class="card"><h2>Clusters</h2><ul class="netlist">${g.clusters.filter((c) => c.size > 1).map((c) => html`<li key=${c.id}>

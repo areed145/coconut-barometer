@@ -985,6 +985,14 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .netsearch input { flex: 1; }
 .netkinds { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s2); font-size: var(--text-sm); }
 .netdetail { margin-top: var(--s2); }
+.netstart { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; flex: 1 1 320px; }
+.netstart input[type=search] { flex: 1 1 160px; max-width: 320px; }
+.netchips { display: inline-flex; flex-wrap: wrap; gap: var(--s1); vertical-align: middle; }
+.netchips .chip { cursor: pointer; font: inherit; }
+.netactions { display: flex; flex-wrap: wrap; gap: var(--s2); margin: var(--s1) 0; }
+.netpath { margin: var(--s2) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.netpath .step { padding-left: var(--s3); }
+.netpath li { padding: 2px 0; }
 .netdetail ul, .netlist { margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .netdetail li, .netlist li { padding: 2px 0; }
 .netlist i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: var(--s2); }

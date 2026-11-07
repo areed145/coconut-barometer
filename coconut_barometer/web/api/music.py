@@ -25,6 +25,7 @@ from .. import assets
 from ... import activity
 from ... import apple_music as M
 from ... import local
+from ... import music_explore as X
 from ... import music_graph as G
 from ... import settings as S
 from ..deps import runtime, session, store, viewer
@@ -103,6 +104,62 @@ def graph_profiles_clear(db=Depends(store)):
     """Start over: forget what Claude said about every artist (after changing models, say). They're asked again."""
     db.profiles_clear()
     return {"status": "cleared"}
+
+
+# ---- the explorer (music_explore.py, #/music/explore) ------------------------------------------------------
+# Reads, but POST: each says which artists the page already shows, which can be hundreds of names.
+
+class Have(BaseModel):
+    have: list[str] = Field(default_factory=list, max_length=X.MAX_HAVE)
+
+
+class Around(Have):
+    artist: str = Field(min_length=1, max_length=300)
+    depth: int = Field(1, ge=1, le=2)
+    size: int = Field(40, ge=1, le=X.MAX_PIECE)
+
+
+class Matching(Have):
+    scene: str | None = Field(None, max_length=100)
+    genre: str | None = Field(None, max_length=100)
+    decade: int | None = Field(None, ge=1900, le=2100)
+    country: str | None = Field(None, max_length=2)
+    size: int = Field(60, ge=1, le=X.MAX_PIECE)
+
+
+class Between(Have):
+    a: str = Field(min_length=1, max_length=300)
+    b: str = Field(min_length=1, max_length=300)
+
+
+def _explore(fn):
+    try:
+        return fn()
+    except X.NotFound as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/explore/facets", dependencies=[Depends(session)])
+def explore_facets(rt=Depends(runtime), db=Depends(store)):
+    return rt.explorer.whole(db).facets()
+
+
+@router.post("/explore/neighbourhood", dependencies=[Depends(session)])
+def explore_neighbourhood(body: Around, rt=Depends(runtime), db=Depends(store)):
+    return _explore(lambda: rt.explorer.whole(db).neighbourhood(body.artist, body.depth, body.size, body.have))
+
+
+@router.post("/explore/filter", dependencies=[Depends(session)])
+def explore_filter(body: Matching, rt=Depends(runtime), db=Depends(store)):
+    if not (body.scene or body.genre or body.decade or body.country):
+        raise HTTPException(400, "pick a scene, genre, decade or country")
+    return rt.explorer.whole(db).filter(body.size, body.have, scene=body.scene, genre=body.genre, decade=body.decade,
+                                        country=body.country)
+
+
+@router.post("/explore/path", dependencies=[Depends(session)])
+def explore_path(body: Between, rt=Depends(runtime), db=Depends(store)):
+    return _explore(lambda: rt.explorer.whole(db).path(body.a, body.b, body.have))
 
 
 @router.get("/state", dependencies=[Depends(session)])
