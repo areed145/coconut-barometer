@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from .. import assets
 from ... import apple_music as M
+from ... import local
 from ... import settings as S
 from ..deps import runtime, session, store
 from .admin import _confirm_password
@@ -45,7 +46,7 @@ PAGE = """<!doctype html>
 <p>Apple asks you to sign in and allow access, then this site reads what you've played.</p>
 <form id="connect"><input id="password" type="password" autocomplete="current-password" placeholder="Site password" required>
 <button id="go" class="primary" disabled>Connect Apple Music</button></form>
-<p id="note" class="why">Loading Apple's sign-in…</p><p><a href="/#/settings/connections">Back to Settings</a></p>
+<p id="note" class="why">Loading Apple's sign-in…</p><p><a href="/#/settings/music">Back to Settings</a></p>
 </div></main></body></html>"""
 
 
@@ -62,6 +63,14 @@ def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_
 @router.get("/state", dependencies=[Depends(session)])
 def state(rt=Depends(runtime), db=Depends(store)):
     return rt.music.state(db)
+
+
+@router.post("/sync", dependencies=[Depends(session)])
+def sync(rt=Depends(runtime)):
+    """A read now, as a job (Settings → Music). Not on a local copy: each read builds on the one before."""
+    if local.on():
+        raise HTTPException(409, "reads are held in local mode")
+    return rt.review.music_sync()
 
 
 @router.get("/connect", include_in_schema=False)

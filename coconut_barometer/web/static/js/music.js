@@ -15,11 +15,11 @@ function Top({ title, rows }) {
 }
 
 function Connection({ s, empty }) {
-  if (!s.keys_set || !s.connected) return html`<p class="problem">Apple Music isn't connected: <a href="#/settings/connections">Settings → Connections</a>.</p>`;
-  if (s.error) return html`<p class="problem">${s.error} <a href="#/settings/connections">${s.reconnect ? "Connect again" : "Settings"}</a></p>`;
+  if (!s.keys_set || !s.connected) return html`<p class="problem">Apple Music isn't connected: <a href="#/settings/music">Settings → Music</a>.</p>`;
+  if (s.error) return html`<p class="problem">${s.error} <a href="#/settings/music">${s.reconnect ? "Connect again" : "Settings"}</a></p>`;
   if (!s.started) return html`<p class="muted">Connected. The first read is within a minute or two.</p>`;
   if (empty) return html`<p class="muted">Connected. Apple doesn't say when the tracks already on its list were played, so counting starts with what you play from now on,
-    shown after the next read. Your earlier history can be added in <a href="#/settings/connections">Settings → Connections</a>.</p>`;
+    shown after the next read. Your earlier history can be added in <a href="#/settings/music">Settings → Music</a>.</p>`;
   return null;
 }
 

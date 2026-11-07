@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from fakes import FakeFlickr, FakeVision, CFG
 from coconut_barometer import apple_export as X
+from coconut_barometer import local
 from coconut_barometer import apple_music as M
 from coconut_barometer.config import from_dict
 from coconut_barometer.store import Store
@@ -221,7 +222,7 @@ class ReadsTest(unittest.TestCase):
         self.assertFalse(self.music.due(self.store, NOON + 3599))
         self.assertTrue(self.music.due(self.store, NOON + 3600))
         self.assertFalse(M.Music(cfg(user_token=None)).due(self.store, NOON + 3600))
-        self.music.run_once(self.store, NOON + 3600, get=answers(status=403))
+        self.assertEqual(self.music.run_once(self.store, NOON + 3600, get=answers(status=403))["status"], "failed")
         s = self.music.state(self.store)
         self.assertTrue(s["reconnect"])
         self.assertIn("connect again", s["error"])
@@ -407,6 +408,42 @@ class WebTest(unittest.TestCase):
         self.assertEqual(send(b"not a gzip", PASSWORD.replace(" ", "%20")).status_code, 400)
         self.assertEqual(send(body, PASSWORD.replace(" ", "%20")).json(), {"plays": 1})
         self.assertEqual([f for f in os.listdir(self.dir) if f.endswith(".csv.gz") and f != "out.csv.gz"], [])
+
+    def test_sync_now_is_a_job_next_in_line_and_only_one_waits(self):
+        self.login()
+        send = lambda: self.c.post("/api/music/sync", headers={"X-CSRF-Token": self.csrf}).json()
+        self.assertEqual(send(), {"status": "not_connected"})
+        self.rt.cfg["apple_music"]["user_token"] = "token"
+        self.rt.review.jobs.put(("sync", ""))
+        self.assertEqual(send(), {"status": "queued"})
+        self.assertEqual(send(), {"status": "busy"})
+        self.assertEqual(list(self.rt.review.jobs.queue)[0], ("music", ""))
+
+    def test_a_local_copy_doesnt_read(self):
+        self.login()
+        local.set_on(True)
+        self.addCleanup(local.set_on, False)
+        self.assertEqual(self.c.post("/api/music/sync", headers={"X-CSRF-Token": self.csrf}).status_code, 409)
+
+    def test_a_read_says_what_it_found_for_the_jobs_list(self):
+        store = self.rt.store()
+        self.rt.music.run_once(store, NOON, get=answers("a"))
+        self.assertEqual(self.rt.music.run_once(store, NOON + 60, get=answers("x", "a")), {"status": "done", "rows": 1})
+
+    def test_a_read_runs_on_the_worker_and_shows_as_a_job(self):
+        c = from_dict({**CFG, "database": os.path.join(self.dir, "w.duckdb"), "web": {"secure_cookies": False, "allowed_hosts": ["testserver"]}})
+        c["apple_music"].update(cfg()["apple_music"])
+        Store(c["database"]).close()
+        app = create_app(c, FakeFlickr(), lambda: FakeVision(), background=True, scheduler=False)
+        rt = app.state.runtime
+        original = M.fetch_recent
+        self.addCleanup(setattr, M, "fetch_recent", original)
+        M.fetch_recent = lambda *a, **k: [song("a")]
+        self.assertEqual(rt.review.music_sync(), {"status": "queued"})
+        rt.review.jobs.join()
+        job = rt.review.recent[-1]
+        self.assertEqual((job["kind"], job["status"], job["title"], job["rows"]), ("music", "done", "Apple Music", 0))
+        self.assertTrue(rt.music.state(rt.store())["started"])
 
     def test_the_analytics_answer(self):
         self.login()

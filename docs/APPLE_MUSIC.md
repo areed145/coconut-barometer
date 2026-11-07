@@ -13,7 +13,7 @@ Go to [Certificates, Identifiers & Profiles](https://developer.apple.com/account
 
 ## 2. Add them to the site
 
-In **Settings → Connections → Apple Music**, fill in:
+In **Settings → Music**, fill in:
 
 | Setting | What goes in it |
 | --- | --- |
@@ -25,11 +25,11 @@ The private key is stored encrypted, like the site's other API keys.
 
 ## 3. Connect your account
 
-1. Click **Connect Apple Music** at the top of **Settings → Connections**.
+1. Click **Connect Apple Music** at the top of **Settings → Music**.
 2. Enter your password for this site and click the button.
 3. Sign in with Apple in the popup and allow access.
 
-You land on the **Music** page. The first read comes within a minute or two.
+You land on the **Music** page. The first read comes within a minute or two, and **Sync now** in **Settings → Music** reads straight away at any time. Reads show under Jobs on the **Status** page.
 
 ## 4. Add your earlier history (optional)
 
@@ -44,7 +44,7 @@ coconut-barometer music-export \
   -o music-history.csv.gz
 ```
 
-Both files are in the export's `Apple Music Activity` folder. Then upload `music-history.csv.gz` under **Earlier history** in **Settings → Connections**.
+Both files are in the export's `Apple Music Activity` folder. Then upload `music-history.csv.gz` under **Earlier history** in **Settings → Music**.
 
 - **Artists are matched.** The main file has no artist, so each play takes one from the second file by day and hour, then by title alone. Plays with no match keep their song but don't count towards artists.
 - **Genres fill in by themselves.** Once your key is saved, the site looks tracks up in Apple's catalog, 300 a minute. That also replaces any artist matched by title with Apple's own.
@@ -61,6 +61,6 @@ Both files are in the export's `Apple Music Activity` folder. Then upload `music
 
 ## When it stops
 
-Apple ends the connection after a while (about six months, by Apple's older guidance, though some developers report less). The Status page then shows **needs connecting again**, and plays made while it's disconnected are lost once they drop off Apple's list. Click **Connect again** in Settings to fix it.
+Apple ends the connection after a while (about six months, by Apple's older guidance, though some developers report less). The Status page then shows **needs connecting again**, and plays made while it's disconnected are lost once they drop off Apple's list. Click **Connect again** in **Settings → Music** to fix it.
 
 If the key itself is revoked, make a new one (step 1), update the Key ID and private key, and connect again.

@@ -13,6 +13,7 @@ import time
 from collections import deque
 
 from .. import activity
+from ..apple_music import connected
 from ..apply import apply_changes, group_hold, outcomes, unfinished
 from ..changes import META_ACTIONS, TAG_ACTIONS, Change, split_tags
 from ..config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, VISION_CONCURRENCY, WEATHERFLOW_CALLS_PER_SECOND
@@ -27,11 +28,11 @@ STATUSES = ("new", "pending", "applying")
 
 
 JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "undo": "undo an apply", "sync": "Flickr sync",
-             "wx": "WeatherFlow sync", "replan": "re-plan review"}
+             "wx": "WeatherFlow sync", "replan": "re-plan review", "music": "Apple Music read"}
 logger = logging.getLogger(__name__)
 PHOTO_NOT_FOUND = 1      # flickr.photos.getInfo's "Photo not found" (other methods number their errors their own way)
-PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan"
-OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan"}
+PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan", "music"
+OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music": "Apple Music"}
 
 
 class JobQueue(queue.Queue):
@@ -95,6 +96,7 @@ class ReviewApp:
         self.process_kw = process_kw or {}
         self.jobs = JobQueue()   # ("apply"|"process", photo_id) or ("sync", mode); what you ask for by hand goes first
         self.syncing = False
+        self.music = None                               # the web app's Music, for ("music", "") jobs
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
@@ -156,6 +158,15 @@ class ReviewApp:
         if (self.running or {}).get("kind") == "wx" or any(kind == "wx" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("wx", ""))
+        return {"status": "queued"}
+
+    def music_sync(self) -> dict:
+        """Queue a read of Apple Music, next in line: it takes seconds, and a Flickr sync can take hours."""
+        if self.music is None or not connected(self.cfg):
+            return {"status": "not_connected"}
+        if (self.running or {}).get("kind") == "music" or any(kind == "music" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        self.jobs.put_front(("music", ""))
         return {"status": "queued"}
 
     def summary(self) -> dict:
@@ -521,6 +532,8 @@ class ReviewApp:
                     out = self._sync(store, pid or None)
                 elif kind == "wx":
                     out = self.weather.sync(store, log=self.log)
+                elif kind == "music":
+                    out = self.music.run_once(store)
                 elif kind == "undo":
                     out = self._undo(store, pid)
                 elif kind == "replan":
@@ -565,6 +578,8 @@ class ReviewApp:
             bits.append(f"{j['flickr_calls']} Flickr calls")
         if j["kind"] == "wx" and j["rows"] is not None:
             bits.append(f"{j['rows']} rows, {j['calls']} calls")
+        if j["kind"] == "music" and j["rows"] is not None:
+            bits.append(f"{j['rows']} new plays")
         if j["input_tokens"]:
             bits.append(f"{j['input_tokens'] + j['output_tokens']} tokens")
         if j["error"]:

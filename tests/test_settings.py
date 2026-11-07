@@ -220,7 +220,7 @@ class FakeModels:
     def test_settings_are_grouped_by_primary_area(self):
         payload = self.c.get("/api/admin/settings").json()
         section_ids = [s["id"] for s in payload["sections"]]
-        self.assertEqual(section_ids, ["connections", "photos", "weather", "aprs", "alerts", "display", "backup", "visitors", "web"])
+        self.assertEqual(section_ids, ["connections", "photos", "weather", "aprs", "music", "alerts", "display", "backup", "visitors", "web"])
         expected = {
             "flickr.api_key": ("connections", ""),
             "vision.api_key": ("connections", ""),
