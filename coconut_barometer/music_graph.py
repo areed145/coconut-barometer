@@ -1,7 +1,7 @@
 """The artist network on the Music page (#/music): who you listen to, and how they connect.
 
-Edges, each a different reason two artists are linked:
-  colisten   played back to back (a session), counted from the play order
+Edges, each a different reason two artists are linked (playing two artists back to back isn't one: it says more
+about a playlist or a shuffle than about the music):
   collab     named together: "A feat. B", "(with B)" in a song's title, or "A & B" when both are artists on their own
   credit     a composer in Apple's catalog who is also an artist you play, or who wrote for several of them
   musicbrainz  recording credits and band memberships from MusicBrainz (musicbrainz.py): one artist produced, wrote for,
@@ -18,16 +18,12 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import math
 import re
 from collections import Counter, defaultdict
 
 NODES = 100                      # the most played artists drawn
-SESSION_GAP = 15 * 60            # seconds between two plays that are still one sitting
-MIN_COLISTEN = 3                 # fewer back-to-back plays than this is chance
-MIN_COLISTEN_SCORE = 0.04        # and of the plays the two share out between them
 CREDIT_MAX_ARTISTS = 8           # a composer behind more artists than this ("Traditional") says nothing
-WEIGHTS = {"colisten": 1.0, "collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "similar": 0.8}
+WEIGHTS = {"collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "similar": 0.8}
 MB_VERBS = {"featured": "featured on", "producer": "produced", "performer": "played on", "writer": "wrote for",
             "remixer": "remixed", "arranger": "arranged for"}
 MAX_NODES = 200
@@ -79,9 +75,7 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
     minutes: Counter = Counter()
     genres: dict = defaultdict(Counter)
     collab: Counter = Counter()
-    colisten: Counter = Counter()
     credit_artists: dict = defaultdict(Counter)       # composer -> artist -> tracks
-    previous = None
     for r in rows:
         main, others = credited(r["artist"], r.get("name") or "", known)
         plays[main] += 1
@@ -93,9 +87,6 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
             plays[o] += 0
         for c in composers(r.get("composer")):
             credit_artists[c][main] += 1
-        if previous and previous[0] != main and r["played_at"] - previous[1] <= SESSION_GAP:
-            colisten[_pair(previous[0], main)] += 1
-        previous = (main, r["played_at"])
     nodes = [a for a, n in plays.most_common(limit) if n > 0]
     keep = set(nodes)
     edges: dict = defaultdict(lambda: {"kinds": {}, "weight": 0.0})
@@ -107,10 +98,6 @@ def build(rows: list[dict], similar: list[dict] | None = None, labels: dict | No
         e["kinds"][kind] = detail if detail is not None else round(strength, 3)
         e["weight"] += WEIGHTS[kind] * strength
 
-    for (a, b), n in colisten.items():
-        score = n / math.sqrt(max(1, plays[a]) * max(1, plays[b]))
-        if n >= MIN_COLISTEN and score >= MIN_COLISTEN_SCORE:
-            link(a, b, "colisten", min(1.5, score * 4), n)
     for (a, b), n in collab.items():
         link(a, b, "collab", 1.0, n)
     for composer, by in credit_artists.items():
