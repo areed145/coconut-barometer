@@ -6,13 +6,16 @@ makes it easy to swap in a fake for tests.
 from __future__ import annotations
 
 import re
+import threading
 import time
 import webbrowser
 from typing import Any, Iterator
 
 from . import activity
-from .config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, data_dir
+from .config import FLICKR_CALLS_PER_HOUR, FLICKR_CALLS_PER_SECOND, FLICKR_RESERVE, data_dir
 from .ratelimit import SharedRateLimiter, limiter_path
+
+_here = threading.local()       # thread_calls()
 
 PHOTO_EXTRAS = ("description,tags,geo,media,date_taken,date_upload,last_update,url_q,url_n,url_m,url_z,"
                 "url_l,url_h,url_k,views,count_faves,count_comments,license,o_dims")
@@ -67,7 +70,7 @@ class FlickrClient:
         self.api = flickrapi.FlickrAPI(api_key, api_secret, format="parsed-json", store_token=True,
                                        timeout=REQUEST_TIMEOUT, token_cache_location=token_dir)
         self.limiter = limiter or SharedRateLimiter(
-            limiter_path(api_key, str(data) if data else "~/.flickr"), calls_per_hour, calls_per_second)
+            limiter_path(api_key, str(data) if data else "~/.flickr"), calls_per_hour, calls_per_second, reserve=FLICKR_RESERVE)
         self.call_count = 0   # requests made, retries included (for "used N calls" reports)
         self._nsid: str | None = None
 
@@ -104,6 +107,7 @@ class FlickrClient:
             self.limiter.wait(on_slot=lambda slot: log.until(token, slot))
             log.running(token)
             self.call_count += 1
+            note_call()
             try:
                 out = fn(**params)
                 log.end(token)
@@ -129,6 +133,16 @@ class FlickrClient:
                     continue
                 raise FlickrCallError(method, None, str(e)) from e
         raise AssertionError("unreachable")
+
+
+def note_call() -> None:
+    """Count a Flickr call on this thread (a client's call() does; so does a stand-in for one)."""
+    _here.calls = getattr(_here, "calls", 0) + 1
+
+
+def thread_calls() -> int:
+    """Flickr calls made on this thread so far, by any client: a job's own count while other lanes call too."""
+    return getattr(_here, "calls", 0)
 
 
 def paginate(client, method: str, container: str, item: str, **params) -> Iterator[dict]:

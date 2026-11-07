@@ -9,7 +9,7 @@ from fakes import photo, FakeFlickr, fake_geocoder, FakeVision, CFG
 from coconut_barometer.config import from_dict
 from coconut_barometer.pipeline import process
 from coconut_barometer.review import ReviewApp
-from coconut_barometer.review.app import JobQueue
+from coconut_barometer.jobs import FILL, SCHEDULED, USER, Lanes
 from coconut_barometer.store import Store
 from coconut_barometer.sync import sync
 
@@ -140,7 +140,8 @@ class QueueReviewTest(unittest.TestCase):
         app = ReviewApp(self.store, self.fl, background=False)          # no worker to take the jobs meanwhile
         self.assertEqual(app.jobs_status()["queued"], 0)                 # the Status tab's dot: still
         app.jobs.put(("wx", ""))
-        app.running = {"kind": "sync", "photo_id": "", "started": 0}
+        app.jobs.put(("sync", ""))
+        app.jobs.take(app.jobs.workers[0])                               # the Flickr lane's worker starts the sync
         self.assertEqual(app.jobs_status()["queued"], 2)                 # pulsing
 
     def test_a_failed_apply_is_retried_once(self):
@@ -260,37 +261,44 @@ class QueueReviewTest(unittest.TestCase):
         self.assertEqual(self.store.jobs_requested(), [("undo", "1"), ("process", "2"), ("replan", "")])
         app = ReviewApp(self.store, self.fl, cfg=self.cfg, provider=lambda: self.vision,
                         process_kw={"geocoder": fake_geocoder, "downloader": lambda url: (b"jpg", "image/jpeg")})
-        app.wait()                                    # a new session runs them, the re-process first
-        self.assertEqual([j["kind"] for j in app.recent], ["process", "undo", "replan"])
+        app.wait()                                    # a new session runs them (in their lanes, side by side)
+        self.assertEqual(sorted(j["kind"] for j in app.recent), ["process", "replan", "undo"])
         self.assertEqual(self.store.jobs_requested(), [])
         self.assertNotIn("1", self.fl.sets["102"]["photos"])                   # the undo happened
 
     def test_jobs_view_lanes_and_results(self):
         view = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg)
+        vision = next(w for w in view.jobs.workers if w.name == "vision")
+        view.jobs.put(("process", "3"))
+        view.jobs.take(vision)                                           # running in the vision lane
         for job in (("apply", "1"), ("process", "2"), ("sync", "")):
             view.jobs.put(job)
-        view.running = {"kind": "process", "photo_id": "3", "started": 1.0}
         q = view.jobs_view()
         self.assertEqual((q["waiting"], q["by_kind"]), (3, {"apply": 1, "process": 1, "sync": 1}))
-        self.assertEqual([(j["kind"], j["photo_id"], j["position"]) for j in q["line"]],
-                         [("apply", "1", 1), ("process", "2", 2), ("sync", None, 3)])
+        # Each lane's line in its order (an apply you asked for before a sync), numbered within the lane.
+        self.assertEqual([(j["kind"], j["photo_id"], j["lane"], j["position"]) for j in q["line"]],
+                         [("apply", "1", "flickr", 1), ("sync", None, "flickr", 2), ("process", "2", "vision", 1)])
+        self.assertEqual([j["priority"] for j in q["line"]], ["you asked", "scheduled", "scheduled"])
         self.assertEqual(q["line"][0]["title"], "Ramen in Tokyo")
         self.assertTrue(q["line"][0]["thumb"].endswith("_q.jpg"))
-        self.assertEqual((q["running"]["photo_id"], q["services"]["vision"]["model"]), ("3", "m1"))
-        # No job has finished yet, so there's nothing to estimate from.
-        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([None] * 3, None))
-        # Once each kind has taken 10 s, the line is timed from that, behind what's left of the running job.
+        self.assertEqual([(j["photo_id"], j["lane"]) for j in q["running"]], [("3", "vision")])
+        self.assertEqual(q["services"]["vision"]["model"], "m1")
+        # No job has finished yet, so there's nothing to estimate from, except that the idle Flickr lane starts next.
+        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([0, None, None], None))
+        # Once each kind has taken 10 s, each lane is timed from that: Flickr's from now, the vision lane's behind
+        # what's left of its running job. The lanes run side by side, so all is done when the longest is.
         view.recent.extend({"kind": k, "seconds": 10.0} for k in ("apply", "process", "sync"))
-        view.running["started"] = time.time() - 4
+        vision.job.started = time.time() - 4
         q = view.jobs_view()
-        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([6, 16, 26], 36))
+        self.assertEqual(([j["starts_in"] for j in q["line"]], q["done_in"]), ([0, 10, 6], 20))
+        self.assertEqual({l["id"]: (l["running"], l["waiting"], l["done_in"]) for l in q["lanes"]}["flickr"], (0, 2, 20))
         # A real job through the background worker: timed, and listed under recent.
         choices = [{"approve": True} for _ in self.store.queue_item("1")["changes"]]
         self.decide("1", choices)
         done = self.app.jobs_view()["recent"][0]
         self.assertEqual((done["kind"], done["photo_id"], done["status"]), ("apply", "1", "applied"))
         self.assertGreaterEqual(done["seconds"], 0)
-        self.assertIsNone(self.app.jobs_view()["running"])
+        self.assertEqual(self.app.jobs_view()["running"], [])
 
     def test_processing_counts_vision_tokens(self):
         app = ReviewApp(self.store, self.fl, background=False, cfg=self.cfg, provider=lambda: self.vision,
@@ -351,7 +359,7 @@ class QueueReviewTest(unittest.TestCase):
 
 class FrontOfLineTest(unittest.TestCase):
     def test_put_front_goes_ahead_but_in_the_order_asked(self):
-        q = JobQueue()
+        q = Lanes()
         for job in [("sync", ""), ("process", "a"), ("process", "b")]:
             q.put(job)
         q.put_front(("process", "x"))
@@ -359,11 +367,14 @@ class FrontOfLineTest(unittest.TestCase):
         self.assertTrue(q.to_front(("process", "b")))
         self.assertFalse(q.to_front(("process", "x")))                  # already up there
         self.assertFalse(q.to_front(("process", "gone")))
-        self.assertEqual(list(q.queue), [("process", "x"), ("process", "y"), ("process", "b"), ("sync", ""), ("process", "a")])
-        self.assertEqual(q.get(), ("process", "x"))
+        self.assertEqual(q.queue, [("process", "x"), ("process", "y"), ("process", "b"), ("sync", ""), ("process", "a")])
+        vision = next(w for w in q.workers if w.name == "vision")
+        take = lambda: (q.take(vision, 0).item, q.done(vision))[0]
+        self.assertEqual(take(), ("process", "x"))
         q.put_front(("process", "z"))                                   # behind the ones still up front
-        self.assertEqual([q.get() for _ in range(5)],
-                         [("process", "y"), ("process", "b"), ("process", "z"), ("sync", ""), ("process", "a")])
+        self.assertEqual([take() for _ in range(4)],
+                         [("process", "y"), ("process", "b"), ("process", "z"), ("process", "a")])
+        self.assertEqual(q.queue, [("sync", "")])                       # the sync is the Flickr lane's
 
     def test_reprocessing_by_hand_jumps_the_line(self):
         cfg = from_dict(CFG)

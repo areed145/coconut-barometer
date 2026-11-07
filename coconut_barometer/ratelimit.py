@@ -7,6 +7,11 @@ processes: each call reserves its slot in a small file under ~/.flickr/ (one per
 slots of the last hour, one per line) while holding a lock on it, then sleeps until that slot.
 So however many commands run at once, together they stay within both limits.
 
+Background calls (a job the scheduler queued, not one you asked for: jobs.background()) may use only
+1 - reserve of the hourly budget, so a call someone is waiting on still gets a slot quickly while a
+long sync has used the rest (#197). They don't tag their slots: a background call just counts every
+slot of the last hour against its smaller budget.
+
 Times are wall-clock (time.time), since they're compared across processes. Where file
 locking isn't available (Windows), the limit applies within each process only.
 """
@@ -43,11 +48,13 @@ def estimate_seconds(calls: int, calls_per_hour: int, calls_per_second: float) -
 
 
 class SharedRateLimiter:
-    def __init__(self, path: str, calls_per_hour: int, calls_per_second: float = 0.0, window: float = WINDOW):
+    def __init__(self, path: str, calls_per_hour: int, calls_per_second: float = 0.0, window: float = WINDOW,
+                 reserve: float = 0.0):
         """calls_per_hour: at most this many in any `window` seconds; calls_per_second: and at most
-        this often. 0 turns either off."""
+        this often. 0 turns either off. reserve: the share of calls_per_hour background calls leave alone."""
         self.path = path
         self.per_window = max(0, int(calls_per_hour))
+        self.background_window = self.per_window - (max(1, int(self.per_window * reserve)) if reserve > 0 and self.per_window else 0)
         self.window = window
         self.interval = 1.0 / calls_per_second if calls_per_second > 0 else 0.0
         self._local = threading.Lock()   # threads in this process (the review worker + the page)
@@ -64,8 +71,9 @@ class SharedRateLimiter:
         on_slot(slot): told the time it was given, before the wait (the Status page shows it)."""
         if self.unlimited:
             return 0.0
+        from .jobs import background
         with self._local:
-            slot = self._reserve()
+            slot = self._reserve(background())
         if on_slot:
             on_slot(slot)
         delay = slot - time.time()
@@ -102,19 +110,20 @@ class SharedRateLimiter:
             return slots[-1:]
         return [s for s in slots if s > now - self.window]
 
-    def _next_slot(self, slots: list[float], now: float) -> float:
+    def _next_slot(self, slots: list[float], now: float, background: bool = False) -> float:
         slot = now
         if slots and self.interval:
             slot = max(slot, slots[-1] + self.interval)
-        if self.per_window and len(slots) >= self.per_window:
-            slot = max(slot, slots[-self.per_window] + self.window)
+        budget = self.background_window if background else self.per_window
+        if budget and len(slots) >= budget:
+            slot = max(slot, slots[-budget] + self.window)
         return slot
 
-    def _reserve(self) -> float:
+    def _reserve(self, background: bool = False) -> float:
         now = time.time()
         if not fcntl:
             self._slots = self._prune(self._slots, now)
-            slot = self._next_slot(self._slots, now)
+            slot = self._next_slot(self._slots, now, background)
             self._slots.append(slot)
             return slot
         with open(self.path, "a+") as f:
@@ -122,7 +131,7 @@ class SharedRateLimiter:
             try:
                 f.seek(0)
                 slots = self._prune(self._parse(f.read()), now)
-                slot = self._next_slot(slots, now)
+                slot = self._next_slot(slots, now, background)
                 slots.append(slot)
                 f.seek(0)
                 f.truncate()
