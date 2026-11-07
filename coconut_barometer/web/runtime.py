@@ -11,7 +11,8 @@ import sys
 import threading
 import time
 
-from .. import local
+from .. import activity, local
+from ..memory import watchdog
 from ..alerts import CHECK_EVERY, Alerts
 from ..apple_music import Music
 from ..artist_profiles import ArtistProfiles
@@ -118,6 +119,7 @@ class Runtime:
             self._scheduler = threading.Thread(target=self._schedule_loop, args=(first_delay,), name="scheduler",
                                                daemon=True)
         self._scheduler.start()
+        self._watch_memory()
         # The weather stream (it waits for a token and for stations); each connect asks for a REST gap-fill.
         self.weather.start_stream(self._stop, on_connect=self.review.wx_sync)
         self.aprs.start_stream(self._stop)          # APRS-IS: positions of the callsigns in Settings → APRS
@@ -137,6 +139,16 @@ class Runtime:
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
         threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 
+    def _watch_memory(self) -> None:
+        """The memory watchdog (memory.py, #197), with what the big holders hold for its reports."""
+        def jobs():
+            running = self.review.running
+            return f"{(running or {}).get('kind', 'idle')} running, {len(self.review.jobs.queue)} waiting"
+        watchdog.describe("Worker", jobs)
+        watchdog.describe("Radar", lambda: f"{len(self.radar._stored)} loop frames held")
+        watchdog.describe("Activity log", lambda: f"{sum(len(e) for e in activity.log.entries.values()):,} entries")
+        watchdog.start(self._stop, os.path.dirname(os.path.abspath(self.db_path)))
+
     def _alerts_loop(self) -> None:
         """Settings → Alerts: what the streams stored, checked every minute (alerts.py)."""
         while not self._stop.wait(CHECK_EVERY):
@@ -147,6 +159,7 @@ class Runtime:
 
     def stop(self) -> None:
         self._stop.set()
+        watchdog.stopped()
         self.visitors.flush(self.store())           # the page views not written yet
 
     def _schedule_loop(self, first_delay: float) -> None:

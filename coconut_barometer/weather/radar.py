@@ -38,6 +38,7 @@ import requests
 
 from .. import activity
 from ..errors import caught
+from ..memory import heavy
 from . import grib, shapes
 
 MRMS_URL = "https://mrms.ncep.noaa.gov/2D/MergedReflectivityQCComposite/MRMS_MergedReflectivityQCComposite.latest.grib2.gz"
@@ -350,17 +351,19 @@ class RadarService:
         if data is None:
             self.errors["frame"] = "MRMS frame download was truncated twice; trying again next round"
             return False
-        msg = decode(data)
-        raw = grid(msg)
-        us = crop(msg, raw=raw, block=US_BLOCK)
-        z = clean(us.pop("dbz"), US_SPECK)
-        frame = {"t": msg["t"], "box": (msg["la1"] - msg["nj"] * msg["dj"], msg["la1"], msg["lo1"], msg["lo1"] + msg["ni"] * msg["di"]),
-                 "levels": {name: encode(us, z, *spec) for name, spec in LEVELS.items()}}
-        del us, z
-        lats, lons = [s["lat"] for s in stations], [s["lon"] for s in stations]
-        field = crop(msg, min(lats) - MARGIN, max(lats) + MARGIN, min(lons) - MARGIN, max(lons) + MARGIN, raw=raw)
-        del raw
-        z = clean(field.pop("dbz"))
+        with heavy("radar frame"):                  # the nationwide grid: ~50 MB, more as float32 (#197)
+            msg = decode(data)
+            raw = grid(msg)
+            us = crop(msg, raw=raw, block=US_BLOCK)
+            z = clean(us.pop("dbz"), US_SPECK)
+            frame = {"t": msg["t"], "box": (msg["la1"] - msg["nj"] * msg["dj"], msg["la1"], msg["lo1"], msg["lo1"] + msg["ni"] * msg["di"]),
+                     "levels": {name: encode(us, z, *spec) for name, spec in LEVELS.items()}}
+            del us, z
+            lats, lons = [s["lat"] for s in stations], [s["lon"] for s in stations]
+            field = crop(msg, min(lats) - MARGIN, max(lats) + MARGIN, min(lons) - MARGIN, max(lons) + MARGIN, raw=raw)
+            del raw
+            z = clean(field.pop("dbz"))
+            del msg, data
         with self.lock:
             self.field, self.frame = {**field, "z": z}, frame
             for s in stations:

@@ -18,6 +18,9 @@ COPY docker/entrypoint.py /entrypoint.py
 
 # Everything that must persist lives on the disk (render.yaml mounts it at /var/data).
 ENV PATH="/app/.venv/bin:$PATH" DATA_DIR=/var/data PYTHONUNBUFFERED=1
+# Fewer glibc heaps (one per thread by default, up to 8 per CPU): freed memory goes back to the system instead of
+# staying held in a thread's heap, which the big radar and rain-total decodes otherwise leave behind (#197).
+ENV MALLOC_ARENA_MAX=2
 EXPOSE 10000
 ENTRYPOINT ["python", "/entrypoint.py"]
 CMD ["coconut-barometer", "serve"]

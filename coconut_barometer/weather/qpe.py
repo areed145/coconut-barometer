@@ -19,6 +19,7 @@ import time
 import numpy as np
 
 from . import radar
+from ..memory import heavy
 from .feed import Feed
 from .rtma import TTL
 
@@ -74,9 +75,9 @@ class Qpe(Feed):
         if r.status_code == 304:
             return None
         r.raise_for_status()
-        msg = radar.decode(gzip.decompress(r.content))
         size = len(r.content)
-        with _tracing:
+        with _tracing, heavy(f"rain totals ({self.hours} h)"):    # ~100 MB: one at a time with the radar's (#197)
+            msg = radar.decode(gzip.decompress(r.content))
             levels = shapes(msg, radar.grid(msg))
         self.remember(r)
         a["detail"] = f"{self.hours} h to {time.strftime('%H:%MZ', time.gmtime(msg['t']))}, {size / 1e6:.1f} MB"
