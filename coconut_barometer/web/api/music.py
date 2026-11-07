@@ -33,7 +33,8 @@ CONNECT_HEADERS = {
                                "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.apple.com; "
                                "connect-src 'self' https://*.apple.com; frame-src https://*.apple.com; font-src 'self' https://*.apple.com; "
                                "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
-    "Cross-Origin-Opener-Policy": "unsafe-none"}     # the sign-in popup reports back through window.opener
+    "Cross-Origin-Opener-Policy": "unsafe-none",     # the sign-in popup reports back through window.opener
+    "Referrer-Policy": "strict-origin"}              # Apple's popup reads our address from the referrer: without it, Unauthorized
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect Apple Music</title><link rel="stylesheet" href="/static/css/app.css">
