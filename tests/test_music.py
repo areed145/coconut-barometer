@@ -104,6 +104,10 @@ class NewPlaysTest(unittest.TestCase):
     def test_the_end_falling_off_isnt_a_play(self):
         self.assertEqual(M.new_count(list("abcd"), list("xabc")), 1)
 
+    def test_older_tracks_a_longer_list_reaches_arent_plays(self):
+        self.assertEqual(M.new_count(list("ab"), list("abcd")), 0)
+        self.assertEqual(M.new_count(list("ab"), list("xabcd")), 1)
+
     def test_everything_new(self):
         self.assertEqual(M.new_count(list("abc"), list("xyz")), 3)
 
@@ -155,6 +159,45 @@ class ReadsTest(unittest.TestCase):
         self.assertEqual([i["id"] for i in M.fetch_recent(cfg(), get=get)], ["a", "b"])
         self.assertEqual(len(seen), 2)
         self.assertTrue(all(u.startswith(M.API) for u in seen))
+
+    def test_a_passing_failure_is_asked_again(self):
+        codes = [504, 503, 200]
+
+        def get(url, headers, timeout):
+            return Answer({"data": [song("a")]}, codes.pop(0))
+        waits = []
+        self.assertEqual([i["id"] for i in M.fetch_recent(cfg(), get=get, sleep=waits.append)], ["a"])
+        self.assertEqual(waits, list(M.RETRIES))
+
+    def test_a_page_that_keeps_failing_loses_the_whole_read_and_it_retries_soon(self):
+        calls = []
+
+        def get(url, headers, timeout):
+            calls.append(url)
+            if len(calls) == 1:
+                return Answer({"data": [song("a")], "next": "/v1/me/recent/played/tracks?offset=10"})
+            return Answer(status=504)
+        self.assertEqual(self.read("old"), 0)
+        original = M.fetch_recent
+        self.addCleanup(setattr, M, "fetch_recent", original)
+        M.fetch_recent = lambda c, get: original(c, get=get, sleep=lambda _: None)
+        self.music.run_once(self.store, NOON + 3600, get=get)
+        self.assertEqual(self.store.music_play_count(), 0)
+        s = self.music.state(self.store)
+        self.assertIn("504", s["error"])
+        self.assertFalse(s["reconnect"])
+        self.assertFalse(self.music.due(self.store, NOON + 3600 + M.RETRY_READ_SECONDS - 1))
+        self.assertTrue(self.music.due(self.store, NOON + 3600 + M.RETRY_READ_SECONDS))
+
+    def test_a_refusal_isnt_asked_again(self):
+        calls = []
+
+        def get(url, headers, timeout):
+            calls.append(url)
+            return Answer(status=403)
+        with self.assertRaises(M.NotAuthorized):
+            M.fetch_recent(cfg(), get=get, sleep=self.fail)
+        self.assertEqual(len(calls), 1)
 
     def test_the_tokens_go_where_apple_says(self):
         got = {}

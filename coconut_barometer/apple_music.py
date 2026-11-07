@@ -6,8 +6,8 @@ Developer account (apple_music.team_id, key_id, private_key). The Music User Tok
 Apple's sign-in can issue it (the page at /api/music/connect), it's kept in apple_music.user_token, and Apple ends it
 after months, at which point a read answers 401 or 403 and the Status page asks you to connect again.
 
-What the API can't tell us shapes the rest. GET /v1/me/recent/played/tracks is just the last 50 or so tracks, newest
-first, with no times and with repeats often collapsed, so:
+What the API can't tell us shapes the rest. GET /v1/me/recent/played/tracks is just the latest tracks (about 130 in the
+five pages read), newest first, with no times and with repeats often collapsed, so:
   - a new play is one that moved to, or appeared at, the top since the last read (new_count)
   - the time is an estimate: the new plays are stacked back from this read by their lengths, never earlier than the
     last read (play_times); window_start keeps how far off it could be
@@ -49,6 +49,8 @@ TIMEOUT = 30
 TOKEN_SECONDS = 3600
 BROWSER_TOKEN_SECONDS = 600                         # the one the connect page sees
 CHECK_EVERY = 60
+RETRIES = (2, 8)                                    # seconds before asking for a page again when Apple's servers fail
+RETRY_READ_SECONDS = 300                            # a read that still failed: tried again this soon, not next hour
 KEEP_IDS = 200                                      # the order remembered from one read to the next
 TOP = 15
 RECENT_ROWS = 20
@@ -101,22 +103,28 @@ def developer_token(cfg: dict, seconds: int = TOKEN_SECONDS, now: float | None =
     return f"{head}.{body}.{_b64(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))}"
 
 
-def fetch_recent(cfg: dict, user_token: str | None = None, get=requests.get) -> list[dict]:
-    """The recently played list, newest first, every page of it. user_token: try this one instead of the saved one."""
+def fetch_recent(cfg: dict, user_token: str | None = None, get=requests.get, sleep=time.sleep) -> list[dict]:
+    """The recently played list, newest first, every page of it or an error: part of a list isn't kept. Apple's API
+    has passing 5xx and 429 answers, so a page is asked for again before giving up. user_token: try this one instead
+    of the saved one."""
     headers = {"Authorization": f"Bearer {developer_token(cfg)}",
                "Music-User-Token": user_token or cfg["apple_music"]["user_token"]}
     items: list[dict] = []
     path = RECENT
     for _ in range(MAX_PAGES):
-        with activity.log.call("apple-music", "recently played", f"{len(items)} so far") as call:
-            r = get(API + path, headers=headers, timeout=TIMEOUT)
-            call["status"] = str(r.status_code)
-            call["error"] = r.status_code != 200
+        for wait in (*RETRIES, None):
+            with activity.log.call("apple-music", "recently played", f"{len(items)} so far") as call:
+                r = get(API + path, headers=headers, timeout=TIMEOUT)
+                call["status"] = str(r.status_code)
+                call["error"] = r.status_code != 200
+            if wait is None or not (r.status_code == 429 or r.status_code >= 500):
+                break
+            sleep(wait)
         if r.status_code in (401, 403):
             raise NotAuthorized("Apple refused the connection (it may have expired, or the account has no "
                                 "Apple Music subscription): connect again")
         if r.status_code != 200:
-            raise MusicError(f"Apple Music answered {r.status_code}")
+            raise MusicError(f"Apple Music's servers answered {r.status_code}. It tries again in a few minutes.")
         body = r.json()
         items += body.get("data") or []
         path = body.get("next")
@@ -143,8 +151,11 @@ def _subsequence(short: list, long: list) -> bool:
 
 def new_count(before: list[str], after: list[str]) -> int:
     """How many at the top of `after` are new plays. What's below them is the old list, in its old order, with gaps
-    where tracks moved up, so it's the fewest from the top that leave the rest in the order `before` had."""
-    return next(k for k in range(len(after) + 1) if _subsequence(after[k:], before))
+    where tracks moved up, so it's the fewest from the top that leave the rest in the order `before` had. Unknown
+    tracks below the last known one are older ones a longer list reached, not plays."""
+    known = set(before)
+    end = next((i for i in range(len(after), 0, -1) if after[i - 1] in known), len(after))
+    return next(k for k in range(end + 1) if _subsequence(after[k:end], before))
 
 
 def play_times(durations: list[float], start: float, now: float) -> list[int]:
@@ -200,7 +211,7 @@ class Music:
         now = int(now if now is not None else time.time())
         if not self.due(store, now):
             return
-        store.set_meta("music_last_poll", now)         # asked, however it goes: failures wait for the next turn
+        store.set_meta("music_last_poll", now)
         try:
             self.poll(store, now, get)
             store.set_meta("music_error", "")
@@ -209,6 +220,8 @@ class Music:
         except (MusicError, requests.RequestException, ValueError) as e:
             logger.warning("Apple Music: %s", e)
             store.set_meta("music_error", f"read:{e}"[:300])
+            every = self.cfg["apple_music"]["every_minutes"] * 60
+            store.set_meta("music_last_poll", now - every + min(every, RETRY_READ_SECONDS))
 
     def enrich(self, store, now: float | None = None, get=requests.get) -> int:
         """One batch of imported tracks from the catalog; returns how many were asked about."""
