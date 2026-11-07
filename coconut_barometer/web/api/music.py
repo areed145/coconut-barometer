@@ -27,13 +27,14 @@ from ... import local
 from ... import music_graph as G
 from ... import settings as S
 from ...errors import expected
-from ..deps import runtime, session, store
+from ..deps import runtime, session, store, viewer
 from .admin import _confirm_password
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 ART_SIZES = (64, 160, 320, 640)
 ART_MAX_BYTES = 5 * 1024 ** 2
 ART_SECONDS = 30 * 86400
+GLANCE_TRACKS = 10                                   # Home's Music card: the latest tracks, public
 MAX_IMPORT = 200 * 1024 ** 2                         # the small file; Apple's own is several times this
 
 CONNECT_HEADERS = {
@@ -113,10 +114,21 @@ def _cover_url(template: str, size: int) -> str:
     return url
 
 
-@router.get("/art/{track_id}", dependencies=[Depends(session)])
-def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store)):
+@router.get("/glance")
+def glance(db=Depends(store)):
+    """Home's Music card: the last few tracks played, each once, newest first. Public, like the card: only what the
+    card shows (no counts, no history)."""
+    return {"tracks": [{"name": r["name"], "artist": r["artist"], "album": r["album"], "played_at": r["played_at"],
+                        "art": r["track_id"] if r["has_art"] else None, "bg": r["bg_color"]} for r in db.music_recent(GLANCE_TRACKS)]}
+
+
+@router.get("/art/{track_id}")
+def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
     """A cover, from this server's own copy: Apple's image host isn't in the site's CSP, and this way the browser
-    never talks to it. Fetched the first time it's shown, then kept on the disk."""
+    never talks to it. Fetched the first time it's shown, then kept on the disk. Visitors get only the covers on
+    Home's Music card."""
+    if me is None and track_id not in {r["track_id"] for r in db.music_recent(GLANCE_TRACKS)}:
+        raise HTTPException(401, "not logged in")
     if s not in ART_SIZES:
         raise HTTPException(400, "unknown size")
     headers = {"Cache-Control": f"private, max-age={ART_SECONDS}"}

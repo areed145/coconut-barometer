@@ -1,5 +1,5 @@
 // The home page (#/): a large link per public section, each with a glance at what's there now (the newest
-// photo, each station's weather, when each tracked callsign was last heard; signed in, the radar and visitors too); signed in, the private pages
+// photo, each station's weather, the radar, when each tracked callsign was last heard, the latest music; signed in, visitors too); signed in, the private pages
 // in a row below. Each glance loads on its own, and a card whose glance can't load keeps its description.
 import { html, useState, useEffect, api, num, ago, pick, every, shade, useThemeTick, isDark, today, dayLabel, photosLink, HealthPanel,
   StatusDot } from "./lib.js";
@@ -57,8 +57,9 @@ const Rings = () => html`<svg class="homebg rings" viewBox="0 0 200 200" aria-hi
 
 // image: a photo behind the card's text; media: a picture below it, shown whole (the radar, whose time and credits
 // are at its edges).
-function Section({ href, title, line, image, media, srcset, alt = "", bg, children }) {
-  return html`<a class=${"homecard" + (image ? " pic" : media ? " wide" : "")} href=${href}>
+// pic: light text over a picture of its own (in bg).
+function Section({ href, title, line, image, media, srcset, alt = "", bg, pic, style, children }) {
+  return html`<a class=${"homecard" + (image || pic ? " pic" : media ? " wide" : "")} href=${href} style=${style}>
     ${image && html`<img src=${image} alt="" decoding="async" />`}${bg}
     <h2>${title}</h2>
     <div class="glance">${children}</div>
@@ -79,7 +80,7 @@ function WeatherCard() {
   const d = useGlance("/api/wx/live", 60000);
   const shown = (d?.stations || []).filter((s) => s.obs);
   const day = useDay(shown[0]);
-  return html`<${Section} href="#/weather" title="Weather" line="Live readings, history and the radar map"
+  return html`<${Section} href="#/weather" title="Weather" line="Live readings, history and records"
     bg=${html`<${DayCurve} pts=${day} />`}>
     ${shown.map((s) => html`<div class="glance-row" key=${s.device_id}>
       <b>${show(d.units, "temp", s.obs.temp, 0)}</b>
@@ -87,8 +88,8 @@ function WeatherCard() {
       <span class="muted">${s.name} · ${ago(s.obs.ts)}</span></div>`)}<//>`;
 }
 
-// The newest radar around the stations, drawn on the server (weather/snapshot.py) in the page's light or dark; signed
-// in only, as the image is. Each frame has its own address (?t=), so the browser fetches each frame's picture once.
+// The newest radar around the stations, drawn on the server (weather/snapshot.py) in the page's light or dark; public,
+// as the Radar page is. Each frame has its own address (?t=), so the browser fetches each frame's picture once.
 const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 function RadarCard() {
   useThemeTick();
@@ -96,7 +97,7 @@ function RadarCard() {
   if (!d?.stations.length) return null;
   const src = (scale) => `/api/wx/radar/snapshot.png?theme=${isDark() ? "dark" : "light"}&scale=${scale}&t=${d.t || 0}`;
   const n = d.nearest, around = d.stations.join(", ");
-  return html`<${Section} href="#/weather/map" title="Radar" media=${src(1)} srcset=${`${src(1)} 1x, ${src(2)} 2x`}
+  return html`<${Section} href="#/radar" title="Radar" media=${src(1)} srcset=${`${src(1)} 1x, ${src(2)} 2x`}
     alt=${d.fresh ? `Radar at ${clock(d.t)} around ${around}` : `Radar unavailable around ${around}`}
     line="The latest radar and storm cells around the stations">
     <div class="glance-row"><b>${d.fresh ? `radar ${clock(d.t)}` : "radar unavailable"}</b></div>
@@ -111,6 +112,25 @@ function AprsCard() {
   return html`<${Section} href="#/aprs" title="APRS" line="Positions heard on APRS-IS, and the igate's reach" bg=${html`<${Rings} />`}>
     ${(d?.callsigns || []).map((c) => html`<div class="glance-row" key=${c.callsign}>
       <b>${c.callsign}</b><span class="muted">${c.last ? `heard ${ago(c.last.ts)}` : "not heard yet"}</span></div>`)}<//>`;
+}
+
+// The last tracks played, one at a time: each album cover fades into the next. Public; the covers are only these
+// (music.py), and with reduced motion they change without the fade.
+const SLIDE_MS = 6000;
+function MusicCard() {
+  const d = useGlance("/api/music/glance", 120000);
+  const tracks = d?.tracks || [], n = tracks.length;
+  const [i, setI] = useState(0);
+  useEffect(() => { setI(0); if (n < 2) return; const id = setInterval(() => setI((x) => (x + 1) % n), SLIDE_MS); return () => clearInterval(id); }, [n, tracks[0]?.played_at]);
+  if (!n) return null;
+  const t = tracks[i % n];
+  return html`<${Section} href="#/music" title="Music" pic style=${t.bg ? `background:#${t.bg}` : ""}
+    line="What's been playing lately" bg=${html`<div class="homebg slides" aria-hidden="true">${tracks.map((x, k) => x.art && html`<img key=${x.art}
+      class=${k === i % n ? "on" : ""} src=${`/api/music/art/${encodeURIComponent(x.art)}?s=640`} alt="" decoding="async" />`)}</div>`}>
+    <div class="glance-row"><b>${t.name}</b></div>
+    <div class="glance-row"><span>${[t.artist, t.album].filter(Boolean).join(" · ")}</span></div>
+    <div class="glance-row"><span class="muted">played ${ago(t.played_at)}</span>
+      ${n > 1 && html`<span class="slide-dots">${tracks.map((x, k) => html`<i key=${k} class=${k === i % n ? "on" : ""}></i>`)}</span>`}</div><//>`;
 }
 
 // Visitors per day for the last two weeks, as faint bars along the bottom of the card.
@@ -207,10 +227,10 @@ export function Home({ session, pending, queued, health }) {
     <header class="home-head">
       <img class="logo hero" src="/static/img/logo-320.png" width="200" height="195" alt="" />
       <h1 class="site-name">Coconut Barometer</h1>
-      <p class="muted">Photos, live weather and APRS radio, in one place.</p>
+      <p class="muted">Photos, live weather, APRS radio and music, in one place.</p>
     </header>
     <nav class="homecards" aria-label="Sections">
-      <${PhotosCard} /><${WeatherCard} />${session && html`<${RadarCard} />`}<${AprsCard} />${session && html`<${VisitorsCard} />`}
+      <${PhotosCard} /><${WeatherCard} /><${RadarCard} /><${AprsCard} /><${MusicCard} />${session && html`<${VisitorsCard} />`}
     </nav>
     <${HealthPanel} health=${health} fix=${session} />
     <${Highlights} />

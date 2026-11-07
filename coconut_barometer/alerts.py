@@ -291,7 +291,7 @@ class Alerts:
                     moving = f"moving {COMPASS[round(c['toward'] / 45) % 8]} at {_speed(c['kmh'] / 3.6, units)}" if c["kmh"] else "barely moving"
                     where = f"{_dist(km, units)} {COMPASS[round(bearing / 45) % 8]}" if km >= 1 else "overhead"
                     out.append({"key": f"storm:{dev}:{c.get('track', c['id'])}", "kind": "storm", "station": dev, "why": why,
-                                "url": "/#/weather/map",
+                                "url": "/#/radar",
                                 "title": f"Storm over {name}" if eta == 0 else f"Storm {_minutes(eta)} from {name}",
                                 "body": "; ".join(filter(None, [f"{c['dbz']} dBZ, {where}, {moving}", *extra])) + ".",
                                 "evidence": {"device_id": dev, "cell_id": c.get("id"), "track": c.get("track"), "dbz": c["dbz"],
@@ -310,7 +310,7 @@ class Alerts:
                                else f"closing at {r['kmh']:.0f} km/h, faster than {fastest} km/h" if r["kmh"] > fastest
                                else f"not a steady approach (fit {r['r2']:.2f})" if r["r2"] < RAIN_FIT
                                else None)
-                        out.append({"key": f"rain:{dev}", "kind": "rain", "station": dev, "why": why, "url": "/#/weather/map",
+                        out.append({"key": f"rain:{dev}", "kind": "rain", "station": dev, "why": why, "url": "/#/radar",
                                     "title": f"Rain {_minutes(eta)} from {name}",
                                     "body": f"{_dist(r['km'], units)} away, closing at {_speed(r['kmh'] / 3.6, units)}.",
                                     "evidence": {"device_id": dev, "distance_km": r["km"], "speed_kmh": r["kmh"], "fit": round(r["r2"], 3),
