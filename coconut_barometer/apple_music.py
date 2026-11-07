@@ -207,21 +207,23 @@ class Music:
         every = self.cfg["apple_music"]["every_minutes"] * 60
         return connected(self.cfg) and now - int(store.get_meta("music_last_poll") or 0) >= every
 
-    def run_once(self, store, now: float | None = None, get=requests.get) -> None:
+    def run_once(self, store, now: float | None = None, get=requests.get) -> dict:
+        """One read, as a job on the review worker (the Status page's Jobs): what it found, or why it couldn't."""
         now = int(now if now is not None else time.time())
-        if not self.due(store, now):
-            return
         store.set_meta("music_last_poll", now)
         try:
-            self.poll(store, now, get)
+            rows = self.poll(store, now, get)
             store.set_meta("music_error", "")
+            return {"status": "done", "rows": rows}
         except NotAuthorized as e:
             store.set_meta("music_error", f"auth:{e}")
+            return {"status": "failed", "error": str(e)}
         except (MusicError, requests.RequestException, ValueError) as e:
             logger.warning("Apple Music: %s", e)
             store.set_meta("music_error", f"read:{e}"[:300])
             every = self.cfg["apple_music"]["every_minutes"] * 60
             store.set_meta("music_last_poll", now - every + min(every, RETRY_READ_SECONDS))
+            return {"status": "failed", "error": str(e)}
 
     def enrich(self, store, now: float | None = None, get=requests.get) -> int:
         """One batch of imported tracks from the catalog; returns how many were asked about."""
@@ -236,10 +238,12 @@ class Music:
         store.music_enrich(ids, found, int(now if now is not None else time.time()))
         return len(ids)
 
-    def run(self, stop, store) -> None:
+    def run(self, stop, store, queue) -> None:
+        """Every minute: queue(), which puts a read on the worker, if one's due, and a batch for the catalog."""
         while not stop.wait(CHECK_EVERY):
             try:
-                self.run_once(store())
+                if self.due(store()):
+                    queue()
                 self.enrich(store())
             except Exception as e:
                 caught(e, "apple music")

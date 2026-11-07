@@ -287,7 +287,13 @@ function MusicPanel() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const load = () => api("/api/music/state").then(setS).catch(() => {});
-  useEffect(() => { load(); }, []);
+  useEffect(() => every(load, 5000), []);
+  const syncNow = async () => {
+    try {
+      const { status } = await api("/api/music/sync", { method: "POST" });
+      toast({ queued: "Reading Apple Music…", busy: "A read is already waiting", not_connected: "Connect Apple Music first" }[status] || status);
+    } catch (e) { toast(e.message); }
+  };
   const send = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -299,11 +305,12 @@ function MusicPanel() {
     setBusy(false);
   };
   if (!s) return null;
-  return html`<div class="card"><h2>Apple Music</h2>
+  return html`<div class="card"><h2>Connection</h2>
     <p>${s.connected && !s.error ? html`<b class="up">Connected</b>${s.last_ok && html` <span class="muted">· read ${ago(s.last_ok)}</span>`}`
       : s.error ? html`<b class="problem">${s.error}</b>` : html`<b class="problem">Not connected</b>`}</p>
     ${!s.keys_set ? html`<p class="why">Set the Team ID, Key ID and private key below first. <code>docs/APPLE_MUSIC.md</code> has the steps.</p>`
       : html`<button class=${s.connected && !s.reconnect ? "" : "primary"} onClick=${() => { location.href = "/api/music/connect"; }}>${s.connected ? "Connect again" : "Connect Apple Music"}</button>
+        ${s.connected && html` <button class="primary" onClick=${syncNow}>Sync now</button>`}
         <p class="why">Signs in with Apple. Do this on the live site, not a local copy.</p>`}
     <h3>Earlier history</h3>
     <p>${s.imported.plays ? html`${s.imported.plays.toLocaleString()} plays imported, up to ${day(s.imported.until)}.` : html`<span class="muted">None imported.</span>`}</p>
@@ -529,7 +536,7 @@ export function Admin({ at }) {
         <h1 class="title">${data.sections.find((s) => s.id === section)?.title}</h1>
         <p class="muted">${data.sections.find((s) => s.id === section)?.help}</p>
         ${section === "connections" && html`<${FlickrPanel} />`}
-        ${section === "connections" && html`<${MusicPanel} />`}
+        ${section === "music" && html`<${MusicPanel} />`}
         ${section === "display" && html`<${ThemeSetting} />`}
         ${section === "weather" && html`<${WxStations} />`}
         ${section === "aprs" && html`<${AprsStream} />`}

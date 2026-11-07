@@ -535,7 +535,7 @@ def main(argv=None):
     p = sub.add_parser("user", help="the web app's login: add | passwd | list | remove")
     p.add_argument("action", choices=["add", "passwd", "list", "remove"])
     p.add_argument("name", nargs="?")
-    p = sub.add_parser("music-export", help="reduce Apple's data export to a small file for Settings → Connections "
+    p = sub.add_parser("music-export", help="reduce Apple's data export to a small file for Settings → Music "
                                             "(no database needed; nothing is sent)")
     p.add_argument("activity", help="Apple Music Play Activity.csv")
     p.add_argument("daily", help="Apple Music - Play History Daily Tracks.csv")

@@ -9,12 +9,12 @@ const SOURCES = {
   flickr: ["Flickr API", "--chart-1"], cdn: ["Photo downloads", "--chart-3"], vision: ["Vision model", "--chart-2"],
   weatherflow: ["WeatherFlow REST", "--accent"], "wx-stream": ["WeatherFlow stream", "--warn"], aprs: ["APRS-IS", "--ok"],
   imagery: ["Satellite", "--muted"], radar: ["Radar (MRMS, storm cells)", "--chart-2"], qc: ["Station QC", "--chart-3"],
-  geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
+  "apple-music": ["Apple Music", "--chart-1"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
 };
 const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
-               wx: "WeatherFlow sync", replan: "Re-plan review" };
-const SERVICE = { apply: "flickr", undo: "flickr", sync: "flickr", process: "vision", wx: "weatherflow", replan: "jobs" };
-const HEALTH_OF = { "wx-stream": "weatherflow" };     // the /api/status row a card shows (else its own id)
+               wx: "WeatherFlow sync", replan: "Re-plan review", music: "Apple Music read" };
+const SERVICE = { apply: "flickr", undo: "flickr", sync: "flickr", process: "vision", wx: "weatherflow", replan: "jobs", music: "apple-music" };
+const HEALTH_OF = { "wx-stream": "weatherflow", "apple-music": "music" };     // the /api/status row a card shows (else its own id)
 const label = (s) => (SOURCES[s] || [s])[0];
 const dot = (s) => html`<i class="srcdot" style=${`background: var(${(SOURCES[s] || [, "--muted"])[1]})`}></i>`;
 const dur = (s) => (s == null ? "" : s < 1 ? `${Math.round(s * 1000)} ms` : s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s`
@@ -175,6 +175,8 @@ export function StatusPage({ health }) {
         <span class="svcmeta">Frame lists for the weather map, at most every 4 minutes</span><//>`}
       ${has("radar") && html`<${ServiceCard} ...${card("radar")} title="Radar & nationwide storm cells">
         <span class="svcmeta">NOAA MRMS reflectivity when there's a new frame (checked every 2 min), storm cells every 5 min</span><//>`}
+      ${has("apple-music") && html`<${ServiceCard} ...${card("apple-music")} title="Apple Music">
+        <span class="svcmeta">Recently played on a schedule, and imported tracks from the catalog</span><//>`}
     </div>
     <${ActivityLog} entries=${entries} a=${a} source=${source} setSource=${setSource} errorsOnly=${errorsOnly} setErrorsOnly=${setErrorsOnly}
       paused=${paused} setPaused=${setPaused} held=${held} />`;

@@ -1,6 +1,6 @@
 """Apple's data export (privacy.apple.com) reduced to what the Music page uses, on your own machine, so the IP
 addresses, locations and account numbers beside it never reach the server. `coconut-barometer music-export` writes
-the small file; Settings → Connections uploads it (store/music.py reads it).
+the small file; Settings → Music uploads it (store/music.py reads it).
 
 Apple Music Play Activity.csv has a row per event with exact times and how long was heard, but no artist.
 Apple Music - Play History Daily Tracks.csv has "Artist - Song" and the track's reference for each day and hour, so a

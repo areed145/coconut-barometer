@@ -14,6 +14,8 @@ SECTIONS = [
     ("aprs", "APRS", "Callsigns to follow on the APRS page, and the igate whose packets the Igate page counts. Both are "
                      "heard live from APRS-IS (read-only, nothing is transmitted) and kept, so tracks and counts start "
                      "from when the app began listening."),
+    ("music", "Music", "Your Apple Music listening, shown on the Music page. The site reads what you've played from Apple "
+                       "on a schedule. docs/APPLE_MUSIC.md has the setup, step by step."),
     ("alerts", "Alerts", "Notifications on your phone or computer when something worth knowing happens. Turn them on for "
                          "each device below; the thresholds apply to all of them. 0 turns an alert off."),
     ("display", "Display", "How the app looks: theme, units, colors and maps."),
@@ -65,16 +67,6 @@ META = {
                        "Developer settings, for the one repository, with Issues: read and write. Empty: off.",
                        group="Error reports"),
     "github.repo": _m("connections", "Repository", "owner/name.", group="Error reports"),
-    "apple_music.team_id": _m("connections", "Team ID", "10 characters, from developer.apple.com → Account → Membership "
-                              "details.", group="Apple Music"),
-    "apple_music.key_id": _m("connections", "Key ID", "10 characters, shown with the key under Certificates, IDs & "
-                             "Profiles → Keys.", group="Apple Music"),
-    "apple_music.private_key": _m("connections", "Private key", "The whole .p8 file, opened in a text editor and pasted "
-                                  "(Apple only lets you download it once).", group="Apple Music"),
-    "apple_music.user_token": _m("connections", "Your account's token", "Filled in by Connect Apple Music above. "
-                                 "Clearing it stops the reads.", group="Apple Music"),
-    "apple_music.every_minutes": _m("connections", "Read every (minutes)", "More often keeps the estimated times closer "
-                                    "and loses fewer plays on long listening days.", group="Apple Music"),
 
     # ---- Photos: Sync
     "web.sync_every_minutes": _sync("Sync every (minutes)", "Whatever is due below. 0 turns syncing off.",
@@ -318,6 +310,16 @@ META = {
     "backup.dir": _m("backup", "Backup folder", "Empty: backups/ next to the database (on the disk)."),
 
     # ---- Visitors
+    "apple_music.team_id": _m("music", "Team ID", "10 characters, from developer.apple.com → Account → Membership details.",
+                              group="Apple Developer key"),
+    "apple_music.key_id": _m("music", "Key ID", "10 characters, shown with the key under Certificates, IDs & Profiles → Keys.",
+                             group="Apple Developer key"),
+    "apple_music.private_key": _m("music", "Private key", "The whole .p8 file, opened in a text editor and pasted (Apple "
+                                  "only lets you download it once).", group="Apple Developer key"),
+    "apple_music.user_token": _m("music", "Your account's token", "Filled in by Connect Apple Music above. Clearing it "
+                                 "stops the reads.", group="Apple Developer key"),
+    "apple_music.every_minutes": _m("music", "Read every (minutes)", "More often keeps the estimated times closer and "
+                                    "loses fewer plays on long listening days.", group="Reads"),
     "visitors.enabled": _m("visitors", "Count visitors", "Off: nothing new is recorded; what's kept stays."),
     "visitors.keep_days": _m("visitors", "Keep page views for (days)", "Older days keep only their visitor and page "
                              "view totals."),

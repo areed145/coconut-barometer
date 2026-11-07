@@ -261,7 +261,7 @@ def _visitors(rt, now) -> dict:
 
 
 def _music(rt, db, now) -> dict:
-    href = "#/settings/connections"
+    href = "#/settings/music"
     if local.on():
         return row("music", "Apple Music", "off", local.STATE)
     s = rt.music.state(db)
