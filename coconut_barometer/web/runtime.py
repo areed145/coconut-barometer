@@ -14,6 +14,7 @@ import time
 from .. import local
 from ..alerts import CHECK_EVERY, Alerts
 from ..apple_music import Music
+from ..artist_profiles import ArtistProfiles
 from ..musicbrainz import MusicBrainz
 from ..errors import caught
 from ..review import ReviewApp
@@ -51,6 +52,7 @@ class Runtime:
         self.visitors = Visitors(cfg, self.db_path)   # the site's own visitors (#83)
         self.music = self.review.music = Music(cfg)   # Apple Music listening history
         self.musicbrainz = self.review.musicbrainz = MusicBrainz(cfg)   # its credits, for the artist graph (#192)
+        self.profiles = self.review.profiles = ArtistProfiles(cfg)       # Claude's profiles, for the same
         self.vision_models = Models()                 # the vision provider's models, for Settings (#167)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
@@ -125,11 +127,13 @@ class Runtime:
         else:
             self.qc.start(self._stop, self.store)    # station QC (weather/qc/)
         if local.on():                              # each read builds on the last: one copy keeps the history
-            local.held("reading Apple Music or looking up MusicBrainz")
+            local.held("reading Apple Music, looking up MusicBrainz or profiling artists")
         else:
             threading.Thread(target=self.music.run, args=(self._stop, self.store, self.review.music_sync), name="music", daemon=True).start()
             threading.Thread(target=self.musicbrainz.run, args=(self._stop, self.store, self.review.musicbrainz_lookup),
                              name="musicbrainz", daemon=True).start()
+            threading.Thread(target=self.profiles.run, args=(self._stop, self.store, self.review.profiles_lookup),
+                             name="profiles", daemon=True).start()
         threading.Thread(target=self._alerts_loop, name="alerts", daemon=True).start()
         threading.Thread(target=self.visitors.run, args=(self._stop, self.store), name="visitors", daemon=True).start()
 

@@ -74,6 +74,16 @@ class Reading(unittest.TestCase):
             {"type": "is person", "target-type": "artist", "artist": {"id": "x", "name": "Alias"}}]})
         self.assertEqual([(r["role"], r["name"]) for r in rels], [("band of", "Person"), ("in band", "Big Band")])
 
+    def test_artist_facts(self):
+        f = MB.artist_facts({"type": "Group", "country": "US", "area": {"name": "United States"},
+                             "begin-area": {"name": "Bakersfield"}, "life-span": {"begin": "1966-03", "end": "1979"},
+                             "genres": [{"name": "Country", "count": 2}, {"name": "country rock", "count": 5}, {"name": "x", "count": 0}],
+                             "tags": [{"name": "seen live", "count": 1}]})
+        self.assertEqual(f, {"type": "Group", "country": "US", "area": "Bakersfield", "begin_year": 1966, "end_year": 1979,
+                             "genres": [["country rock", 5], ["country", 2]], "tags": [["seen live", 1]]})
+        self.assertEqual(MB.artist_facts({"area": {"name": "United States"}})["area"], None)    # a country isn't a city
+        self.assertEqual(MB.artist_facts({})["genres"], [])
+
     def test_pick_needs_the_same_main_artist(self):
         self.assertEqual(MB.pick([{"id": "1", "artist-credit": ac("Other")}, {"id": "2", "artist-credit": ac("The Band")}], "Band")["id"], "2")
         self.assertIsNone(MB.pick([{"id": "1", "artist-credit": ac("Other")}], "Band"))
@@ -98,7 +108,8 @@ class Lookups(unittest.TestCase):
             "isrc/ISRC1": {"recordings": [{"id": "rec-1", "artist-credit": ac("Band", "Guest")}]},
             "recording/rec-1": RECORDING, "recording/rec-2": {"id": "rec-2", "artist-credit": ac("Band")},
             "recording": {"recordings": [{"id": "rec-2", "score": 100, "artist-credit": ac("Band")}]},
-            "artist/id-Band": {"name": "Band", "relations": [
+            "artist/id-Band": {"name": "Band", "type": "Group", "country": "GB", "life-span": {"begin": "1990"},
+                               "genres": [{"name": "britpop", "count": 3}], "relations": [
                 {"type": "member of band", "direction": "backward", "target-type": "artist", "artist": {"id": "id-Prod", "name": "Prod"}}]},
         })
         self.mb = MB.MusicBrainz(ON, limiter=limiter(), get=self.api, sleep=lambda s: None)
@@ -117,6 +128,32 @@ class Lookups(unittest.TestCase):
         self.api.calls.clear()
         self.mb.run_once(self.store, now=200)                                          # nothing is asked twice
         self.assertEqual(self.api.calls, [])
+
+    def test_an_artist_brings_its_facts(self):
+        self.mb.run_once(self.store, now=100)
+        params = next(p for path, p, _ in self.api.calls if path == "artist/id-Band")
+        self.assertEqual(params["inc"], "artist-rels+genres+tags")
+        band = self.store.mb_graph()["artists"]["id-Band"]
+        self.assertEqual((band["type"], band["country"], band["begin_year"], band["genres"]), ("Group", "GB", 1990, [["britpop", 3]]))
+
+    def test_an_artist_looked_up_before_facts_were_kept_is_asked_again(self):
+        self.mb.run_once(self.store, now=100)
+        self.store.db.execute("UPDATE mb_artists SET profiled = NULL WHERE mbid = 'id-Band'")    # as the upgrade leaves it
+        self.assertEqual([a["mbid"] for a in self.store.mb_artists_to_ask(10)], ["id-Band"])
+        self.assertNotIn("id-Band", self.store.mb_graph()["artists"])
+        self.mb.run_once(self.store, now=200)
+        self.assertEqual(self.store.mb_artists_to_ask(10), [])
+
+    def test_the_upgrade_asks_about_every_artist_again_and_drops_the_old_ai_links(self):
+        self.mb.run_once(self.store, now=100)
+        self.store.db.execute("DROP TABLE mb_artists")
+        self.store.db.execute("CREATE TABLE mb_artists (mbid TEXT PRIMARY KEY, name TEXT, asked BIGINT)")   # as v17 had it
+        self.store.db.execute("INSERT INTO mb_artists VALUES ('id-Band', 'Band', 100)")
+        self.store.set_meta("music_graph_similar", "[]")
+        self.store.set_meta("schema_version", 17)
+        self.store.migrate()
+        self.assertIn("id-Band", [a["mbid"] for a in self.store.mb_artists_to_ask(10)])
+        self.assertIsNone(self.store.get_meta("music_graph_similar"))
 
     def test_search_strips_featuring_and_needs_the_same_artist(self):
         self.mb.run_once(self.store, now=1)

@@ -30,11 +30,12 @@ STATUSES = ("new", "pending", "applying")
 
 JOB_NAMES = {"apply": "apply approved changes", "process": "process photo", "undo": "undo an apply", "sync": "Flickr sync",
              "wx": "WeatherFlow sync", "replan": "re-plan review", "music": "Apple Music read",
-             "musicbrainz": "MusicBrainz lookup"}
+             "musicbrainz": "MusicBrainz lookup", "profiles": "Artist profiles"}
 logger = logging.getLogger(__name__)
 PHOTO_NOT_FOUND = 1      # flickr.photos.getInfo's "Photo not found" (other methods number their errors their own way)
-PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan", "music", "musicbrainz"
-OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music": "Apple Music", "musicbrainz": "MusicBrainz"}
+PHOTO_JOBS = ("apply", "process", "undo")   # the others aren't about a photo: "sync", "wx" (WeatherFlow), "replan", "music", "musicbrainz", "profiles"
+OTHER_JOBS = {"sync": "Sync", "wx": "WeatherFlow", "replan": "Re-plan", "music": "Apple Music", "musicbrainz": "MusicBrainz",
+              "profiles": "Artist profiles"}
 
 
 class JobQueue(queue.Queue):
@@ -100,6 +101,7 @@ class ReviewApp:
         self.syncing = False
         self.music = None                               # the web app's Music, for ("music", "") jobs
         self.musicbrainz = None                         # the web app's MusicBrainz, for ("musicbrainz", "") jobs
+        self.profiles = None                            # the web app's ArtistProfiles, for ("profiles", "") jobs
         self.weather = None                             # the web app's WeatherService, for ("wx", "") jobs
         self.processing: set[str] = set()
         self.fresh: set[str] = set()                    # asked for again: re-read from Flickr, re-classify
@@ -179,6 +181,15 @@ class ReviewApp:
         if (self.running or {}).get("kind") == "musicbrainz" or any(kind == "musicbrainz" for kind, _ in list(self.jobs.queue)):
             return {"status": "busy"}
         self.jobs.put(("musicbrainz", ""))
+        return {"status": "queued"}
+
+    def profiles_lookup(self) -> dict:
+        """Queue a batch of artist profiles at the back of the line, like MusicBrainz's. One at a time."""
+        if self.profiles is None or not self.profiles.ready():
+            return {"status": "not_ready"}
+        if (self.running or {}).get("kind") == "profiles" or any(kind == "profiles" for kind, _ in list(self.jobs.queue)):
+            return {"status": "busy"}
+        self.jobs.put(("profiles", ""))
         return {"status": "queued"}
 
     def summary(self) -> dict:
@@ -552,6 +563,8 @@ class ReviewApp:
                     out = self.music.run_once(store)
                 elif kind == "musicbrainz":
                     out = self.musicbrainz.run_once(store)
+                elif kind == "profiles":
+                    out = self.profiles.run_once(store)
                 elif kind == "undo":
                     out = self._undo(store, pid)
                 elif kind == "replan":
@@ -600,6 +613,8 @@ class ReviewApp:
             bits.append(f"{j['rows']} new plays")
         if j["kind"] == "musicbrainz" and j["rows"] is not None:
             bits.append(f"{j['rows']} tracks, {j['calls']} calls")
+        if j["kind"] == "profiles" and j["rows"] is not None:
+            bits.append(f"{j['rows']} artists")
         if j["input_tokens"]:
             bits.append(f"{j['input_tokens'] + j['output_tokens']} tokens")
         if j["error"]:

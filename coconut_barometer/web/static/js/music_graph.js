@@ -10,9 +10,9 @@ const KINDS = {
   collab: { label: "Collaborations", dash: [], width: 3 },
   musicbrainz: { label: "MusicBrainz credits", dash: [], width: 2, color: "--chart-3" },
   credit: { label: "Composers", dash: [7, 4], width: 1.5 },
-  similar: { label: "AI: similar", dash: [2, 4], width: 1.5, color: "--accent" },
+  profile: { label: "Profile match", dash: [2, 4], width: 1.5, color: "--accent" },
 };
-const DRAW_ORDER = ["collab", "musicbrainz", "credit", "similar"];   // a link is drawn as its first kind shown
+const DRAW_ORDER = ["collab", "musicbrainz", "credit", "profile"];   // a link is drawn as its first kind shown
 const SIZES = [50, 100, 150, 200];
 const ALL = 3650;
 const hue = (c, n) => Math.round((c * 360) / Math.max(n, 5) + 20) % 360;
@@ -275,7 +275,7 @@ function Network({ graph, kinds, selected, setSelected, cluster, focusOn }) {
 
 const why = (k, v) => k === "collab" ? `${v} shared track${v > 1 ? "s" : ""}`
   : k === "credit" ? (typeof v === "number" ? `wrote ${v} track${v > 1 ? "s" : ""} for` : `composer ${v}`)
-  : k === "musicbrainz" ? v || "MusicBrainz" : v || "similar";
+  : k === "musicbrainz" ? v || "MusicBrainz" : v || "alike";
 
 function Detail({ graph, id, kinds, go }) {
   const node = graph.nodes.find((n) => n.id === id);
@@ -300,12 +300,23 @@ function MusicBrainzNote({ mb, onAsk, asking }) {
     ${left > 0 && !mb.local && html` <button class="link" disabled=${asking} onClick=${onAsk}>Look up more now</button>`}</p>`;
 }
 
+function ProfilesNote({ p, onAsk, onReset, asking }) {
+  if (!p) return null;
+  if (!p.enabled) return html`<p class="muted small">Turn on artist profiles in <a href="#/settings/music">Settings → Music</a> to link artists by scene, era and sound.</p>`;
+  if (!p.can_ask) return html`<p class="muted small">Artist profiles need the Anthropic key in <a href="#/settings/vision">Settings → Vision</a>.</p>`;
+  const left = p.top - p.asked;
+  return html`<p class="muted small">Artist profiles: ${num(p.asked)} of your top ${num(p.top)} artists, ${num(p.calls_today)} of ${num(p.daily_calls)} requests today.
+    ${left > 0 ? " They run as jobs of 25 artists, and profile matches fill in as they finish." : ""}
+    ${left > 0 && !p.local && p.calls_today < p.daily_calls && html` <button class="link" disabled=${asking} onClick=${onAsk}>Profile more now</button>`}
+    ${p.asked > 0 && html` <button class="link" onClick=${onReset}>Start over</button>`}</p>`;
+}
+
 export function ArtistNetwork({ focus }) {
   const [days, setDays] = useState(ALL);
   const [limit, setLimit] = useState(100);
   const [g, setG] = useState(null);
   const [error, setError] = useState(null);
-  const [kinds, setKinds] = useState({ collab: true, musicbrainz: true, credit: true, similar: true });
+  const [kinds, setKinds] = useState({ collab: true, musicbrainz: true, credit: true, profile: true });
   const [selected, setSelected] = useState(null);
   const [cluster, setCluster] = useState(null);
   const [focusOn, setFocusOn] = useState(null);
@@ -315,13 +326,22 @@ export function ArtistNetwork({ focus }) {
   const go = (id) => { setSelected(id); setCluster(null); setFocusOn({ id, at: Date.now() }); };
   const load = () => api("/api/music/graph", { params: { days, limit } }).then((x) => { setG(x); setError(null); }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [days, limit]);
-  const filling = !!(g?.musicbrainz?.ready && g.musicbrainz.asked < g.musicbrainz.tracks);
-  useEffect(() => (filling ? every(load, 120000) : undefined), [filling, days, limit]);   // MusicBrainz's links arrive as the jobs finish
+  const filling = !!(g?.musicbrainz?.ready && g.musicbrainz.asked < g.musicbrainz.tracks)
+    || !!(g?.profiles?.ready && g.profiles.asked < g.profiles.top && g.profiles.calls_today < g.profiles.daily_calls);
+  useEffect(() => (filling ? every(load, 120000) : undefined), [filling, days, limit]);   // links arrive as the jobs finish
   useEffect(() => { if (focus && g?.nodes.some((n) => n.id === focus)) go(focus); }, [focus, !!g]);
   const ask = async () => {
     setAsking(true);
-    try { setG(await api("/api/music/graph/ask", { method: "POST", params: { days, limit } })); } catch (e) { toast(e.message); }
+    try {
+      const r = await api("/api/music/graph/profiles", { method: "POST" });
+      toast(r.status === "queued" ? "Queued: it runs after the jobs ahead of it (Status → Jobs)"
+        : r.status === "busy" ? "Profiles are already waiting or running" : "Artist profiles aren't set up");
+    } catch (e) { toast(e.message); }
     setAsking(false);
+  };
+  const reset = async () => {
+    if (!confirm("Forget every artist profile? They're asked for again, which uses requests.")) return;
+    try { await api("/api/music/graph/profiles", { method: "DELETE" }); load(); } catch (e) { toast(e.message); }
   };
   const lookup = async () => {
     setLooking(true);
@@ -350,19 +370,19 @@ export function ArtistNetwork({ focus }) {
   if (error) return html`${toolbar}<p class="problem">${error}</p>`;
   if (!g) return html`${toolbar}<div class="boot">Loading…</div>`;
   if (g.nodes.length < 3) return html`${toolbar}<div class="card"><h2>Artist network</h2><p class="muted">Not enough listening in this range yet.</p>
-    <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} /></div>`;
-  const shown = Object.entries(KINDS).filter(([k]) => counts[k] || k === "similar" || k === "musicbrainz");
+    <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} />
+    <${ProfilesNote} p=${g.profiles} onAsk=${ask} onReset=${reset} asking=${asking} /></div>`;
+  const shown = Object.entries(KINDS).filter(([k]) => counts[k] || k === "profile" || k === "musicbrainz");
   return html`${toolbar}
     <div class="card"><h2>Artist network</h2>
       <p class="muted small">${num(g.nodes.length)} of ${num(g.total_artists)} artists, sized by plays and colored by cluster. Scroll or pinch to zoom, drag to pan or pull an artist,
         click for its connections, double-click to zoom to its neighbours.</p>
       <div class="netkinds">${shown.map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
-          ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}
-        ${g.can_ask && html`<button disabled=${asking} onClick=${ask}>${asking ? "Asking Claude…" : g.ai.asked ? "Refresh AI similarity" : "Add AI similarity"}</button>`}</div>
+          ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>
       <${Network} graph=${g} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${cluster} focusOn=${focusOn} />
       ${selected && g.nodes.some((n) => n.id === selected) && html`<${Detail} graph=${g} id=${selected} kinds=${kinds} go=${go} />`}
       <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} />
-      ${!g.ai.asked && !g.can_ask && html`<p class="muted small">Add an Anthropic key in Settings → Vision to link artists by sound and scene too.</p>`}</div>
+      <${ProfilesNote} p=${g.profiles} onAsk=${ask} onReset=${reset} asking=${asking} /></div>
     <div class="cols"><div class="card"><h2>Clusters</h2><ul class="netlist">${g.clusters.filter((c) => c.size > 1).map((c) => html`<li key=${c.id}>
         <button class="link" aria-pressed=${cluster === c.id} onClick=${() => { setSelected(null); setCluster(cluster === c.id ? null : c.id); }}>
           <i style=${`background:${color(c.id, g.clusters.length)}`}></i>${c.label}</button>

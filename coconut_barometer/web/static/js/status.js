@@ -12,9 +12,10 @@ const SOURCES = {
   "apple-music": ["Apple Music", "--chart-1"], musicbrainz: ["MusicBrainz", "--chart-3"], geocode: ["Place search", "--muted"], jobs: ["Jobs", "--fg"],
 };
 const KIND = { apply: "Apply changes", process: "Process photo", undo: "Undo an apply", sync: "Flickr sync",
-               wx: "WeatherFlow sync", replan: "Re-plan review", music: "Apple Music read", musicbrainz: "MusicBrainz lookup" };
+               wx: "WeatherFlow sync", replan: "Re-plan review", music: "Apple Music read", musicbrainz: "MusicBrainz lookup",
+               profiles: "Artist profiles" };
 const SERVICE = { apply: "flickr", undo: "flickr", sync: "flickr", process: "vision", wx: "weatherflow", replan: "jobs", music: "apple-music",
-                  musicbrainz: "musicbrainz" };
+                  musicbrainz: "musicbrainz", profiles: "vision" };
 const HEALTH_OF = { "wx-stream": "weatherflow", "apple-music": "music" };     // the /api/status row a card shows (else its own id)
 const label = (s) => (SOURCES[s] || [s])[0];
 const dot = (s) => html`<i class="srcdot" style=${`background: var(${(SOURCES[s] || [, "--muted"])[1]})`}></i>`;

@@ -26,7 +26,6 @@ from ... import apple_music as M
 from ... import local
 from ... import music_graph as G
 from ... import settings as S
-from ...errors import expected
 from ..deps import runtime, session, store, viewer
 from .admin import _confirm_password
 
@@ -69,7 +68,8 @@ def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_
 
 
 def _graph_extras(rt, db) -> dict:
-    return {"can_ask": G.can_ask(rt.cfg), "musicbrainz": {**rt.musicbrainz.state(db), "local": local.on()}}
+    return {"musicbrainz": {**rt.musicbrainz.state(db), "local": local.on()},
+            "profiles": {**rt.profiles.state(db), "local": local.on()}}
 
 
 @router.get("/graph", dependencies=[Depends(session)])
@@ -88,18 +88,20 @@ def graph_musicbrainz(rt=Depends(runtime)):
     return rt.review.musicbrainz_lookup()
 
 
-@router.post("/graph/ask", dependencies=[Depends(session)])
-def graph_ask(days: int = Query(M.ALL, ge=1, le=M.ALL), limit: int = Query(G.NODES, ge=10, le=G.MAX_NODES),
-              rt=Depends(runtime), db=Depends(store)):
-    """Ask Claude which artists are related, and to name the clusters: a few thousand tokens, so on request."""
-    try:
-        return {**G.ask_similar(rt.cfg, db, days, limit), **_graph_extras(rt, db)}
-    except G.GraphError as e:
-        raise HTTPException(409, str(e))
-    except Exception as e:
-        if not expected(e):
-            raise
-        raise HTTPException(502, f"Claude didn't answer: {type(e).__name__}")
+@router.post("/graph/profiles", dependencies=[Depends(session)])
+def graph_profiles(rt=Depends(runtime)):
+    """A batch of artist profiles now, as a job at the back of the line (they also queue themselves while a top
+    artist is left, up to the day's limit). Not in local mode."""
+    if local.on():
+        raise HTTPException(409, "profiles are held in local mode")
+    return rt.review.profiles_lookup()
+
+
+@router.delete("/graph/profiles", dependencies=[Depends(session)])
+def graph_profiles_clear(db=Depends(store)):
+    """Start over: forget what Claude said about every artist (after changing models, say). They're asked again."""
+    db.profiles_clear()
+    return {"status": "cleared"}
 
 
 @router.get("/state", dependencies=[Depends(session)])
