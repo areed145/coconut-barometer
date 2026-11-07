@@ -99,6 +99,10 @@ DEFAULTS: dict[str, Any] = {
         "user_token": None,           # your account's consent, from the Connect button
         "every_minutes": 60,          # how often the recently played list is read
     },
+    "musicbrainz": {
+        "enabled": False,             # look up each track's credits on MusicBrainz, for the artist graph (musicbrainz.py)
+        "contact": None,              # an email or URL MusicBrainz can reach you at: it goes in every request's User-Agent
+    },
     "database": "db.duckdb",
     "albums": {"create_missing": False},
     "groups": {
@@ -204,7 +208,8 @@ FREE_MAPS = {("geo", "countries", "aliases"), ("vision", "categories"), ("aprs",
 OPTIONAL = {("backup", "dir"): str, ("map", "carto_key"): str, ("flickr", "api_key"): str, ("flickr", "api_secret"): str, ("vision", "api_key"): str, ("weatherflow", "token"): str,
             ("vision", "base_url"): str, ("aprs", "passcode"): str, ("github", "token"): str, ("vision", "describe", "instructions"): str,
             ("vision", "title", "instructions"): str, ("apple_music", "team_id"): str, ("apple_music", "key_id"): str,
-            ("apple_music", "private_key"): str, ("apple_music", "user_token"): str}
+            ("apple_music", "private_key"): str, ("apple_music", "user_token"): str,
+            ("musicbrainz", "contact"): str}
 CHOICES = {("vision", "provider"): ("claude", "anthropic", "openai", "ollama"),
            ("review", "when_queued"): ("process", "queue"), ("display", "units"): ("metric", "imperial")}
 RANGES = {("vision", "min_confidence"): (0, 1), ("vision", "extra_tags", "max"): (0, 20),

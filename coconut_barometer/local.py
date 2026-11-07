@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 HELD_BACK = ("APRS-IS and CWOP, push notifications, GitHub error reports, Flickr (syncing and applying), backups, "
-             "station QC sampling, the duplicate check on new uploads, Apple Music reads")
+             "station QC sampling, the duplicate check on new uploads, Apple Music reads, MusicBrainz lookups")
 STATE = "local mode: off"            # how the Status page shows what's held back
 _on = False
 

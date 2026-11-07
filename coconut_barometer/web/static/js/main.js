@@ -29,6 +29,7 @@ const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
 const Music = lazy(() => import("./music.js"), "Music");
+const ArtistNetwork = lazy(() => import("./music_graph.js"), "ArtistNetwork");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
 const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
@@ -102,6 +103,7 @@ const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trip
                     ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
 const PRIVATE_TABS = ["music", "visitors", "status", "settings"];
+const MUSIC_TABS = [["overview", "Overview"], ["graph", "Artist network"]];
 const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["qc", "QC"]];
 const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
@@ -158,7 +160,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />`
     : route[1] === "trips" ? html`<${AprsTrips} call=${route[2] && decodeURIComponent(route[2])} />` : html`<${Aprs} />`;
   else if (tab === "visitors") page = html`<${Visitors} />`;
-  else if (tab === "music") page = html`<${Music} />`;
+  else if (tab === "music") page = route[1] === "graph" ? html`<${ArtistNetwork} focus=${route.params.artist} />` : html`<${Music} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   else if (tab === "alerts") page = !session ? html`<${Login} onLogin=${onLogin} />`
@@ -177,6 +179,9 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.filter(([t]) => session || !PRIVATE_WEATHER_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/weather/" + t}
       class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>`
+    : tab === "music" && session ? html`
+    <nav class="subtabs" aria-label="Music">${MUSIC_TABS.map(([t, label]) => html`<a href=${"#/music/" + t}
+      class=${t === (route[1] || "overview") ? "on" : ""}>${label}</a>`)}</nav>`
     : tab === "aprs" ? html`
     <nav class="subtabs" aria-label="APRS">${APRS_TABS.map(([t, label]) => html`<a href=${"#/aprs/" + t}
       class=${t === (route[1] || "tracking") ? "on" : ""}>${label}</a>`)}</nav>` : "";

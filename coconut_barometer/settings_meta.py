@@ -320,6 +320,13 @@ META = {
                                  "stops the reads.", group="Apple Developer key"),
     "apple_music.every_minutes": _m("music", "Read every (minutes)", "More often keeps the estimated times closer and "
                                     "loses fewer plays on long listening days.", group="Reads"),
+    "musicbrainz.enabled": _m("music", "Look up credits on MusicBrainz", "Producers, writers, players, featured "
+                              "artists and band members for the artist graph, each track looked up once. The lookups "
+                              "run as jobs at one request a second, so a big library takes a few hours the first time.",
+                              group="MusicBrainz"),
+    "musicbrainz.contact": _m("music", "Contact for MusicBrainz", "An email address or URL. MusicBrainz asks every app to "
+                              "name a way to reach whoever runs it, and it's sent with each request. Lookups wait for it.",
+                              group="MusicBrainz"),
     "visitors.enabled": _m("visitors", "Count visitors", "Off: nothing new is recorded; what's kept stays."),
     "visitors.keep_days": _m("visitors", "Keep page views for (days)", "Older days keep only their visitor and page "
                              "view totals."),
