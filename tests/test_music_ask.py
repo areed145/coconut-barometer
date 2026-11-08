@@ -72,7 +72,7 @@ class ToolsTest(unittest.TestCase):
     def test_connect_and_neighbourhood_give_reasons(self):
         got = self.t.run("connect", {"a": "Haggard", "b": "Parsons"})
         self.assertEqual(got["path"], ["Haggard", "Owens", "Parsons"])
-        self.assertTrue(got["steps"][0]["why"][0].startswith("collab"))
+        self.assertRegex(got["steps"][0]["why"][0], r"featured on|together")
         self.assertIn("links", self.t.run("neighbourhood", {"artist": "Owens"}))
 
     def test_listening_finds_what_was_new(self):

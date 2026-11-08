@@ -71,11 +71,25 @@ Your server fetches each cover once and keeps its own copy in `music_art/` next 
 
 ## Artist network, MusicBrainz credits and artist profiles
 
-**Music → Artists**, **Top in this period** (`#/music/artists`), draws the most played artists of the period and how they connect: collaborations in titles, composers from Apple's catalog, MusicBrainz credits, and profile matches (below). Playing two artists back to back doesn't link them, since that says more about a playlist or shuffle than about the music. Pick the period and how many artists to draw (50 to 200). Scroll or pinch to zoom, drag the background to pan, drag an artist to pull it, click one for its connections, double-click to zoom to its neighbours, or type a name in **Find an artist**. Clicking a cluster or a hidden bridge zooms to it. Artists keep their places when you change the period, the number drawn or the link kinds shown, so you can watch the network reshape.
+**Music → Artists**, **Top in this period** (`#/music/artists`), draws the most played artists of the period and how they connect. Playing two artists back to back doesn't link them, since that says more about a playlist or shuffle than about the music. Pick the period and how many artists to draw (50 to 200). Scroll or pinch to zoom, drag the background to pan, drag an artist to pull it, click one for its connections, double-click to zoom to its neighbours, or type a name in **Find an artist**. Clicking a cluster or a hidden bridge zooms to it. Artists keep their places when you change the period, the number drawn or the kinds of link shown, so you can watch the network reshape.
+
+Links are grouped by what the relationship is, not where it was found, and each kind pulls artists together with its own strength:
+
+| Kind | What it covers | Pull |
+| --- | --- | --- |
+| **Bandmates** | one is in the other's band, they share a member, one grew out of the other, the same artist under two names, family, teacher and student (MusicBrainz) | strongest: they sit close |
+| **Made music together** | "feat." or "with" in a title, "A & B" when both are artists on their own, MusicBrainz's featured artists and collaborations | strong, more with more shared tracks |
+| **Worked on their records** | produced, wrote for (Apple's composer field, MusicBrainz's writers), played on or toured with, remixed, arranged; an arrowhead points from the one who did the work | medium, more with more tracks |
+| **Share a collaborator** | the same producer, songwriter, player or guest, who isn't drawn themselves | weak |
+| **Sound alike** | profile matches (below) | weakest: they stay loose |
+
+The same relationship found in two places, such as a "feat." in the title and MusicBrainz's featured credit, counts once. Click an artist to see each of its links as a sentence, with where it came from (song title, Apple, MusicBrainz or profile). Clusters and hidden bridges are worked out from the same pulls, so they follow who actually works with whom.
+
+**Lines** draws a stronger link darker and thicker (**Weight**, the default) or gives each kind its own color (**Colored by kind**). **Cluster shapes** (off by default) draws a soft, transparent shape behind each cluster's artists, joined along the short links between them, with the cluster's name above it. Both are remembered in your browser and apply to the whole graph too.
 
 For real credits (producers, writers, players, featured artists, band members), turn on **Look up credits on MusicBrainz** in **Settings → Music** and give a **Contact for MusicBrainz** (an email address or URL). MusicBrainz asks every app to name a contact, and it's sent with each request. Lookups don't start without one.
 
-Each track is looked up once: by its ISRC, else by title and main artist (kept only when the match is credited to that same artist), most played first. Then come the artists those tracks are credited to, for their bands and collaborations. The lookups run as **MusicBrainz lookup** jobs at the back of the Status page's job line, about a minute of requests each. Every request waits for one shared limit of one a second, which MusicBrainz requires, so a library of a few thousand tracks takes a few hours the first time. **Where the links come from**, below the graph, shows how far along they are, and the graph refreshes as they finish. Lookups are held in local mode.
+Each track is looked up once: by its ISRC, else by title and main artist (kept only when the match is credited to that same artist), most played first. Then come the artists those tracks are credited to, for their bands, collaborations, supporting musicians, offshoots, other names, teachers and family. Artists looked up before those were kept are asked about again, after the ones never asked, and keep what they had until then. The lookups run as **MusicBrainz lookup** jobs at the back of the Status page's job line, about a minute of requests each. Every request waits for one shared limit of one a second, which MusicBrainz requires, so a library of a few thousand tracks takes a few hours the first time. **Where the links come from**, below the graph, shows how far along they are, and the graph refreshes as they finish. Lookups are held in local mode.
 
 Each artist lookup also keeps what MusicBrainz knows about the artist: group or person, where they started, their years, and the genres its editors voted for.
 

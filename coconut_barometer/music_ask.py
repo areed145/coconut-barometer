@@ -26,9 +26,10 @@ MAX_QUESTION = 500
 
 SYSTEM = """You answer questions about one person's music listening, using only the tools here. They read the person's \
 own artist graph: every artist they've played over {min_plays} times, each with a profile (scenes, genres, the decades \
-they mattered most in, where they're from) and links between artists. A link has kinds: collab (named together on \
-tracks), credit (a composer they share or who wrote for the other), musicbrainz (producers, players, band members), \
-profile (alike on paper: shared scene or rare genre). Today is {today}.
+they mattered most in, where they're from) and links between artists. Each link says why, strongest first: \
+bandmates (one is in the other, a shared member, family, the same person), made music together (featured on each \
+other's tracks, collaborated), worked on their records (produced, wrote for, played on, remixed), a collaborator they \
+share (the same producer, songwriter or player), or alike on paper (a shared scene or rare genre). Today is {today}.
 
 Look things up before answering; don't rely on what you know about the artists for anything the tools can tell you. \
 When you're done, call show_answer exactly once: a short answer (under 120 words, plain sentences, no headings), the \
@@ -71,7 +72,7 @@ class AskError(RuntimeError):
 
 
 def _link(e: dict) -> dict:
-    return {"a": e["a"], "b": e["b"], "why": [f"{k}: {v}" for k, v in e["kinds"].items()]}
+    return {"a": e["a"], "b": e["b"], "why": [r["said"] for r in e["rels"]]}
 
 
 def _brief(n: dict) -> dict:

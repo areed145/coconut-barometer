@@ -45,8 +45,9 @@ class Build(unittest.TestCase):
     def test_edges_and_clusters(self):
         g = G.build(self.rows())
         by = {(e["a"], e["b"]): e for e in g["edges"]}
-        self.assertEqual(by[("A", "X")]["kinds"]["collab"], 1)
-        self.assertIn("credit", by[("A", "M")]["kinds"])
+        self.assertEqual([(r["type"], r["said"], r["via"]) for r in by[("A", "X")]["rels"]], [("featured", "X featured on A", ["song title"])])
+        self.assertEqual([(r["type"], r["from"], r["said"]) for r in by[("A", "M")]["rels"]], [("wrote", "A", "A wrote for M")])
+        self.assertEqual(g["types"]["member"], {"kind": "band", "pull": 3.0, "rest": 34})
         group = {n["id"]: n["cluster"] for n in g["nodes"]}
         self.assertEqual(group["A"], group["B"])
         self.assertEqual(group["X"], group["Y"])
@@ -58,6 +59,29 @@ class Build(unittest.TestCase):
     def test_playing_back_to_back_links_nothing(self):
         g = G.build([r for n in range(10) for r in session(n * 1000, "A", "B", "C")])
         self.assertEqual(g["edges"], [])
+
+    def test_each_relationship_pulls_by_what_it_is(self):
+        self.assertGreater(G.pull({"type": "member", "tracks": 1}), G.pull({"type": "featured", "tracks": 1}))
+        self.assertGreater(G.pull({"type": "featured", "tracks": 1}), G.pull({"type": "shared producer", "tracks": 1}))
+        self.assertGreater(G.pull({"type": "shared player", "tracks": 1}), G.pull({"type": "sound", "tracks": 1, "score": 0.9}))
+        self.assertEqual(G.pull({"type": "featured", "tracks": 4}), 3.0)                    # more tracks, up to 1.75×
+        self.assertEqual(G.pull({"type": "featured", "tracks": 1000}), 3.5)
+        self.assertEqual(G.pull({"type": "sound", "tracks": 1, "score": 0.45}), 0.125)
+
+    def test_one_relationship_found_twice_is_one_and_a_pair_adds_up(self):
+        rows = [play(i, a) for i, a in enumerate(["A", "B"] * 3)] + [play(10, "A", "Hit (feat. B)"), play(11, "B", "Other (feat. A)")]
+        mb = {"credits": [{"artist": "A", "role": "artist", "name": "A", "mbid": "id-A", "tracks": 3},
+                          {"artist": "B", "role": "artist", "name": "B", "mbid": "id-B", "tracks": 3},
+                          {"artist": "A", "role": "featured", "name": "B", "mbid": "id-B", "tracks": 1},
+                          {"artist": "A", "role": "producer", "name": "B", "mbid": "id-B", "tracks": 1}],
+              "rels": [{"mbid": "id-B", "name": "B", "role": "in band", "other": "id-A", "other_name": "A"}]}
+        e = G.build(rows, mb=mb)["edges"][0]
+        self.assertEqual([(r["type"], r["said"], r["via"]) for r in e["rels"]], [
+            ("member", "B is in A", ["MusicBrainz"]),
+            ("featured", "A and B on 2 tracks together", ["song title", "MusicBrainz"]),   # both ways, title and MusicBrainz
+            ("produced", "B produced A", ["MusicBrainz"])])
+        self.assertEqual([r["pull"] for r in e["rels"]], [3.0, 2.5, 1.5])                  # 2 tracks: 2 × 1.25
+        self.assertEqual(e["weight"], G.MAX_PULL)                                          # 3 + 0.3 × 4, held to 4
 
     def test_limit(self):
         self.assertEqual(len(G.build(self.rows(), limit=3)["nodes"]), 3)
@@ -93,7 +117,7 @@ class Profiles(unittest.TestCase):
         self.assertEqual(G.profile_links(p), {})
         p["A"]["scenes"].add("c86")
         p["B"]["scenes"].add("c86")                                             # a rarer one still does, and says so
-        self.assertEqual(G.profile_links(p), {("A", "B"): (0.45, "c86")})
+        self.assertEqual(G.profile_links(p), {("A", "B"): (0.45, "c86", True)})
 
     def test_each_artist_keeps_its_closest_few(self):
         p = {f"A{i}": prof({"rock": 1, "surf": 1}, ["surf"], (1960, 1969)) for i in range(8)}
@@ -130,7 +154,7 @@ class Profiles(unittest.TestCase):
         rows = [play(i * 100, a, genre="Rock") for i, a in enumerate(["A", "B", "C"] * 3)]
         said = {a: {"scenes": ["paisley underground"], "styles": ["jangle pop"], "decades": [1980], "country": "US"} for a in "AB"}
         g = G.build(rows, profiles=said, now=1_800_000_000)
-        self.assertEqual([(e["a"], e["b"], list(e["kinds"])) for e in g["edges"]], [("A", "B", ["profile"])])
+        self.assertEqual([(e["a"], e["b"], [r["type"] for r in e["rels"]]) for e in g["edges"]], [("A", "B", ["scene"])])
 
 
 class Report(unittest.TestCase):

@@ -1,18 +1,24 @@
 """The artist network on the Music page (#/music): who you listen to, and how they connect.
 
-Edges, each a different reason two artists are linked (playing two artists back to back isn't one: it says more
-about a playlist or a shuffle than about the music):
-  collab     named together: "A feat. B", "(with B)" in a song's title, or "A & B" when both are artists on their own
-  credit     a composer in Apple's catalog who is also an artist you play, or who wrote for several of them
-  musicbrainz  recording credits and band memberships from MusicBrainz (musicbrainz.py): one artist produced, wrote for,
-             played on or featured on another's tracks, or is in their band; or two share a producer, writer, player or
-             member. Artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when
-             exactly one drawn artist has it
-  profile    alike on paper: each artist's profile (genres from Apple, MusicBrainz and Claude; Claude's scenes; their
-             years; where they're from) compared here, with no model in the loop (profile_links). A rare genre counts
-             for more than one everybody has, and each artist keeps only its closest few
+Each link lists what relates two artists, typed by what the relationship is, not by where it was found (playing two
+artists back to back isn't one: it says more about a playlist or a shuffle than about the music). Five kinds:
+  band      bandmates: one is in the other, they share a member, one grew out of the other, they're the same person,
+            family, or teacher and student (MusicBrainz's artist relations)
+  together  made music together: "A feat. B" or "(with B)" in a song's title, "A & B" when both are artists on their
+            own, MusicBrainz's artist credits and collaborations
+  credit    worked on their records: produced, wrote for (Apple's composer field, MusicBrainz's work credits), played on
+            or toured with, remixed, arranged. These have a direction: from the one who did the work
+  shared    share a collaborator: the same producer, songwriter, player or guest, who isn't drawn themselves
+  alike     alike on paper: each artist's profile (genres from Apple, MusicBrainz and Claude; Claude's scenes; their
+            years; where they're from) compared here, with no model in the loop (profile_links). A rare genre counts
+            for more than one everybody has, and each artist keeps only its closest few
+Each type pulls with its own strength and settles at its own distance (TYPES): bandmates close, a producer near who
+they produced, artists who only sound alike loosely. More shared tracks pull harder. The same relationship found in
+two places (a "feat." in the title and MusicBrainz's featured credit) is one, with both as its sources. MusicBrainz
+artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when exactly one drawn
+artist has it.
 
-Clusters are found by greedy modularity on the combined weights, and named by the scene or genres their members share.
+Clusters are found by greedy modularity on those pulls, and named by the scene or genres their members share.
 Hidden bridges are the modestly played artists whose connections reach several clusters: the ones that tie your
 listening together."""
 from __future__ import annotations
@@ -30,9 +36,31 @@ import numpy as np
 
 NODES = 100                      # the most played artists drawn
 CREDIT_MAX_ARTISTS = 8           # a composer behind more artists than this ("Traditional") says nothing
-WEIGHTS = {"collab": 1.0, "credit": 0.6, "musicbrainz": 0.9, "profile": 0.8}
-MB_VERBS = {"featured": "featured on", "producer": "produced", "performer": "played on", "writer": "wrote for",
-            "remixer": "remixed", "arranger": "arranged for"}
+# type: (kind, pull, distance). Pull is spring strength (a feature is 2); distance is how far apart a pair settles,
+# in px, past both circles. A pair with several keeps the strongest's distance, and each other adds 30% of its pull.
+TYPES = {
+    "same person": ("band", 3.0, 30), "member": ("band", 3.0, 34), "subgroup": ("band", 2.4, 42),
+    "family": ("band", 2.4, 42), "teacher": ("band", 1.6, 55), "shared member": ("band", 1.6, 55),
+    "featured": ("together", 2.0, 50),
+    "produced": ("credit", 1.5, 66), "wrote": ("credit", 1.4, 66), "played": ("credit", 1.2, 70),
+    "remixed": ("credit", 0.7, 82), "arranged": ("credit", 0.7, 82),
+    "shared producer": ("shared", 0.8, 95), "shared writer": ("shared", 0.7, 95), "shared player": ("shared", 0.45, 100),
+    "scene": ("alike", 0.45, 130), "sound": ("alike", 0.25, 150),
+}
+BY_TRACKS = {"featured", "produced", "wrote", "played", "remixed", "arranged"}   # 1 + 0.25·log2(tracks), up to 1.75×
+MAX_PULL = 4.0
+OTHERS = 0.3                     # of each further type's pull, on a pair with several
+SOUND_FULL = 0.9                 # the profile score at which "sound" pulls fully
+# A MusicBrainz credit on another artist's track: its type here, and its type when two drawn artists share the person.
+MB_CREDIT = {"featured": "featured", "producer": "produced", "performer": "played", "writer": "wrote",
+             "remixer": "remixed", "arranger": "arranged"}
+MB_SHARED = {"producer": "shared producer", "remixer": "shared producer", "arranger": "shared producer",
+             "writer": "shared writer", "performer": "shared player", "featured": "shared player",
+             "member": "shared member", "supports": "shared player"}
+SHARED_SAYS = {"producer": "both produced by {}", "remixer": "both remixed by {}", "arranger": "both arranged by {}",
+               "writer": "both have songs by {}", "performer": "{} played on both", "featured": "{} features on both",
+               "member": "{} is in both", "supports": "{} plays with both"}
+FAMILY = {"sibling": "siblings", "married": "married", "parent": "parent and child", "partner": "partners"}
 MAX_NODES = 200
 GENERIC_CREDITS = {"traditional", "public domain", "various", "various artists", "unknown", "anonymous"}
 # Profile matches: how much each part counts, how close is close enough, and how many each artist keeps.
@@ -86,7 +114,7 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
     plays: Counter = Counter()
     minutes: Counter = Counter()
     genres: dict = defaultdict(Counter)
-    collab: Counter = Counter()
+    collab: Counter = Counter()                       # (main, guest) -> tracks the guest is on
     credit_artists: dict = defaultdict(Counter)       # composer -> artist -> tracks
     for r in rows:
         main, others = credited(r["artist"], r.get("name") or "", known)
@@ -95,38 +123,45 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
         for g in json.loads(r["genres"] or "[]"):
             genres[main][g] += 1
         for o in others:
-            collab[_pair(main, o)] += 1
+            collab[(main, o)] += 1
             plays[o] += 0
         for c in composers(r.get("composer")):
             credit_artists[c][main] += 1
     nodes = [a for a, n in plays.most_common(limit) if n > max(0, min_plays)]
     keep = set(nodes)
-    edges: dict = defaultdict(lambda: {"kinds": {}, "weight": 0.0})
+    found: dict = defaultdict(dict)                    # pair -> (type, from) -> what's known of that relationship
 
-    def link(a, b, kind, strength, detail=None):
+    def add(a, b, kind, frm=None, tracks=1, via="", person=None, note=None, score=None, said=None):
+        """One relationship between a and b, merged with the same one found elsewhere. frm: who did the work, for the
+        directed types. person: the collaborator two artists share, with their role, for the shared types."""
         if a == b or a not in keep or b not in keep:
             return
-        e = edges[_pair(a, b)]
-        e["kinds"][kind] = detail if detail is not None else round(strength, 3)
-        e["weight"] += WEIGHTS[kind] * strength
+        r = found[_pair(a, b)].setdefault((kind, frm), {"type": kind, "from": frm, "to": None if frm is None else (b if frm == a else a),
+                                                         "tracks": 0, "via": [], "people": [], "note": note, "score": score, "said": said})
+        r["tracks"] = max(r["tracks"], tracks)
+        if via and via not in r["via"]:
+            r["via"].append(via)
+        if person and person not in r["people"]:
+            r["people"].append(person)
 
-    for (a, b), n in collab.items():
-        link(a, b, "collab", 1.0, n)
+    for (main, guest), n in collab.items():
+        add(main, guest, "featured", guest, n, "song title")
     for composer, by in credit_artists.items():
         if composer in keep:                           # the composer is an artist you play: they wrote for the others
             for a in by:
-                link(a, composer, "credit", 1.0, by[a])
+                add(a, composer, "wrote", composer, by[a], "Apple")
         elif 2 <= len(by) <= CREDIT_MAX_ARTISTS:
             names = sorted(by)
             for i, a in enumerate(names):
                 for b in names[i + 1:]:
-                    link(a, b, "credit", 1.0, composer)
-    for (a, b), (strength, said) in musicbrainz_links(mb or {}, keep, known).items():
-        link(a, b, "musicbrainz", strength, " · ".join(said[:3]))
+                    add(a, b, "shared writer", via="Apple", person=(composer, "writer"))
+    for f in musicbrainz_links(mb or {}, keep, known):
+        add(**f, via="MusicBrainz")
     year = dt.datetime.fromtimestamp(now if now is not None else dt.datetime.now().timestamp(), dt.timezone.utc).year
     profile = artist_profiles(nodes, genres, mb or {}, profiles or {}, known, year)
-    for (a, b), (score, why) in profile_links(profile).items():
-        link(a, b, "profile", score, why)
+    for (a, b), (score, why, scene) in profile_links(profile).items():
+        add(a, b, "scene" if scene else "sound", via="profile", score=score, said=why)
+    edges = {pair: tie(*pair, rels) for pair, rels in found.items()}
     weight = {pair: e["weight"] for pair, e in edges.items()}
     group = communities(nodes, weight)
     members: dict = defaultdict(list)
@@ -141,14 +176,71 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
                   "genre": genres[a].most_common(1)[0][0] if genres[a] else None,
                   "degree": degree[a], "profile": summary(profile[a])} for a in nodes]
     return {"nodes": out_nodes,
-            "edges": [{"a": a, "b": b, "kinds": e["kinds"], "weight": round(e["weight"], 3)} for (a, b), e in sorted(edges.items())],
+            "edges": [edges[pair] for pair in sorted(edges)], "types": TYPE_INFO,
             "clusters": [{"id": cid, "label": names[cid], "size": len(people), "members": people[:12],
                           "key": member_key(people)} for cid, people in sorted(members.items())],
             "bridges": bridges(nodes, weight, group, plays, names), "total_artists": len(plays)}
 
 
-def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> dict:
-    """(a, b) -> (strength, what MusicBrainz says links them, the most tracks first), between drawn artists only."""
+TYPE_INFO = {t: {"kind": k, "pull": p, "rest": d} for t, (k, p, d) in TYPES.items()}   # for the page's layout
+
+
+def pull(r: dict) -> float:
+    """How hard one relationship pulls: its type's, more for more tracks, and "sound" by how alike the two are."""
+    p = TYPES[r["type"]][1]
+    if r["type"] in BY_TRACKS:
+        p *= min(1.75, 1 + 0.25 * math.log2(max(1, r["tracks"])))
+    elif r["type"] == "sound" and r.get("score") is not None:
+        p *= min(1.0, r["score"] / SOUND_FULL)
+    return p
+
+
+def say(a: str, b: str, r: dict) -> str:
+    """A relationship as a sentence, as the page and the questions (music_ask.py) show it."""
+    t, frm, to, n = r["type"], r["from"], r["to"], r["tracks"]
+    tracks = f" ({n} tracks)" if n > 1 else ""
+    if r.get("said"):
+        return r["said"]
+    if t in ("shared producer", "shared writer", "shared player", "shared member"):
+        return " · ".join(SHARED_SAYS.get(role, "both credit {}").format(name) for name, role in r["people"][:2])
+    if t == "member":
+        return f"{frm} is in {to}"
+    if t == "same person":
+        return f"{a} and {b} are the same artist"
+    if t == "subgroup":
+        return f"{a} and {b}: one grew out of the other"
+    if t == "family":
+        return f"{a} and {b} are {FAMILY.get(r['note'], 'family')}"
+    if t == "teacher":
+        return f"{a} and {b} were teacher and student"
+    if t == "featured":
+        return f"{a} and {b} collaborated" if r["note"] == "collaboration" else f"{frm} featured on {to}{tracks}"
+    verb = {"produced": "produced", "wrote": "wrote for", "remixed": "remixed", "arranged": "arranged for",
+            "played": "played with" if r["note"] == "supports" else "played on"}[t]
+    return f"{frm} {verb} {to}{tracks}"
+
+
+def tie(a: str, b: str, found: dict) -> dict:
+    """One link: its relationships, strongest first, each as a sentence with where it was found, and the pair's pull
+    (the weight clusters, bridges and paths use). A feature found both ways round reads as one."""
+    rels = list(found.values())
+    feats = [r for r in rels if r["type"] == "featured" and r["note"] != "collaboration"]
+    if len(feats) == 2:                                # a on b's track and b on a's
+        one = {**feats[0], "from": None, "to": None, "tracks": feats[0]["tracks"] + feats[1]["tracks"],
+               "via": list(dict.fromkeys(feats[0]["via"] + feats[1]["via"])), "said": None}
+        n = one["tracks"]
+        one["said"] = f"{a} and {b} on {n} tracks together" if n > 1 else f"{a} and {b} on a track together"
+        rels = [r for r in rels if r not in feats] + [one]
+    out = sorted(({"type": r["type"], "said": say(a, b, r), "via": r["via"], "pull": round(pull(r), 3),
+                   **({"from": r["from"]} if r["from"] and TYPES[r["type"]][0] == "credit" else {})} for r in rels),
+                 key=lambda r: (-r["pull"], r["type"]))
+    pulls = [r["pull"] for r in out]
+    return {"a": a, "b": b, "rels": out, "weight": round(min(MAX_PULL, pulls[0] + OTHERS * sum(pulls[1:])), 3)}
+
+
+def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
+    """What MusicBrainz says relates drawn artists, as add()'s arguments: a credit on another drawn artist's track, an
+    artist relation between two, or a person (not drawn) both credit or both have as a member."""
     from .musicbrainz import norm
 
     by_name: dict = defaultdict(set)
@@ -169,34 +261,39 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> dict:
         a = next(iter(hit))
         return None if has_id[a] else a                  # same name, another MusicBrainz artist: someone else
 
-    said: dict = defaultdict(Counter)                    # pair -> phrase -> tracks
+    out: list = []
     shared: dict = defaultdict(lambda: defaultdict(Counter))   # (mbid, name) not drawn -> drawn artist -> role -> tracks
     for c in rows:
-        if c["role"] == "artist" or c["main"] not in keep:
+        if c["role"] == "artist" or c["main"] not in keep or c["role"] not in MB_CREDIT:
             continue
         other = node(c["mbid"], c["name"])
         if other and other != c["main"]:
-            said[_pair(c["main"], other)][f"{other} {MB_VERBS.get(c['role'], c['role'])} {c['main']}"] += c["tracks"]
+            out.append({"a": c["main"], "b": other, "kind": MB_CREDIT[c["role"]], "frm": other, "tracks": c["tracks"]})
         elif not other:
             shared[(c["mbid"], c["name"])][c["main"]][c["role"]] += c["tracks"]
     for r in mb.get("rels") or []:
-        a, b = node(r["mbid"], r["name"]), node(r["other"], r["other_name"])
+        a, b, role = node(r["mbid"], r["name"]), node(r["other"], r["other_name"]), r["role"]
         if a and b and a != b:
-            phrase = f"{a} is in {b}" if r["role"] == "in band" else f"{b} is in {a}" if r["role"] == "band of" else f"{a} and {b} collaborated"
-            said[_pair(a, b)][phrase] += 1
-        elif a and not b and r["role"] != "collaboration":
-            shared[(r["other"], r["other_name"])][a]["member"] += 1
-    out = {pair: (1.0, [p for p, _ in n.most_common()]) for pair, n in said.items()}
+            if role in ("in band", "band of"):
+                out.append({"a": a, "b": b, "kind": "member", "frm": a if role == "in band" else b})
+            elif role in ("supports", "supported by"):
+                out.append({"a": a, "b": b, "kind": "played", "frm": a if role == "supports" else b, "note": "supports"})
+            elif role == "collaboration":
+                out.append({"a": a, "b": b, "kind": "featured", "note": "collaboration"})
+            elif role in FAMILY:
+                out.append({"a": a, "b": b, "kind": "family", "note": role})
+            elif role in ("same person", "subgroup", "teacher"):
+                out.append({"a": a, "b": b, "kind": role})
+        elif a and not b and role in ("in band", "band of", "supports", "supported by"):
+            shared[(r["other"], r["other_name"])][a]["member" if "band" in role else "supports"] += 1
     for (mbid, name), by in shared.items():
         if not 2 <= len(by) <= CREDIT_MAX_ARTISTS or name.lower() in GENERIC_CREDITS:
             continue
         names = sorted(by)
         for i, a in enumerate(names):
             for b in names[i + 1:]:
-                roles = sorted(set(by[a]) | set(by[b]))
-                if _pair(a, b) not in out:
-                    out[_pair(a, b)] = (0.7, [])
-                out[_pair(a, b)][1].append(f"both credit {name} ({', '.join(roles)})")
+                for role in sorted(set(by[a]) & set(by[b])) or sorted(set(by[a]) | set(by[b]))[:1]:
+                    out.append({"a": a, "b": b, "kind": MB_SHARED[role], "person": (name, role)})
     return out
 
 
@@ -259,7 +356,7 @@ def _decades(lo: int, hi: int) -> str:
 
 
 def profile_links(profile: dict) -> dict:
-    """(a, b) -> (score, why) for the pairs alike enough, each artist keeping its closest PROFILE_PER_ARTIST. Genres
+    """(a, b) -> (score, why, whether they share a scene) for the pairs alike enough, each artist keeping its closest PROFILE_PER_ARTIST. Genres
     are compared by cosine, each weighted by how rare it is among the artists drawn, and one most of them share is
     left out: two artists known only as "Rock" aren't alike. The same goes for a scene most of them share.
 
@@ -310,7 +407,7 @@ def profile_links(profile: dict) -> dict:
         said = sorted(both)
         top = sorted(shared, key=lambda x: -vec[i][x] * vec[j][x])[:2]
         why = said[:2] + [x for x in top if x not in said] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
-        return score, " · ".join(why)
+        return score, " · ".join(why), bool(both)
 
     scores, left, right = array("d"), array("q"), array("q")
     for i in range(n):
@@ -338,8 +435,8 @@ def profile_links(profile: dict) -> dict:
             if kept[i] < PROFILE_PER_ARTIST and kept[j] < PROFILE_PER_ARTIST:
                 kept[i] += 1
                 kept[j] += 1
-                score, why = match(i, j, explain=True)
-                out[(names[i], names[j])] = (round(score, 3), why)
+                score, why, scene = match(i, j, explain=True)
+                out[(names[i], names[j])] = (round(score, 3), why, scene)
         if len(out) >= full:
             break
     return out

@@ -65,7 +65,7 @@ class Whole:
         mine = set(ids)
         around = mine | {h for h in list(have)[:MAX_HAVE] if h in self.nodes}
         edges = [e for i in ids for other, e in self.adj[i] if other in around and (other not in mine or i < other)]
-        return {"nodes": [self.nodes[i] for i in ids], "edges": edges, "clusters": self.clusters, **extra}
+        return {"nodes": [self.nodes[i] for i in ids], "edges": edges, "clusters": self.clusters, "types": G.TYPE_INFO, **extra}
 
     # ---- the queries ----------------------------------------------------------------------------------------
     def neighbourhood(self, artist: str, depth: int = 1, size: int = 40, have=()) -> dict:

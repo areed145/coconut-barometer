@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS music_tracks (id TEXT PRIMARY KEY, kind TEXT, name TE
 CREATE TABLE IF NOT EXISTS music_plays (track_id TEXT, played_at BIGINT, seen_at BIGINT, window_start BIGINT, source TEXT, listened_ms BIGINT, end_reason TEXT, context TEXT);
 CREATE TABLE IF NOT EXISTS mb_recordings (track_id TEXT PRIMARY KEY, recording TEXT, how TEXT, asked BIGINT);
 CREATE TABLE IF NOT EXISTS mb_credits (track_id TEXT, role TEXT, name TEXT, mbid TEXT);
-CREATE TABLE IF NOT EXISTS mb_artists (mbid TEXT PRIMARY KEY, name TEXT, asked BIGINT, type TEXT, country TEXT, area TEXT, begin_year INTEGER, end_year INTEGER, genres TEXT, tags TEXT, profiled BIGINT);
+CREATE TABLE IF NOT EXISTS mb_artists (mbid TEXT PRIMARY KEY, name TEXT, asked BIGINT, type TEXT, country TEXT, area TEXT, begin_year INTEGER, end_year INTEGER, genres TEXT, tags TEXT, profiled BIGINT, rels_v INTEGER);
 CREATE TABLE IF NOT EXISTS mb_artist_rels (mbid TEXT, role TEXT, other TEXT, other_name TEXT);
 CREATE TABLE IF NOT EXISTS artist_profiles (artist TEXT PRIMARY KEY, scenes TEXT, styles TEXT, decades TEXT, country TEXT, model TEXT, asked BIGINT);
 """
@@ -210,7 +210,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 def is_sqlite_file(path) -> bool:
@@ -289,6 +289,8 @@ class Database:
                 self.db.execute(f"ALTER TABLE mb_artists ADD COLUMN IF NOT EXISTS {col} {kind}")
             # the links Claude suggested on request, gone with their button
             self.db.execute("DELETE FROM meta WHERE key IN ('music_graph_similar', 'music_graph_labels')")
+        if 0 < version < 19:                    # v19: which artist relations each artist was looked up for: the
+            self.db.execute("ALTER TABLE mb_artists ADD COLUMN IF NOT EXISTS rels_v INTEGER")   # rest are asked again
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
 
