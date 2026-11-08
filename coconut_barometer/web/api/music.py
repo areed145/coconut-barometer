@@ -71,17 +71,26 @@ def _today(tz: str) -> dt.date:
     return dt.datetime.now(M._zone(tz)).date()
 
 
-@router.get("/analytics", dependencies=[Depends(session)])
+# Music → Recent and Stats are public; the artist graph (Artists), connecting and importing are signed in only.
+PUBLIC_STATE = ("every_minutes", "last_ok", "started", "missed", "imported")
+
+
+def _for(me, out: dict) -> dict:
+    """A visitor sees the state's footnote (how often it's read, since when), not the connection's errors or setup."""
+    return out if me is not None else {**out, "state": {k: out["state"][k] for k in PUBLIC_STATE}}
+
+
+@router.get("/analytics")
 def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
-              rt=Depends(runtime), db=Depends(store)):
-    """The Stats page: the last `days`, or ?start=&end= (days in tz)."""
-    return rt.music.report(db, days, tz, dates=span.dates(_today(tz)))
+              rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """The Stats page: the last `days`, or ?start=&end= (days in tz). Public."""
+    return _for(me, rt.music.report(db, days, tz, dates=span.dates(_today(tz))))
 
 
-@router.get("/latest", dependencies=[Depends(session)])
-def latest(rt=Depends(runtime), db=Depends(store)):
-    """The Recent page: the newest plays, and the connection's state."""
-    return rt.music.latest(db)
+@router.get("/latest")
+def latest(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """The Recent page: the newest plays, and the connection's state. Public."""
+    return _for(me, rt.music.latest(db))
 
 
 def _graph_extras(rt, db) -> dict:
@@ -207,7 +216,7 @@ def state(rt=Depends(runtime), db=Depends(store)):
     return rt.music.state(db)
 
 
-@router.get("/weather", dependencies=[Depends(session)])
+@router.get("/weather")
 def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
             db=Depends(store)):
     return M.rain_report(db, days, tz, dates=span.dates(_today(tz)))
@@ -239,12 +248,10 @@ def glance(db=Depends(store)):
 
 
 @router.get("/art/{track_id}")
-def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store)):
     """A cover, from this server's own copy: Apple's image host isn't in the site's CSP, and this way the browser
-    never talks to it. Fetched the first time it's shown, then kept on the disk. Visitors get only the covers on
-    Home's Music card."""
-    if me is None and track_id not in {r["track_id"] for r in db.music_recent(GLANCE_TRACKS)}:
-        raise HTTPException(401, "not logged in")
+    never talks to it. Fetched the first time it's shown, then kept on the disk. Public, like Recent and Stats: only
+    tracks in the library have a cover to fetch."""
     if s not in ART_SIZES:
         raise HTTPException(400, "unknown size")
     headers = {"Cache-Control": f"private, max-age={ART_SECONDS}"}

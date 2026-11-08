@@ -103,8 +103,9 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trips", "Trips"], ["map", "Map"], ["gear", "Gear"],
                     ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
-const PRIVATE_TABS = ["music", "visitors", "status", "settings"];
+const PRIVATE_TABS = ["visitors", "status", "settings"];
 const MUSIC_TABS = [["recent", "Recent"], ["stats", "Stats"], ["artists", "Artists"]];
+const PRIVATE_MUSIC_TABS = ["artists"];      // Recent and Stats are public; the artist graph is signed in only
 // Music's pages before #/music/artists joined the network and the explorer: where their links open now.
 const MUSIC_MOVED = { overview: () => "stats", graph: (q) => `artists${q}`, explore: (q) => `artists${q ? q + "&" : "?"}view=whole` };
 const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
@@ -177,7 +178,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     : html`<${AlertsLog} />`;                                                  // every alert sent (#168)
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))
-    || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1]))))
+    || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1])) || (tab === "music" && PRIVATE_MUSIC_TABS.includes(route[1]))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
   const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photostream" && route.params.trip ? "trips"
@@ -188,8 +189,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.filter(([t]) => session || !PRIVATE_WEATHER_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/weather/" + t}
       class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>`
-    : tab === "music" && session ? html`
-    <nav class="subtabs" aria-label="Music">${MUSIC_TABS.map(([t, label]) => html`<a href=${"#/music/" + t}
+    : tab === "music" ? html`
+    <nav class="subtabs" aria-label="Music">${MUSIC_TABS.filter(([t]) => session || !PRIVATE_MUSIC_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/music/" + t}
       class=${t === (route[1] || "recent") ? "on" : ""}>${label}</a>`)}</nav>`
     : tab === "aprs" ? html`
     <nav class="subtabs" aria-label="APRS">${APRS_TABS.map(([t, label]) => html`<a href=${"#/aprs/" + t}
@@ -205,7 +206,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("radar", "Radar")}${link("aprs", "APRS")}
-        ${session && link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
+        ${link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings" || tab === "alerts"} />

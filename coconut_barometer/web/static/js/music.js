@@ -111,7 +111,9 @@ function Poster({ d, period, onClose }) {
     <button class="primary" onClick=${save}>Download</button> <button onClick=${onClose}>Close</button></div>`;
 }
 
+// The connection's state, for the owner. A visitor's state has no setup in it (api/music.py): at most "nothing yet".
 function Connection({ s, empty }) {
+  if (!("connected" in s)) return empty ? html`<p class="muted">Nothing played yet.</p>` : null;
   if (!s.keys_set || !s.connected) return html`<p class="problem">Apple Music isn't connected: <a href="#/settings/music">Settings → Music</a>.</p>`;
   if (s.error) return html`<p class="problem">${s.error} <a href="#/settings/music">${s.reconnect ? "Connect again" : "Settings"}</a></p>`;
   if (!s.started) return html`<p class="muted">Connected. The first read is within a minute or two.</p>`;

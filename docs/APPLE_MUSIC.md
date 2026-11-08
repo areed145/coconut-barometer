@@ -53,6 +53,8 @@ Both files are in the export's `Apple Music Activity` folder. Then upload `music
 
 ## The Music pages
 
+Recent and Stats are public, so visitors see your listening too (but not whether Apple Music is connected, or its errors). Artists is signed in only.
+
 - **Recent** (`#/music/recent`) is the newest 50 plays, with whether Apple Music is connected.
 - **Stats** (`#/music/stats`) is one period: totals against the period before, plays per day, then **Most played** (artists, songs, albums, genres), **Patterns** (when you listen, rain or shine) and **Covers and colors** (the color strip, album wall and monthly palettes). **Poster** draws the period as a picture to save.
 - **Artists** (`#/music/artists`) is the artist graph, either **Top in this period** or the **Whole graph** (below).
@@ -61,7 +63,7 @@ Stats and Artists share one period: the last 7, 30 or 90 days, a year, all of it
 
 ## Covers and colors
 
-Once your key is saved, the site fills in each track's cover and colors from Apple's catalog, 300 tracks a minute, so a large history takes a couple of hours. That powers the color strip, monthly palettes, album wall, cover thumbnails, the **Poster** button, and the soundtrack on each photo trip. All of it is signed in only.
+Once your key is saved, the site fills in each track's cover and colors from Apple's catalog, 300 tracks a minute, so a large history takes a couple of hours. That powers the color strip, monthly palettes, album wall, cover thumbnails, the **Poster** button, and the soundtrack on each photo trip. Covers show to visitors on Recent and Stats; trip soundtracks are signed in only.
 
 Your server fetches each cover once and keeps its own copy in `music_art/` next to the database, so the site's security rules stay as they are and Apple's image host never sees your browser.
 

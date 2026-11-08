@@ -503,9 +503,17 @@ class WebTest(unittest.TestCase):
     def post(self, token="t", password=PASSWORD):
         return self.c.post("/api/music/connect", json={"token": token, "password": password}, headers={"X-CSRF-Token": self.csrf})
 
-    def test_all_of_it_is_signed_in_only(self):
-        for path in ("/api/music/analytics", "/api/music/state", "/api/music/connect"):
+    def test_recent_and_stats_are_public_and_the_rest_signed_in_only(self):
+        for path in ("/api/music/state", "/api/music/connect", "/api/music/graph", "/api/music/graph/state",
+                     "/api/music/explore/facets", "/api/music/trip/t1"):
             self.assertEqual(self.c.get(path).status_code, 401, path)
+        for path in ("/api/music/analytics", "/api/music/latest", "/api/music/weather"):
+            self.assertEqual(self.c.get(path).status_code, 200, path)
+        # a visitor sees the footnote's facts, not whether it's connected or what went wrong
+        for path in ("/api/music/analytics", "/api/music/latest"):
+            self.assertEqual(set(self.c.get(path).json()["state"]), set(music_api.PUBLIC_STATE), path)
+        self.login()
+        self.assertIn("connected", self.c.get("/api/music/latest").json()["state"])
 
     def test_only_the_connect_page_lets_apple_in(self):
         self.login()
@@ -590,7 +598,7 @@ class WebTest(unittest.TestCase):
     def add_track(self, artwork):
         self.rt.store().db.execute("INSERT INTO music_tracks (id, name, artwork) VALUES ('77', 'S', ?)", (artwork,))
 
-    def test_homes_glance_is_public_and_visitors_get_only_its_covers(self):
+    def test_homes_glance_and_its_covers_are_public(self):
         db = self.rt.store().db
         db.execute("INSERT INTO music_tracks (id, name, artist, album, artwork, bg_color) VALUES "
                    "('77', 'S', 'A', 'B', 'https://is1-ssl.mzstatic.com/x/{w}x{h}bb.jpg', '112233'), ('78', 'T', 'A', 'B', NULL, NULL)")
@@ -610,11 +618,10 @@ class WebTest(unittest.TestCase):
         self.addCleanup(setattr, music_api.requests, "get", original)
         music_api.requests.get = lambda url, **k: Image
         self.assertEqual(self.c.get("/api/music/art/77", params={"s": 640}).status_code, 200)    # on the card
-        self.assertEqual(self.c.get("/api/music/art/o0").status_code, 401)                       # older: signed in only
+        self.assertEqual(self.c.get("/api/music/art/o0").status_code, 200)                       # older: on Stats, also public
 
-    def test_covers_are_signed_in_kept_and_only_from_apple(self):
-        self.assertEqual(self.c.get("/api/music/art/77").status_code, 401)
-        self.login()
+    def test_covers_are_kept_and_only_from_apple(self):
+        self.assertEqual(self.c.get("/api/music/art/77").status_code, 404)              # public, but no such track
         self.add_track("https://is1-ssl.mzstatic.com/x/{w}x{h}bb.jpg")
         calls = []
 
@@ -665,7 +672,7 @@ class WebTest(unittest.TestCase):
             self.assertEqual(self.c.get(path, params={"start": "2026-01-01"}).status_code, 400)
 
     def test_the_latest_and_the_graphs_state(self):
-        self.assertEqual(self.c.get("/api/music/latest").status_code, 401)
+        self.assertEqual(self.c.get("/api/music/graph/state").status_code, 401)
         self.login()
         self.assertEqual(self.c.get("/api/music/latest").json()["plays"], [])
         self.assertEqual(set(self.c.get("/api/music/graph/state").json()), {"musicbrainz", "profiles"})
