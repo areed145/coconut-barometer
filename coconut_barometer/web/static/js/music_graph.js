@@ -1,10 +1,12 @@
-// Music → Artist network (#/music/graph, music_graph.py): a force layout drawn on a canvas, run here in the browser.
+// Music → Artists (#/music/artists, music_graph.py): a force layout drawn on a canvas, run here in the browser.
 // Size is plays, color is cluster; the line style says why two artists are linked. The layout keeps each artist's
 // place when the range, the number drawn or the kinds shown change, or MusicBrainz fills in more links, so the network
 // moves to its new shape instead of starting over. Wheel or pinch to zoom, drag the background to pan, drag an artist
 // to pull it, click to see its connections, double-click to zoom to its neighbours.
 import { html, useState, useEffect, useRef, useMemo, api, num, toast, every, useThemeTick } from "./lib.js";
-import { Range } from "./viz.js";
+import { Period, periodParams, periodName } from "./period.js";
+
+const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 export const KINDS = {
   collab: { label: "Collaborations", dash: [], width: 3 },
@@ -14,7 +16,6 @@ export const KINDS = {
 };
 const DRAW_ORDER = ["collab", "musicbrainz", "credit", "profile"];   // a link is drawn as its first kind shown
 const SIZES = [50, 100, 150, 200];
-const ALL = 3650;
 const hue = (c, n) => Math.round((c * 360) / Math.max(n, 5) + 20) % 360;
 export const pairKey = (a, b) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
 export const color = (c, n) => `hsl(${hue(c, n)} 60% 52%)`;
@@ -331,8 +332,39 @@ function ProfilesNote({ p, onAsk, onReset, asking }) {
     ${p.asked > 0 && html` <button class="link" onClick=${onReset}>Start over</button>`}</p>`;
 }
 
-export function ArtistNetwork({ focus }) {
-  const [days, setDays] = useState(ALL);
+// MusicBrainz's and the profiles' progress, and buttons to hurry them along: below both Artists views, since both draw
+// the links they add. Checked again every 2 minutes while either is still filling in.
+export function LinkData() {
+  const [st, setSt] = useState(null);
+  const [asking, setAsking] = useState(false);
+  const [looking, setLooking] = useState(false);
+  const load = () => api("/api/music/graph/state").then(setSt).catch(() => {});
+  const filling = !!(st?.musicbrainz?.ready && st.musicbrainz.asked < st.musicbrainz.tracks)
+    || !!(st?.profiles?.ready && st.profiles.asked < st.profiles.eligible && st.profiles.calls_today < st.profiles.daily_calls);
+  useEffect(() => (filling ? every(load, 120000) : (load(), undefined)), [filling]);
+  const queue = async (path, setBusy, busyText, missing) => {
+    setBusy(true);
+    try {
+      const r = await api(path, { method: "POST" });
+      toast(r.status === "queued" ? "Queued: it runs after the jobs ahead of it (Status → Jobs)" : r.status === "busy" ? busyText : missing);
+    } catch (e) { toast(e.message); }
+    setBusy(false);
+  };
+  const reset = async () => {
+    if (!confirm("Forget every artist profile? They're asked for again, which uses requests.")) return;
+    try { await api("/api/music/graph/profiles", { method: "DELETE" }); load(); } catch (e) { toast(e.message); }
+  };
+  if (!st) return null;
+  return html`<div class="card"><h2>Where the links come from</h2>
+    <${MusicBrainzNote} mb=${st.musicbrainz} asking=${looking}
+      onAsk=${() => queue("/api/music/graph/musicbrainz", setLooking, "A lookup is already waiting or running", "MusicBrainz isn't set up")} />
+    <${ProfilesNote} p=${st.profiles} asking=${asking} onReset=${reset}
+      onAsk=${() => queue("/api/music/graph/profiles", setAsking, "Profiles are already waiting or running", "Artist profiles aren't set up")} /></div>`;
+}
+
+// Music → Artists, "Top in this period": the most played artists of the shared period and how they connect.
+// lead: what goes first in the toolbar (the view switch).
+export function ArtistNetwork({ focus, period, setPeriod, lead }) {
   const [limit, setLimit] = useState(100);
   const [g, setG] = useState(null);
   const [error, setError] = useState(null);
@@ -341,37 +373,13 @@ export function ArtistNetwork({ focus }) {
   const [cluster, setCluster] = useState(null);
   const [focusOn, setFocusOn] = useState(null);
   const [query, setQuery] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [looking, setLooking] = useState(false);
   const go = (id) => { setSelected(id); setCluster(null); setFocusOn({ id, at: Date.now() }); };
-  const load = () => api("/api/music/graph", { params: { days, limit } }).then((x) => { setG(x); setError(null); }).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, [days, limit]);
+  const load = () => api("/api/music/graph", { params: { ...periodParams(period), limit, tz: ZONE } }).then((x) => { setG(x); setError(null); }).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, [period, limit]);
   const filling = !!(g?.musicbrainz?.ready && g.musicbrainz.asked < g.musicbrainz.tracks)
     || !!(g?.profiles?.ready && g.profiles.asked < g.profiles.eligible && g.profiles.calls_today < g.profiles.daily_calls);
-  useEffect(() => (filling ? every(load, 120000) : undefined), [filling, days, limit]);   // links arrive as the jobs finish
+  useEffect(() => (filling ? every(load, 120000) : undefined), [filling, period, limit]);   // links arrive as the jobs finish
   useEffect(() => { if (focus && g?.nodes.some((n) => n.id === focus)) go(focus); }, [focus, !!g]);
-  const ask = async () => {
-    setAsking(true);
-    try {
-      const r = await api("/api/music/graph/profiles", { method: "POST" });
-      toast(r.status === "queued" ? "Queued: it runs after the jobs ahead of it (Status → Jobs)"
-        : r.status === "busy" ? "Profiles are already waiting or running" : "Artist profiles aren't set up");
-    } catch (e) { toast(e.message); }
-    setAsking(false);
-  };
-  const reset = async () => {
-    if (!confirm("Forget every artist profile? They're asked for again, which uses requests.")) return;
-    try { await api("/api/music/graph/profiles", { method: "DELETE" }); load(); } catch (e) { toast(e.message); }
-  };
-  const lookup = async () => {
-    setLooking(true);
-    try {
-      const r = await api("/api/music/graph/musicbrainz", { method: "POST" });
-      toast(r.status === "queued" ? "Queued: it runs after the jobs ahead of it (Status → Jobs)"
-        : r.status === "busy" ? "A lookup is already waiting or running" : "MusicBrainz isn't set up");
-    } catch (e) { toast(e.message); }
-    setLooking(false);
-  };
   const counts = useMemo(() => {
     const c = {};
     for (const e of g?.edges || []) for (const k in e.kinds) c[k] = (c[k] || 0) + 1;
@@ -383,27 +391,23 @@ export function ArtistNetwork({ focus }) {
     const hit = q && (g.nodes.find((n) => n.id.toLowerCase() === q) || g.nodes.find((n) => n.id.toLowerCase().includes(q)));
     if (hit) go(hit.id); else toast("Not among the artists drawn");
   };
-  const toolbar = html`<div class="toolbar"><${Range} days=${days} setDays=${setDays} />
+  const toolbar = html`<div class="toolbar">${lead}<${Period} value=${period} onChange=${setPeriod} />
     <span class="seg" aria-label="Artists drawn">${SIZES.map((n) => html`<button key=${n} class=${limit === n ? "primary" : ""} onClick=${() => setLimit(n)}>${n}</button>`)}</span>
     ${g?.nodes?.length > 0 && html`<form class="netsearch" onSubmit=${search}><input type="search" list="net-artists" placeholder="Find an artist" aria-label="Find an artist"
         value=${query} onInput=${(e) => setQuery(e.target.value)} /><datalist id="net-artists">${g.nodes.map((n) => html`<option key=${n.id} value=${n.id} />`)}</datalist></form>`}</div>`;
   if (error) return html`${toolbar}<p class="problem">${error}</p>`;
   if (!g) return html`${toolbar}<div class="boot">Loading…</div>`;
-  if (g.nodes.length < 3) return html`${toolbar}<div class="card"><h2>Artist network</h2><p class="muted">Not enough listening in this range yet.</p>
-    <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} />
-    <${ProfilesNote} p=${g.profiles} onAsk=${ask} onReset=${reset} asking=${asking} /></div>`;
+  if (g.nodes.length < 3) return html`${toolbar}<div class="card"><h2>Artist network</h2><p class="muted">Not enough listening in ${periodName(period)}: pick a longer period, or the whole graph.</p></div>`;
   const shown = Object.entries(KINDS).filter(([k]) => counts[k] || k === "profile" || k === "musicbrainz");
   return html`${toolbar}
-    <div class="card"><h2>Artist network</h2>
+    <div class="card"><h2>Artist network, ${periodName(period)}</h2>
       <p class="muted small">${num(g.nodes.length)} of ${num(g.total_artists)} artists, sized by plays and colored by cluster. Scroll or pinch to zoom, drag to pan or pull an artist,
         click for its connections, double-click to zoom to its neighbours.</p>
       <div class="netkinds">${shown.map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
           ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>
       <${Network} graph=${g} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${cluster} focusOn=${focusOn} />
       ${selected && g.nodes.some((n) => n.id === selected) && html`<${Detail} graph=${g} id=${selected} kinds=${kinds} go=${go}
-        extra=${html`<p class="small"><a href=${`#/music/explore?artist=${encodeURIComponent(selected)}`}>Explore from here</a></p>`} />`}
-      <${MusicBrainzNote} mb=${g.musicbrainz} onAsk=${lookup} asking=${looking} />
-      <${ProfilesNote} p=${g.profiles} onAsk=${ask} onReset=${reset} asking=${asking} /></div>
+        extra=${html`<p class="small"><a href=${`#/music/artists?view=whole&artist=${encodeURIComponent(selected)}`}>Explore from here in the whole graph</a></p>`} />`}</div>
     <div class="cols"><div class="card"><h2>Clusters</h2><ul class="netlist">${g.clusters.filter((c) => c.size > 1).map((c) => html`<li key=${c.id}>
         <button class="link" aria-pressed=${cluster === c.id} onClick=${() => { setSelected(null); setCluster(cluster === c.id ? null : c.id); }}>
           <i style=${`background:${color(c.id, g.clusters.length)}`}></i>${c.label}</button>

@@ -1,4 +1,4 @@
-// Music → Explore (#/music/explore, music_explore.py, issue #204): the whole artist graph, a piece at a time. Start
+// Music → Artists, "Whole graph" (#/music/artists?view=whole, music_explore.py, issue #204): the whole artist graph, a piece at a time. Start
 // from an artist, a scene, a genre, a decade or a country; show an artist's neighbours to grow the map; ask how two
 // artists connect; or ask a question (music_ask.py), whose answer lights up the artists and links behind it. Each
 // answer joins what's shown, with its links to it, and the network moves to make room.
@@ -26,7 +26,7 @@ function Start({ facets, onArtist, onFilter }) {
     ${!scenes.length && html`<p class="muted small">Scenes and decades appear once artists are profiled: turn on artist profiles in <a href="#/settings/music">Settings → Music</a>.</p>`}</div>`;
 }
 
-export function Explorer({ start }) {
+export function Explorer({ start, lead }) {
   const [facets, setFacets] = useState(null);
   const [error, setError] = useState(null);
   const [map, setMap] = useState(EMPTY);
@@ -136,10 +136,11 @@ export function Explorer({ start }) {
     decade: facets.decades.map(([d]) => String(d)), country: facets.countries.map(([c]) => c),
   };
 
-  if (error) return html`<p class="problem">${error}</p>`;
-  if (!facets) return html`<div class="boot">Building the whole graph…</div>`;
-  if (facets.artists.length < 2) return html`<div class="card"><h2>Explore</h2><p class="muted">Not enough listening yet: the explorer shows artists with over ${num(facets.min_plays)} plays.</p></div>`;
-  const toolbar = html`<div class="toolbar">
+  const bare = lead && html`<div class="toolbar">${lead}</div>`;
+  if (error) return html`${bare}<p class="problem">${error}</p>`;
+  if (!facets) return html`${bare}<div class="boot">Building the whole graph…</div>`;
+  if (facets.artists.length < 2) return html`${bare}<div class="card"><h2>Whole graph</h2><p class="muted">Not enough listening yet: the explorer shows artists with over ${num(facets.min_plays)} plays.</p></div>`;
+  const toolbar = html`<div class="toolbar">${lead}
     <form class="netstart" onSubmit=${begin}>
       <select aria-label="Start from" value=${kind} onChange=${(e) => { setKind(e.target.value); setValue(""); }}>
         ${STARTS.map(([k, label]) => html`<option key=${k} value=${k}>${label}</option>`)}</select>
@@ -164,8 +165,8 @@ export function Explorer({ start }) {
     <button class="link" onClick=${() => remove(selected)}>Remove</button></p>`;
   return html`${toolbar}${askCard}
     ${map.nodes.size === 0 ? html`<${Start} facets=${facets} onArtist=${expand} onFilter=${filter} />` : html`
-    <div class="card"><h2>Explore</h2>
-      <p class="muted small">${num(map.nodes.size)} of ${num(facets.artists.length)} artists shown. Click an artist for its connections and to show its neighbours.
+    <div class="card"><h2>Whole graph</h2>
+      <p class="muted small">${num(map.nodes.size)} of ${num(facets.artists.length)} artists shown (every artist with over ${num(facets.min_plays)} plays, all time). Click an artist for its connections and to show its neighbours.
         ${highlight && html` <button class="link" onClick=${() => { setHighlight(null); setPath(null); setAnswer(null); }}>Clear highlight</button>`}</p>
       <div class="netkinds">${Object.entries(KINDS).map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
           ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>

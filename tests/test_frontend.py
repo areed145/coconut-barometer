@@ -593,11 +593,17 @@ class FrontendTest(unittest.TestCase):
         self.assertIn("<${Devices} deliveries=${x.deliveries} />", page)
         self.assertIn('<a href="#/alerts">← Alerts</a>', js("alert_page.js"))
 
+    def test_music_is_public_but_its_artist_graph(self):
+        main = open(os.path.join(STATIC, "js", "main.js")).read()
+        self.assertIn('const PRIVATE_MUSIC_TABS = ["artists"];', main)
+        self.assertIn('${link("music", "Music")}', main)
+        self.assertIn('MUSIC_TABS.filter(([t]) => session || !PRIVATE_MUSIC_TABS.includes(t))', main)
+
     def test_visitors_is_a_page_of_its_own(self):
         """Visitors (#83) counts the whole site, so it's a signed-in page of its own, not a tab of Photos → Analytics."""
         main = open(os.path.join(STATIC, "js", "main.js")).read()
         analytics = open(os.path.join(STATIC, "js", "analytics.js")).read()
-        self.assertIn('const PRIVATE_TABS = ["music", "visitors", "status", "settings"];', main)
+        self.assertIn('const PRIVATE_TABS = ["visitors", "status", "settings"];', main)
         self.assertIn('${session && link("visitors", "Visitors")}', main)
         self.assertIn('else if (tab === "visitors") page = html`<${Visitors} />`;', main)
         self.assertIn('location.replace("#/visitors")', main)                     # the old tab's links still work

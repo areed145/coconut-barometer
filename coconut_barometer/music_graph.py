@@ -431,9 +431,11 @@ def bridges(nodes, weight, group, plays, names, limit: int = 8) -> list[dict]:
     return sorted(out, key=lambda b: -b["score"])[:limit]
 
 
-def report(store, days: int, now: float | None = None, limit: int = NODES) -> dict:
+def report(store, days: int, now: float | None = None, limit: int = NODES, dates=None, zone=dt.timezone.utc) -> dict:
+    """The network of the last `days`, or of the custom period `dates` (periods.Dates, days in `zone`)."""
+    from . import periods as P
+
     now = now if now is not None else dt.datetime.now(dt.timezone.utc).timestamp()
-    rows = store.music_graph_plays()
-    if days < 3650:
-        rows = [r for r in rows if r["played_at"] >= now - days * 86400]
+    w = P.window(days, dates, zone, int(now))
+    rows = [r for r in P.within(store.music_graph_plays(), w) if r["played_at"] >= w["since"]]
     return build(rows, limit=max(10, min(MAX_NODES, limit)), mb=store.mb_graph(), profiles=store.profiles(), now=now)

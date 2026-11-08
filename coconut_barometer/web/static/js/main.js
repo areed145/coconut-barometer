@@ -28,9 +28,9 @@ const BulkReview = lazy(() => import("./review_bulk.js"), "BulkReview");
 const AppliedList = lazy(() => import("./review_bulk.js"), "AppliedList");
 const Analytics = lazy(() => import("./analytics.js"), "Analytics");
 const Visitors = lazy(() => import("./analytics_visitors.js"), "Visitors");
-const Music = lazy(() => import("./music.js"), "Music");
-const ArtistNetwork = lazy(() => import("./music_graph.js"), "ArtistNetwork");
-const Explorer = lazy(() => import("./music_explore.js"), "Explorer");
+const MusicRecent = lazy(() => import("./music.js"), "Recent");
+const MusicStats = lazy(() => import("./music.js"), "Stats");
+const MusicArtists = lazy(() => import("./music_artists.js"), "Artists");
 const MapPage = lazy(() => import("./map.js"), "MapPage");
 const Gear = lazy(() => import("./gear.js"), "Gear");
 const StatusPage = lazy(() => import("./status.js"), "StatusPage");
@@ -103,8 +103,11 @@ function AccountMenu({ username, onLogout, onSettings }) {     // username null:
 const PHOTO_TABS = [["photostream", "Photostream"], ["albums", "Albums"], ["trips", "Trips"], ["map", "Map"], ["gear", "Gear"],
                     ["analytics", "Analytics"], ["review", "Review"]];
 const PRIVATE_PHOTO_TABS = ["analytics", "review"];
-const PRIVATE_TABS = ["music", "visitors", "status", "settings"];
-const MUSIC_TABS = [["overview", "Overview"], ["graph", "Artist network"], ["explore", "Explore"]];
+const PRIVATE_TABS = ["visitors", "status", "settings"];
+const MUSIC_TABS = [["recent", "Recent"], ["stats", "Stats"], ["artists", "Artists"]];
+const PRIVATE_MUSIC_TABS = ["artists"];      // Recent and Stats are public; the artist graph is signed in only
+// Music's pages before #/music/artists joined the network and the explorer: where their links open now.
+const MUSIC_MOVED = { overview: () => "stats", graph: (q) => `artists${q}`, explore: (q) => `artists${q ? q + "&" : "?"}view=whole` };
 const APRS_TABS = [["tracking", "Tracking"], ["trips", "Trips"], ["igate", "Igate"]];
 const WEATHER_TABS = [["live", "Live"], ["history", "History"], ["records", "Records"], ["qc", "QC"]];
 const PRIVATE_WEATHER_TABS = ["qc"];       // the stations' checks (#105), signed in only
@@ -143,6 +146,11 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   useEffect(() => { if (sub === "analytics" && route[2] === "visitors") location.replace("#/visitors"); }, [sub, route[2]]);
   // The radar map was Weather → Map: its old links (alerts, bookmarks) open Radar.
   useEffect(() => { if (tab === "weather" && route[1] === "map") location.replace("#/radar"); }, [tab, route[1]]);
+  useEffect(() => {
+    if (tab !== "music" || !MUSIC_MOVED[route[1]]) return;
+    const q = new URLSearchParams(route.params).toString();
+    location.replace(`#/music/${MUSIC_MOVED[route[1]](q ? "?" + q : "")}`);
+  }, [tab, route[1]]);
   let page;
   if (!inPhotos) page = null;
   else if (sub === "albums") page = html`<${Albums} />`;
@@ -161,8 +169,8 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
   else if (tab === "aprs") page = route[1] === "igate" ? html`<${Igate} />`
     : route[1] === "trips" ? html`<${AprsTrips} call=${route[2] && decodeURIComponent(route[2])} />` : html`<${Aprs} />`;
   else if (tab === "visitors") page = html`<${Visitors} />`;
-  else if (tab === "music") page = route[1] === "graph" ? html`<${ArtistNetwork} focus=${route.params.artist} />`
-    : route[1] === "explore" ? html`<${Explorer} start=${route.params.artist} />` : html`<${Music} />`;
+  else if (tab === "music") page = MUSIC_MOVED[route[1]] ? null : route[1] === "stats" ? html`<${MusicStats} />`
+    : route[1] === "artists" ? html`<${MusicArtists} params=${route.params} />` : html`<${MusicRecent} />`;
   else if (tab === "status") page = html`<${StatusPage} health=${health} />`;
   else if (tab === "settings") page = html`<${Admin} at=${route[1]} />`;
   else if (tab === "alerts") page = !session ? html`<${Login} onLogin=${onLogin} />`
@@ -170,7 +178,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     : html`<${AlertsLog} />`;                                                  // every alert sent (#168)
   if (!session && tab === "login") page = html`<${Login} onLogin=${(s) => { onLogin(s); location.replace(next); }} />`;
   else if (!session && (PRIVATE_TABS.includes(tab) || (inPhotos && PRIVATE_PHOTO_TABS.includes(sub))
-    || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1]))))
+    || (tab === "weather" && PRIVATE_WEATHER_TABS.includes(route[1])) || (tab === "music" && PRIVATE_MUSIC_TABS.includes(route[1]))))
     page = html`<${Login} onLogin=${onLogin} note="Sign in to see this page." />`;
   const link = (id, label, extra) => html`<a href=${"#/" + id} class=${(id === "photos" ? inPhotos : tab === id) ? "on" : ""}>${label}${extra}</a>`;
   const subSection = sub === "photostream" && route.params.album ? "albums" : sub === "photostream" && route.params.trip ? "trips"
@@ -181,9 +189,9 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
     : tab === "weather" ? html`
     <nav class="subtabs" aria-label="Weather">${WEATHER_TABS.filter(([t]) => session || !PRIVATE_WEATHER_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/weather/" + t}
       class=${t === (route[1] || "live") ? "on" : ""}>${label}</a>`)}</nav>`
-    : tab === "music" && session ? html`
-    <nav class="subtabs" aria-label="Music">${MUSIC_TABS.map(([t, label]) => html`<a href=${"#/music/" + t}
-      class=${t === (route[1] || "overview") ? "on" : ""}>${label}</a>`)}</nav>`
+    : tab === "music" ? html`
+    <nav class="subtabs" aria-label="Music">${MUSIC_TABS.filter(([t]) => session || !PRIVATE_MUSIC_TABS.includes(t)).map(([t, label]) => html`<a href=${"#/music/" + t}
+      class=${t === (route[1] || "recent") ? "on" : ""}>${label}</a>`)}</nav>`
     : tab === "aprs" ? html`
     <nav class="subtabs" aria-label="APRS">${APRS_TABS.map(([t, label]) => html`<a href=${"#/aprs/" + t}
       class=${t === (route[1] || "tracking") ? "on" : ""}>${label}</a>`)}</nav>` : "";
@@ -198,7 +206,7 @@ function Shell({ session, onLogin, onLogout }) {       // session null: a visito
           role="img" aria-label=${`Status: ${health.overall === "bad" ? "something's down" : "something needs a look"}`}></i>`}</a>
       <nav class="tabs" aria-label="Pages">
         ${link("photos", "Photos", pending ? html`<span class="badge">${pending}</span>` : "")}${link("weather", "Weather")}${link("radar", "Radar")}${link("aprs", "APRS")}
-        ${session && link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
+        ${link("music", "Music")}${session && link("visitors", "Visitors")}${session && link("status", "Status", html`<${StatusDot} health=${health} queued=${queued} />`)}
       </nav>
       <div class="account">
         <${AccountMenu} username=${session?.username} onLogout=${logout} onSettings=${tab === "settings" || tab === "alerts"} />

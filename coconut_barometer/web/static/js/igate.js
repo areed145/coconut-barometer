@@ -7,16 +7,18 @@
 // Then the long-distance log, and range over time beside the station's weather (#116).
 // Below, who it heard (#118): stations per day, new and regular, and what kind each one is (from its symbol).
 import uPlot from "../vendor/uPlot.esm.js";
-import { html, useState, useEffect, useRef, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
+import { html, useState, useEffect, useRef, useMemo, api, ago, toast, every, shade, logShare, num, useThemeTick, signedIn } from "./lib.js";
 import { leaflet, baseMap } from "./leaflet.js";
 import { grid } from "./aprs.js";
 import { useMapTools, mapboxClass } from "./wx_controls.js";
 import { Bars, Table } from "./viz.js";
 import { Chart } from "./chart.js";
+import { Period, dates, periodSpan, periodName, usePeriod } from "./period.js";
 import { unitsFor, compass } from "./units.js";
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const WINDOWS = [["24h", 24], ["7d", 24 * 7], ["30d", 24 * 30], ["90d", 24 * 90], ["1y", 24 * 365], ["All", 24 * 3650]];
+// The window: one of these, or custom dates (period.js). [token, label, days]
+const WINDOWS = [["24h", "24h", 1], ["7d", "7d", 7], ["30d", "30d", 30], ["90d", "90d", 90], ["1y", "1y", 365], ["all", "All", 3650]];
 const CELLS = [["0.02", "0.02°"], ["0.05", "0.05°"], ["0.1", "0.1°"], ["0.25", "0.25°"], ["0.5", "0.5°"],
   ["subsquare", "Grid subsquare (EM10dg)"], ["square", "Grid square (EM10)"]];
 const MI = 0.621371;
@@ -226,17 +228,17 @@ const SHOWN = 50;
 const aprsfi = (call) => html`<a href=${`https://aprs.fi/info/a/${encodeURIComponent(call)}`} target="_blank" rel="noopener">${call}</a>`;
 
 // Who the igate heard over the window: its own request, so the map and range draw first.
-function Stations({ hours, units }) {
+function Stations({ span, units }) {
   const [s, setS] = useState(null);
   const [only, setOnly] = useState("all");        // all, new, regular
   const [type, setType] = useState("");
   const [all, setAll] = useState(false);
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate/stations", { params: { hours } }).then((x) => alive && setS(x)).catch(() => {});
+    const load = () => api("/api/aprs/igate/stations", { params: span.params }).then((x) => alive && setS(x)).catch(() => {});
     const stop = every(load, 60000);
     return () => { alive = false; stop(); };
-  }, [hours]);
+  }, [span.key]);
   if (!s?.stations) return null;
   const rows = s.stations.filter((x) => (only === "all" || x[only]) && (!type || x.type === type));
   const bars = Object.entries(s.types).filter(([, n]) => n).map(([t, n]) => ({ label: TYPES[t], key: t, n }));
@@ -351,15 +353,15 @@ function Digis({ net, units }) {
 }
 
 // The stations heard farthest direct, each at its farthest believable packet, in the window or ever.
-function LongLog({ hours, win, units }) {
+function LongLog({ span, win, units }) {
   const [g, setG] = useState(null);
   const [ever, setEver] = useState(false);
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate/long", { params: { hours } }).then((x) => alive && setG(x)).catch(() => {});
+    const load = () => api("/api/aprs/igate/long", { params: span.params }).then((x) => alive && setG(x)).catch(() => {});
     const stop = every(load, 60000);
     return () => { alive = false; stop(); };
-  }, [hours]);
+  }, [span.key]);
   if (!g?.window) return null;
   const log = ever ? g.ever : g.window, out = log.left_out;
   const cols = [
@@ -407,17 +409,17 @@ function Plot({ make, deps, height = 220 }) {
 
 // Range over time (each day's or hour's own fit) over the station's weather, and how range goes with pressure and
 // with how far it cooled overnight. Long-distance days (the top tenth by 99th-percentile distance) stand out.
-function RangeWeather({ hours, units }) {
+function RangeWeather({ span, units }) {
   const [step, setStep] = useState("day");
   const [r, setR] = useState(null);
-  const hourly = hours <= 24 * 31;
+  const hourly = span.hours <= 24 * 31;
   const want = hourly ? step : "day";
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate/range", { params: { hours, step: want } }).then((x) => alive && setR(x)).catch(() => {});
+    const load = () => api("/api/aprs/igate/range", { params: { ...span.params, step: want } }).then((x) => alive && setR(x)).catch(() => {});
     const stop = every(load, 300000);
     return () => { alive = false; stop(); };
-  }, [hours, want]);
+  }, [span.key, want]);
   if (!r?.t || r.t.length < 2) return null;
   const U = unitsFor(units), k = units === "imperial" ? MI : 1, dl = units === "imperial" ? "mi" : "km";
   const conv = (kind, v) => (v == null ? null : U[kind][1](v));
@@ -484,8 +486,19 @@ function RangeWeather({ hours, units }) {
 
 const Tile = ({ label, value, note }) => html`<div class="kpi"><span>${label}</span><b>${value}</b>${note && html`<small> ${note}</small>`}</div>`;
 
+// What the API is asked for: the last N hours, or custom dates as epoch seconds. key: changes when the window does.
+function spanOf(period) {
+  if (!dates(period)) {
+    const hours = 24 * (WINDOWS.find(([t]) => t === period) || WINDOWS[2])[2];
+    return { key: period, params: { hours }, hours };
+  }
+  const [start, end] = periodSpan(period, WINDOWS);
+  return { key: period, params: { start, end }, hours: (end - start) / 3600 };
+}
+
 export function Igate() {
-  const [hours, setHours] = useState(24 * 30);
+  const [period, setPeriod] = usePeriod("igate", { presets: WINDOWS, fallback: "30d" });
+  const span = useMemo(() => spanOf(period), [period]);
   const [direct, setDirect] = useState(true);
   const [count, setCount] = useState("packets");
   const [cell, setCell] = useState("0.1");
@@ -496,35 +509,34 @@ export function Igate() {
   const [net, setNet] = useState(null);
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate/digis", { params: { hours } }).then((x) => alive && setNet(x)).catch(() => {});
+    const load = () => api("/api/aprs/igate/digis", { params: span.params }).then((x) => alive && setNet(x)).catch(() => {});
     const stop = every(load, 60000);
     return () => { alive = false; stop(); };
-  }, [hours]);
+  }, [span.key]);
   const [sectors, setSectors] = useState(null);
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate/sectors", { params: { hours, direct, sectors: n } })
+    const load = () => api("/api/aprs/igate/sectors", { params: { ...span.params, direct, sectors: n } })
       .then((x) => alive && setSectors(x)).catch(() => {});
     const stop = every(load, 60000);
     return () => { alive = false; stop(); };
-  }, [hours, direct, n]);
+  }, [span.key, direct, n]);
   useEffect(() => {
     let alive = true;
-    const load = () => api("/api/aprs/igate", { params: { hours, direct, count, cell } })
+    const load = () => api("/api/aprs/igate", { params: { ...span.params, direct, count, cell } })
       .then((x) => { if (alive) { setD(x); setErr(""); } }).catch((e) => alive && setErr(e.message));
     const stop = every(load, 60000);
     return () => { alive = false; stop(); };
-  }, [hours, direct, count, cell]);
+  }, [span.key, direct, count, cell]);
 
   if (!d) return err ? html`<p class="problem">${err}</p>` : html`<div class="boot">Loading…</div>`;
   if (!d.igate) return html`<div class="card"><h2>No igate yet</h2>
     ${signedIn() && html`<p>Set the igate to follow under <a href="#/settings/aprs">Settings → APRS</a>.</p>`}</div>`;
-  const t = d.totals, dist = d.distance, fit = dist?.fit, win = WINDOWS.find((w) => w[1] === hours)[0];
+  const t = d.totals, dist = d.distance, fit = dist?.fit, win = dates(period) ? periodName(period, WINDOWS) : (WINDOWS.find(([t]) => t === period) || WINDOWS[2])[1];
   const what = count === "stations" ? "stations (each at its farthest)" : "packets";
   return html`
     <div class="toolbar">
-      <span class="seg" aria-label="Window">${WINDOWS.map(([label, h]) => html`<button key=${h}
-        class=${h === hours ? "primary" : ""} onClick=${() => setHours(h)}>${label}</button>`)}</span>
+      <${Period} value=${period} onChange=${setPeriod} presets=${WINDOWS} label="Window" />
       <label class="muted small"><input type="checkbox" checked=${direct} onChange=${(e) => setDirect(e.target.checked)} /> Heard direct only</label>
       <label class="muted small">Count
         <select aria-label="Count" value=${count} onChange=${(e) => setCount(e.target.value)}>
@@ -559,10 +571,10 @@ export function Igate() {
         R² ${fit.r2}. Effective range is the distance it puts 90% within; 95% within ${len(d.units, fit.r95_km)}.</p>`}
     </div>`}
     ${sectors && d.home && html`<${Directions} s=${sectors} units=${d.units} n=${n} setN=${setN} />`}
-    <${LongLog} hours=${hours} win=${win} units=${d.units} />
-    <${RangeWeather} hours=${hours} units=${d.units} />
+    <${LongLog} span=${span} win=${win} units=${d.units} />
+    <${RangeWeather} span=${span} units=${d.units} />
     <${Digis} net=${net} units=${d.units} />
-    <${Stations} hours=${hours} units=${d.units} />
+    <${Stations} span=${span} units=${d.units} />
     <p class="muted small">Counted from when the app started listening${t.first_ts ? ` (${when(t.first_ts)})` : ""}: APRS-IS keeps no history.
       ${d.stream?.state !== "connected" ? ` APRS-IS: ${d.stream?.state || "off"}.` : ""}</p>`;
 }

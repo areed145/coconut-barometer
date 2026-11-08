@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 
 from ... import insights as I
-from ..deps import session, store
+from ..deps import Span, session, store
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"], dependencies=[Depends(session)])
 
@@ -22,12 +22,21 @@ def _since(days: int) -> str:
     return (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=days)).isoformat()
 
 
+def _today() -> dt.date:
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
 @router.get("/overview")
-def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
+def overview(days: int = Query(30, ge=1, le=3650), span: Span = Depends(), db=Depends(store)):
     """The period's daily series, the period before it (for "vs before"), and highlights. The totals
-    are of whole days: today's views so far are in the series (partial) but not in them."""
-    since, before = _since(days), _since(2 * days)
-    series = db.daily_series(before)
+    are of whole days: today's views so far are in the series (partial) but not in them. The period is the last
+    `days`, or ?start=&end= (Flickr's GMT days, both included), against as many days before it."""
+    dates = span.dates(_today())
+    if dates:
+        since, before, until = dates.start.isoformat(), dates.before().start.isoformat(), dates.end.isoformat()
+    else:
+        since, before, until = _since(days), _since(2 * days), "9999-12-31"
+    series = db.daily_series(before, until)
     current = [r for r in series if r["day"] >= since]
     previous = [r for r in series if r["day"] < since]
     total = lambda rows, k: sum(r[k] or 0 for r in rows if not r["partial"])
@@ -38,7 +47,7 @@ def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
         "SELECT c.photo_id, p.title, COALESCE(NULLIF(c.real_name, ''), c.author_name) AS who, c.date_created AS \"at\", c.text "
         "FROM comments c JOIN photos p ON p.id = c.photo_id ORDER BY c.date_created DESC LIMIT 5")]
     today = dt.datetime.now(dt.timezone.utc).date().isoformat()
-    return {"since": since, "totals": db.totals(), "series": current,
+    return {"since": since, "until": dates.end.isoformat() if dates else None, "totals": db.totals(), "series": current,
             "period": {k: total(current, k) for k in ("views", "faves", "comments")},
             "previous": {k: total(previous, k) for k in ("views", "faves", "comments")} if previous else None,
             "highlights": {"gaining": _with_sizes(db, db.gainers(min(days, 7), today, 3)),
@@ -49,12 +58,14 @@ def overview(days: int = Query(30, ge=1, le=3650), db=Depends(store)):
 @router.get("/photos")
 def photo_lists(kind: Literal["views", "faves", "comments", "engagement", "sleepers", "overlooked", "gaining"] = "views",
                 days: int = Query(30, ge=1, le=3650), limit: int = Query(24, ge=1, le=100),
-                min_views: int = Query(100, ge=1, le=100000), db=Depends(store)):
+                min_views: int = Query(100, ge=1, le=100000), span: Span = Depends(), db=Depends(store)):
+    """A list of photos. views, faves and comments count over the last `days` or ?start=&end=; gaining compares the
+    last `days` (up to 90) with as many before; the rest don't take a period."""
     if kind == "gaining":
         today = dt.datetime.now(dt.timezone.utc).date().isoformat()
         rows = [{**r, "value": r["gain"]} for r in db.gainers(min(days, 90), today, limit)]
     else:
-        rows = I.photo_lists(db, kind, days, limit, min_views)
+        rows = I.photo_lists(db, kind, days, limit, min_views, dates=span.dates(_today()))
     return _with_sizes(db, rows)
 
 

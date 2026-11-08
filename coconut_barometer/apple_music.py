@@ -37,7 +37,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
-from . import activity, music_insights as I
+from . import activity, music_insights as I, periods as P
 from .errors import caught
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ RETRIES = (2, 8)                                    # seconds before asking for 
 RETRY_READ_SECONDS = 300                            # a read that still failed: tried again this soon, not next hour
 KEEP_IDS = 200                                      # the order remembered from one read to the next
 TOP = 15
-RECENT_ROWS = 20
-ALL = 3650                                          # "All" on the Range buttons
+LATEST_ROWS = 50                                    # the Recent page's plays
+ALL = P.ALL                                         # "All" on the period buttons
 
 
 class MusicError(RuntimeError):
@@ -280,15 +280,15 @@ class Music:
                 "started": store.get_meta("music_snapshot") is not None, "missed": int(store.get_meta("music_missed") or 0),
                 "imported": store.music_imported()}
 
-    def report(self, store, days: int, tz: str = "UTC", now: float | None = None) -> dict:
-        """The Music page. Worked out here, not in SQL: the days and hours are in the viewer's timezone, and a year
-        of listening is well under a million rows."""
+    def report(self, store, days: int, tz: str = "UTC", now: float | None = None, dates: P.Dates | None = None) -> dict:
+        """The Stats page, for the last `days` or the custom period `dates` (days in tz). Worked out here, not in SQL:
+        the days and hours are in the viewer's timezone, and a year of listening is well under a million rows."""
         now = int(now if now is not None else time.time())
         zone = _zone(tz)
-        since = 0 if days >= ALL else now - days * 86400
-        rows = store.music_plays(0 if days >= ALL else since - days * 86400)
-        current = [r for r in rows if r["played_at"] >= since]
-        earlier = [r for r in rows if r["played_at"] < since]
+        w = P.window(days, dates, zone, now)
+        rows = P.within(store.music_plays(w["before"] if w["before"] is not None else w["since"]), w)
+        current = [r for r in rows if r["played_at"] >= w["since"]]
+        earlier = [r for r in rows if r["played_at"] < w["since"]]
         by_day: Counter = Counter()
         minutes: Counter = Counter()
         heat = [[0] * 24 for _ in range(7)]
@@ -301,18 +301,23 @@ class Music:
             heat[local.weekday()][local.hour] += 1
             genres.update(json.loads(r["genres"] or "[]"))
         first = min((r["played_at"] for r in current), default=now)
-        start = dt.datetime.fromtimestamp(first if days >= ALL else since, zone).date()
-        today = dt.datetime.fromtimestamp(now, zone).date()
-        series = [(start + dt.timedelta(n)).isoformat() for n in range((today - start).days + 1)]
-        return {"state": self.state(store), "days": days,
-                "totals": _totals(current), "previous": _totals(earlier) if days < ALL and earlier else None,
+        start = dates.start if dates else dt.datetime.fromtimestamp(first if days >= ALL else w["since"], zone).date()
+        last = dates.end if dates else dt.datetime.fromtimestamp(now, zone).date()
+        series = [(start + dt.timedelta(n)).isoformat() for n in range((last - start).days + 1)]
+        return {"state": self.state(store), "days": days, "first": store.music_first_play(),
+                "period": {"start": start.isoformat(), "end": last.isoformat(), "days": len(series), "custom": dates is not None},
+                "totals": _totals(current), "previous": _totals(earlier) if w["before"] is not None and earlier else None,
                 "series": [{"day": d, "plays": by_day[d], "minutes": round(minutes[d])} for d in series], "heat": heat,
                 "artists": I.top(current, lambda r: r["artist"], TOP), "tracks": I.top(current, I.track_key, TOP),
                 "albums": I.top(current, I.album_key, TOP), "genres": [{"label": k, "plays": n} for k, n in genres.most_common(TOP)],
-                "wall": I.wall(current), "strip": I.strip(current, zone, days), "palettes": I.palettes(current, zone),
-                "recent": [{"art": r["track_id"] if r["has_art"] else None, "bg": r["bg_color"],
-                            **{k: r[k] for k in ("name", "artist", "album", "played_at", "window_start", "seen_at", "url")}}
-                           for r in sorted(current, key=lambda r: (r["seen_at"], r["played_at"]), reverse=True)[:RECENT_ROWS]]}
+                "wall": I.wall(current), "strip": I.strip(current, zone, w["days"]), "palettes": I.palettes(current, zone)}
+
+    def latest(self, store, limit: int = LATEST_ROWS) -> dict:
+        """The Recent page: the newest plays, newest first, whatever the period."""
+        return {"state": self.state(store),
+                "plays": [{"art": r["track_id"] if r["has_art"] else None, "bg": r["bg_color"],
+                           **{k: r[k] for k in ("name", "artist", "album", "played_at", "window_start", "seen_at", "url")}}
+                          for r in store.music_latest(limit)]}
 
 
 def trip_soundtrack(store, first: str, last: str, tz: str) -> dict:
@@ -323,10 +328,11 @@ def trip_soundtrack(store, first: str, last: str, tz: str) -> dict:
     return I.soundtrack(store.music_between(int(start.timestamp()), int(end.timestamp())))
 
 
-def rain_report(store, days: int, tz: str, now: float | None = None) -> dict:
+def rain_report(store, days: int, tz: str, now: float | None = None, dates: P.Dates | None = None) -> dict:
     now = int(now if now is not None else time.time())
-    since = 0 if days >= ALL else now - days * 86400
-    return I.weather(store.music_plays(since), *store.music_rain(since), _zone(tz))
+    zone = _zone(tz)
+    w = P.window(days, dates, zone, now)
+    return I.weather(P.within(store.music_plays(w["since"]), w), *store.music_rain(w["since"], w["until"]), zone)
 
 
 def _totals(rows: list[dict]) -> dict:

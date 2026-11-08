@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .db import Database
 
+UNTIL = "9999-12-31"                    # no end: every query below takes an `until` day, included
 PAGE = "kind='page'"
 
 
@@ -27,26 +28,27 @@ class VisitorsStore(Database):
             self.db.execute("DELETE FROM site_hits WHERE day < ?", (before_day,))
         return n
 
-    def visitors_series(self, since: str) -> list[dict]:
-        """Visitors and page views per day from `since`: raw hits where they're kept, site_days before that."""
+    def visitors_series(self, since: str, until: str = UNTIL) -> list[dict]:
+        """Visitors and page views per day from `since` to `until` (both included): raw hits where they're kept,
+        site_days before that."""
         return [dict(r) for r in self.db.execute(
             f"SELECT day, COUNT(DISTINCT visitor) AS visitors, COUNT(*) AS views FROM site_hits "
-            f"WHERE day >= ? AND {PAGE} GROUP BY day "
-            "UNION ALL SELECT day, visitors, views FROM site_days WHERE day >= ? "
-            f"AND day < COALESCE((SELECT MIN(day) FROM site_hits WHERE {PAGE}), '9999') ORDER BY day", (since, since))]
+            f"WHERE day >= ? AND day <= ? AND {PAGE} GROUP BY day "
+            "UNION ALL SELECT day, visitors, views FROM site_days WHERE day >= ? AND day <= ? "
+            f"AND day < COALESCE((SELECT MIN(day) FROM site_hits WHERE {PAGE}), '9999') ORDER BY day", (since, until, since, until))]
 
-    def visitors_totals(self, since: str) -> dict:
+    def visitors_totals(self, since: str, until: str = UNTIL) -> dict:
         r = self.db.execute(
             f"SELECT COUNT(DISTINCT visitor) AS visitors, COUNT(DISTINCT session) AS sessions, COUNT(*) AS views "
-            f"FROM site_hits WHERE day >= ? AND {PAGE}", (since,)).fetchone()
+            f"FROM site_hits WHERE day >= ? AND day <= ? AND {PAGE}", (since, until)).fetchone()
         out = dict(r)
         out["kinds"] = {k: n for k, n in self.db.execute(
-            "SELECT kind, COUNT(*) FROM site_hits WHERE day >= ? GROUP BY kind", (since,))}
+            "SELECT kind, COUNT(*) FROM site_hits WHERE day >= ? AND day <= ? GROUP BY kind", (since, until))}
         out["now"] = self.db.execute(
             f"SELECT COUNT(DISTINCT visitor) FROM site_hits WHERE ts >= epoch(now())::BIGINT - 300 AND {PAGE}").fetchone()[0]
         return out
 
-    def visitors_top(self, since: str, by: str, limit: int = 20, kind: str = "page") -> list[dict]:
+    def visitors_top(self, since: str, by: str, limit: int = 20, kind: str = "page", until: str = UNTIL) -> list[dict]:
         """The most common values of a column (route, ref_host, city, ...) in the period: views and visitors."""
         # Cities with their region (the country has its own list); regions with their country.
         label = {"city": "concat_ws(', ', city, region)", "region": "concat_ws(', ', region, country)",
@@ -54,23 +56,23 @@ class VisitorsStore(Database):
         where = {"city": "city IS NOT NULL", "region": "region IS NOT NULL", "utm": "utm_source IS NOT NULL"}.get(by, f"{by} IS NOT NULL")
         return [dict(r) for r in self.db.execute(
             f"SELECT {label} AS label, COUNT(*) AS views, COUNT(DISTINCT visitor) AS visitors FROM site_hits "
-            f"WHERE day >= ? AND kind=? AND {where} GROUP BY 1 ORDER BY views DESC, label LIMIT ?", (since, kind, limit))]
+            f"WHERE day >= ? AND day <= ? AND kind=? AND {where} GROUP BY 1 ORDER BY views DESC, label LIMIT ?", (since, until, kind, limit))]
 
-    def visitors_items(self, since: str, route: str, limit: int = 12) -> list[dict]:
+    def visitors_items(self, since: str, route: str, limit: int = 12, until: str = UNTIL) -> list[dict]:
         """The items opened most on one route (photos for /photos/photo/:id), with their Flickr views."""
         return [dict(r) for r in self.db.execute(
             "SELECT h.item AS photo_id, p.title, p.views AS flickr_views, COUNT(*) AS views, COUNT(DISTINCT h.visitor) AS visitors "
-            "FROM site_hits h JOIN photos p ON p.id = h.item WHERE h.day >= ? AND h.kind='page' AND h.route=? "
-            "GROUP BY 1, 2, 3 ORDER BY views DESC LIMIT ?", (since, route, limit))]
+            "FROM site_hits h JOIN photos p ON p.id = h.item WHERE h.day >= ? AND h.day <= ? AND h.kind='page' AND h.route=? "
+            "GROUP BY 1, 2, 3 ORDER BY views DESC LIMIT ?", (since, until, route, limit))]
 
-    def visitors_previews(self, since: str, limit: int = 12) -> list[dict]:
+    def visitors_previews(self, since: str, limit: int = 12, until: str = UNTIL) -> list[dict]:
         """Shared links that were unfurled: which photo or album, how often, and by which apps."""
         return [dict(r) for r in self.db.execute(
             "SELECT h.route, h.item, COALESCE(p.title, a.title) AS title, COUNT(*) AS previews, "
             "string_agg(DISTINCT h.browser, ', ') AS apps FROM site_hits h "
             "LEFT JOIN photos p ON h.route = '/p/:id' AND p.id = h.item "
             "LEFT JOIN albums a ON h.route = '/a/:id' AND a.id = h.item "
-            "WHERE h.day >= ? AND h.kind='preview' GROUP BY 1, 2, 3 ORDER BY previews DESC LIMIT ?", (since, limit))]
+            "WHERE h.day >= ? AND h.day <= ? AND h.kind='preview' GROUP BY 1, 2, 3 ORDER BY previews DESC LIMIT ?", (since, until, limit))]
 
     def visitors_recent(self, limit: int = 30) -> list[dict]:
         """The latest sessions: when, where from, on what, and the pages in order."""

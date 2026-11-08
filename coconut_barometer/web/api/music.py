@@ -7,6 +7,7 @@ as the app's shell) and it's never cached. The page's only secrets are a develop
 session's CSRF token."""
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import html
 import os
@@ -30,7 +31,7 @@ from ... import music_explore as X
 from ...artist_profiles import can_ask
 from ... import music_graph as G
 from ... import settings as S
-from ..deps import runtime, session, store, viewer
+from ..deps import Span, runtime, session, store, viewer
 from .admin import _confirm_password
 
 router = APIRouter(prefix="/api/music", tags=["music"])
@@ -66,9 +67,30 @@ class Connect(BaseModel):
     password: str = Field(max_length=1000)
 
 
-@router.get("/analytics", dependencies=[Depends(session)])
-def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), rt=Depends(runtime), db=Depends(store)):
-    return rt.music.report(db, days, tz)
+def _today(tz: str) -> dt.date:
+    return dt.datetime.now(M._zone(tz)).date()
+
+
+# Music → Recent and Stats are public; the artist graph (Artists), connecting and importing are signed in only.
+PUBLIC_STATE = ("every_minutes", "last_ok", "started", "missed", "imported")
+
+
+def _for(me, out: dict) -> dict:
+    """A visitor sees the state's footnote (how often it's read, since when), not the connection's errors or setup."""
+    return out if me is not None else {**out, "state": {k: out["state"][k] for k in PUBLIC_STATE}}
+
+
+@router.get("/analytics")
+def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
+              rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """The Stats page: the last `days`, or ?start=&end= (days in tz). Public."""
+    return _for(me, rt.music.report(db, days, tz, dates=span.dates(_today(tz))))
+
+
+@router.get("/latest")
+def latest(rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+    """The Recent page: the newest plays, and the connection's state. Public."""
+    return _for(me, rt.music.latest(db))
 
 
 def _graph_extras(rt, db) -> dict:
@@ -78,9 +100,15 @@ def _graph_extras(rt, db) -> dict:
 
 @router.get("/graph", dependencies=[Depends(session)])
 def graph(days: int = Query(M.ALL, ge=1, le=M.ALL), limit: int = Query(G.NODES, ge=10, le=G.MAX_NODES),
-          rt=Depends(runtime), db=Depends(store)):
-    """The artist network (music_graph.py, #/music/graph), with what Claude and MusicBrainz said about it."""
-    return {**G.report(db, days, limit=limit), **_graph_extras(rt, db)}
+          tz: str = Query("UTC", max_length=64), span: Span = Depends(), rt=Depends(runtime), db=Depends(store)):
+    """The artist network (music_graph.py, Music → Artists), with what Claude and MusicBrainz said about it."""
+    return {**G.report(db, days, limit=limit, dates=span.dates(_today(tz)), zone=M._zone(tz)), **_graph_extras(rt, db)}
+
+
+@router.get("/graph/state", dependencies=[Depends(session)])
+def graph_state(rt=Depends(runtime), db=Depends(store)):
+    """How far MusicBrainz and the artist profiles have got, without building a graph (Music → Artists' notes)."""
+    return _graph_extras(rt, db)
 
 
 @router.post("/graph/musicbrainz", dependencies=[Depends(session)])
@@ -188,9 +216,10 @@ def state(rt=Depends(runtime), db=Depends(store)):
     return rt.music.state(db)
 
 
-@router.get("/weather", dependencies=[Depends(session)])
-def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), db=Depends(store)):
-    return M.rain_report(db, days, tz)
+@router.get("/weather")
+def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
+            db=Depends(store)):
+    return M.rain_report(db, days, tz, dates=span.dates(_today(tz)))
 
 
 @router.get("/trip/{trip_id}", dependencies=[Depends(session)])
@@ -219,12 +248,10 @@ def glance(db=Depends(store)):
 
 
 @router.get("/art/{track_id}")
-def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store), me=Depends(viewer)):
+def art(track_id: str, s: int = Query(160), rt=Depends(runtime), db=Depends(store)):
     """A cover, from this server's own copy: Apple's image host isn't in the site's CSP, and this way the browser
-    never talks to it. Fetched the first time it's shown, then kept on the disk. Visitors get only the covers on
-    Home's Music card."""
-    if me is None and track_id not in {r["track_id"] for r in db.music_recent(GLANCE_TRACKS)}:
-        raise HTTPException(401, "not logged in")
+    never talks to it. Fetched the first time it's shown, then kept on the disk. Public, like Recent and Stats: only
+    tracks in the library have a cover to fetch."""
     if s not in ART_SIZES:
         raise HTTPException(400, "unknown size")
     headers = {"Cache-Control": f"private, max-age={ART_SECONDS}"}

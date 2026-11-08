@@ -1,9 +1,12 @@
 """Request dependencies: the runtime, this thread's store, and the logged-in session."""
 from __future__ import annotations
 
+import datetime as dt
 import time
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Query, Request
+
+from .. import periods as P
 
 from ..store import Store
 from .runtime import Runtime
@@ -48,3 +51,17 @@ def viewer(request: Request, db: Store = Depends(store)) -> dict | None:
 def client_ip(request: Request) -> str:
     """uvicorn already resolves X-Forwarded-For for web.trusted_proxies."""
     return request.client.host if request.client else "?"
+
+
+class Span:
+    """A custom period from ?start=&end= (YYYY-MM-DD, both days included), for a page whose range is `days` otherwise
+    (periods.py). Use as `span: Span = Depends()`, then span.dates(today in the page's zone)."""
+
+    def __init__(self, start: str | None = Query(None, max_length=10), end: str | None = Query(None, max_length=10)):
+        self.start, self.end = start, end
+
+    def dates(self, today: dt.date) -> P.Dates | None:
+        try:
+            return P.custom(self.start, self.end, today)
+        except P.BadPeriod as e:
+            raise HTTPException(400, str(e)) from None

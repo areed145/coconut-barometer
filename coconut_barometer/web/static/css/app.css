@@ -85,6 +85,8 @@ button.danger, button.link.danger { color: var(--no); }
 button.link { min-height: 0; border: 0; background: none; color: var(--accent); padding: var(--s1); }
 .toolbar button.on { border-color: var(--accent); color: var(--accent); }
 .seg, .range { display: inline-flex; gap: var(--s1); flex-wrap: wrap; }
+.period { display: inline-flex; gap: var(--s2); flex-wrap: wrap; align-items: center; max-width: 100%; min-width: 0; }
+.period .range, .period .daterange { flex-wrap: wrap; max-width: 100%; min-width: 0; }
 button.preset { min-height: 30px; font-size: var(--text-sm); padding: 0 var(--s3); border-radius: var(--r-pill); }
 button.preset .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 button.preset.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
