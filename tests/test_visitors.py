@@ -222,6 +222,18 @@ class VisitorsWebTest(unittest.TestCase):
         self.assertEqual(d["series"][-1]["views"], 2)
         self.assertIn("visitors", [r["id"] for r in self.c.get("/api/status").json()["rows"]])
 
+    def test_the_report_over_custom_dates(self):
+        import datetime as dt
+        self.send(self.visitor())
+        self.login()
+        today = dt.datetime.now(dt.timezone.utc).date()
+        d = self.c.get("/api/analytics/visitors", params={"start": today.isoformat(), "end": today.isoformat()}).json()
+        self.assertEqual((d["totals"]["visitors"], d["until"], d["previous"]["visitors"]), (1, today.isoformat(), 0))
+        week_ago = (today - dt.timedelta(days=7)).isoformat()
+        d = self.c.get("/api/analytics/visitors", params={"start": week_ago, "end": week_ago}).json()
+        self.assertEqual((d["totals"]["visitors"], d["series"], d["pages"]), (0, [], []))
+        self.assertEqual(self.c.get("/api/analytics/visitors", params={"end": week_ago}).status_code, 400)
+
     def test_homes_glance_needs_the_login(self):
         self.assertEqual(self.c.get("/api/visitors/glance").status_code, 401)
         self.send(self.visitor())

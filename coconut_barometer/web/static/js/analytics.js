@@ -3,17 +3,19 @@
 // their own (#/visitors, analytics_visitors.js).
 import { html, useState, useEffect, useMemo, api, num, ago, plain } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Kpi, TopGrid, usePhotoBox, Range } from "./viz.js";
+import { Kpi, TopGrid, usePhotoBox } from "./viz.js";
+import { Period, dates, periodParams, periodName, usePeriod } from "./period.js";
 import { TagsTab } from "./analytics_tags.js";
 import { PlacesTab, GearTab, AudienceTab, GroupsTab, ImpactTab } from "./analytics_more.js";
 
 const TABS = [["overview", "Overview"], ["photos", "Photos"], ["tags", "Tags"], ["places", "Places"], ["gear", "Gear & technique"],
               ["audience", "Audience"], ["groups", "Albums & groups"], ["impact", "Did it help?"]];
 
-function Overview({ days, setDays }) {
+function Overview({ period, setPeriod }) {
   const [d, setD] = useState(null);
   const [box, open] = usePhotoBox();
-  useEffect(() => { setD(null); api("/api/analytics/overview", { params: { days } }).then(setD); }, [days]);
+  useEffect(() => { setD(null); api("/api/analytics/overview", { params: periodParams(period) }).then(setD).catch((e) => setD({ error: e.message })); }, [period]);
+  const toolbar = html`<div class="toolbar"><${Period} value=${period} onChange=${setPeriod} /></div>`;
   const series = d?.series || [];
   const dayList = useMemo(() => series.map((r) => r.day), [d]);
   // Today's views so far: a dashed line on from yesterday, not part of the solid one.
@@ -28,12 +30,13 @@ function Overview({ days, setDays }) {
   const social = useMemo(() => [
     { label: "faves", values: series.map((r) => r.faves), color: "--chart-2", bars: true },
     { label: "comments", values: series.map((r) => r.comments), color: "--chart-3", bars: true }], [d]);
-  if (!d) return html`<div class="toolbar"><${Range} days=${days} setDays=${setDays} /></div><div class="boot">Loading…</div>`;
+  if (!d) return html`${toolbar}<div class="boot">Loading…</div>`;
+  if (d.error) return html`${toolbar}<p class="problem">${d.error}</p>`;
   const prev = d.previous;
   const h = d.highlights;
-  return html`<div class="toolbar"><${Range} days=${days} setDays=${setDays} /></div>
+  return html`${toolbar}
     <div class="kpis">
-      <${Kpi} label="Views" now=${d.period.views} before=${prev?.views} note=${days >= 3650 ? "in the days collected" : `in ${days} days`} />
+      <${Kpi} label="Views" now=${d.period.views} before=${prev?.views} note=${period === "all" ? "in the days collected" : `in ${periodName(period)}`} />
       <${Kpi} label="Faves received" now=${d.period.faves} before=${prev?.faves} />
       <${Kpi} label="Comments received" now=${d.period.comments} before=${prev?.comments} />
       <${Kpi} label="All-time views" now=${d.totals.views} note=${`on ${num(d.totals.photos)} photos`} />
@@ -68,11 +71,13 @@ const LISTS = [
   ["overlooked", "Overlooked", "Well liked (top quarter for faves per view) but seen less than most, and in no group: worth sharing to groups."],
 ];
 
-function Photos({ days, setDays }) {
+function Photos({ period, setPeriod }) {
   const [kind, setKind] = useState("views");
   const [rows, setRows] = useState(null);
   const [box, open] = usePhotoBox();
-  useEffect(() => { setRows(null); api("/api/analytics/photos", { params: { kind, days, limit: 36 } }).then(setRows); }, [kind, days]);
+  // Gaining compares the last N days with as many before: no custom dates there (a custom period shows as 30 days).
+  const gaining = kind === "gaining", shown = gaining && dates(period) ? "30d" : period;
+  useEffect(() => { setRows(null); api("/api/analytics/photos", { params: { kind, ...periodParams(shown), limit: 36 } }).then(setRows); }, [kind, shown]);
   const about = LISTS.find((l) => l[0] === kind);
   const usesRange = ["views", "faves", "comments", "gaining"].includes(kind);
   const caption = (r) => kind === "sleepers" ? `${r.value}× usual · ${num(r.recent)} views`
@@ -80,7 +85,7 @@ function Photos({ days, setDays }) {
     : kind === "gaining" ? `+${num(r.value)} views` : `${num(r.value)} ${kind}`;
   return html`<div class="toolbar">
       <span class="seg">${LISTS.map(([k, label]) => html`<button class=${kind === k ? "primary" : ""} onClick=${() => setKind(k)}>${label}</button>`)}</span>
-      ${usesRange && html`<${Range} days=${days} setDays=${setDays} />`}
+      ${usesRange && html`<${Period} value=${shown} onChange=${setPeriod} custom=${!gaining} />`}
     </div>
     <p class="muted">${about[2]}</p>
     ${!rows ? html`<div class="boot">Loading…</div>` : html`<div class="card"><${TopGrid} rows=${rows} caption=${caption} onOpen=${open} /></div>`}
@@ -88,10 +93,10 @@ function Photos({ days, setDays }) {
 }
 
 export function Analytics({ tab = "overview" }) {
-  const [days, setDays] = useState(30);
+  const [period, setPeriod] = usePeriod("analytics");
   const current = TABS.some(([t]) => t === tab) ? tab : "overview";
   const page = {
-    overview: html`<${Overview} days=${days} setDays=${setDays} />`, photos: html`<${Photos} days=${days} setDays=${setDays} />`,
+    overview: html`<${Overview} period=${period} setPeriod=${setPeriod} />`, photos: html`<${Photos} period=${period} setPeriod=${setPeriod} />`,
     tags: html`<${TagsTab} />`, places: html`<${PlacesTab} />`, gear: html`<${GearTab} />`, audience: html`<${AudienceTab} />`,
     groups: html`<${GroupsTab} />`, impact: html`<${ImpactTab} />`,
   }[current];

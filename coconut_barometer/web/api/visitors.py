@@ -8,7 +8,8 @@ import json
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from ...visitors import OWNER_COOKIE, PREVIEWS
-from ..deps import client_ip, runtime, session, store
+from ...store.visitors import UNTIL
+from ..deps import Span, client_ip, runtime, session, store
 from ..security import COOKIE
 
 router = APIRouter(tags=["visitors"])
@@ -73,26 +74,35 @@ def _since(days: int) -> str:
 
 
 @router.get("/api/analytics/visitors", dependencies=[Depends(session)])
-def report(days: int = Query(30, ge=1, le=3650), db=Depends(store), rt=Depends(runtime)):
-    """Days are UTC, today included. Page views still held in memory are written first, so the newest are in."""
+def report(days: int = Query(30, ge=1, le=3650), span: Span = Depends(), db=Depends(store), rt=Depends(runtime)):
+    """Days are UTC, today included: the last `days`, or ?start=&end= (both included). Page views still held in
+    memory are written first, so the newest are in."""
     rt.visitors.flush(db)
-    since, before = _since(days), _since(2 * days)
     keep = rt.cfg["visitors"]["keep_days"]
-    previous = db.visitors_totals(before) if 2 * days <= keep else None
-    current = db.visitors_totals(since)
-    if previous:       # a visitor's id lasts a day, so the two periods never share one: subtracting is exact
-        previous = {k: previous[k] - current[k] for k in ("visitors", "views", "sessions")}
-    top = lambda by, n=20, kind="page": db.visitors_top(since, by, n, kind)
-    photos = db.visitors_items(since, "/photos/photo/:id")
+    dates = span.dates(dt.datetime.now(dt.timezone.utc).date())
+    if dates:
+        since, until = dates.start.isoformat(), dates.end.isoformat()
+        current = db.visitors_totals(since, until)
+        b = dates.before()
+        previous = db.visitors_totals(b.start.isoformat(), b.end.isoformat()) if b.start.isoformat() >= _since(keep) else None
+    else:
+        since, until = _since(days), UNTIL
+        before = _since(2 * days)
+        previous = db.visitors_totals(before) if 2 * days <= keep else None
+        current = db.visitors_totals(since)
+        if previous:   # a visitor's id lasts a day, so the two periods never share one: subtracting is exact
+            previous = {k: previous[k] - current[k] for k in ("visitors", "views", "sessions")}
+    top = lambda by, n=20, kind="page": db.visitors_top(since, by, n, kind, until=until)
+    photos = db.visitors_items(since, "/photos/photo/:id", until=until)
     cards = db.cards([r["photo_id"] for r in photos])
     photos = [{**r, "sizes": (cards.get(r["photo_id"]) or {}).get("sizes", {})} for r in photos]
-    return {"since": since, "keep_days": keep, "totals": current, "previous": previous,
-            "series": db.visitors_series(since),
+    return {"since": since, "until": dates.end.isoformat() if dates else None, "keep_days": keep, "totals": current,
+            "previous": previous, "series": db.visitors_series(since, until),
             "pages": top("route"), "referrers": top("ref_host"), "campaigns": top("utm"),
             "cities": top("city", 30), "regions": top("region"), "countries": top("country"),
             "devices": top("device", 5), "browsers": top("browser", 10), "systems": top("os", 10),
             "bots": top("browser", 10, "bot"),
-            "photos": photos, "previews": db.visitors_previews(since),
+            "photos": photos, "previews": db.visitors_previews(since, until=until),
             "recent": db.visitors_recent(), "collector": rt.visitors.status()}
 
 

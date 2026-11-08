@@ -62,22 +62,23 @@ def _daily_sums(db, since: str, until: str | None = None) -> dict[str, int]:
 
 
 # ---- photos worth a look ---------------------------------------------------------------
-def photo_lists(db, kind: str, days: int, limit: int = 24, min_views: int = 100) -> list[dict]:
-    """kind: views | faves | comments (for the period; all-time when days >= 3650),
-    engagement (faves per 1,000 views), sleepers (old photos waking up), overlooked
+def photo_lists(db, kind: str, days: int, limit: int = 24, min_views: int = 100, dates=None) -> list[dict]:
+    """kind: views | faves | comments (for the period: the last `days`, all-time when days >= 3650, or the custom
+    periods.Dates `dates`), engagement (faves per 1,000 views), sleepers (old photos waking up), overlooked
     (well liked, little seen, in no group)."""
     photos = {p["id"]: p for p in _photos(db)}
-    since = (today() - dt.timedelta(days=days)).isoformat()
+    since = dates.start.isoformat() if dates else (today() - dt.timedelta(days=days)).isoformat()
+    until = dates.end.isoformat() if dates else "9999-12-31"
     rows: list[dict] = []
     if kind in ("views", "faves", "comments"):
-        if days >= 3650:
+        if days >= 3650 and not dates:
             ranked = sorted(photos.values(), key=lambda p: p[kind] or 0, reverse=True)[:limit]
             rows = [{"photo_id": p["id"], "value": p[kind] or 0} for p in ranked]
         else:
             col = {"views": "views", "faves": "favorites", "comments": "comments"}[kind]
             rows = [{"photo_id": r[0], "value": r[1]} for r in db.db.execute(
-                f"SELECT photo_id, SUM({col}) n FROM photo_daily WHERE day >= ? GROUP BY photo_id "
-                f"HAVING n > 0 ORDER BY n DESC, photo_id LIMIT ?", (since, limit))]
+                f"SELECT photo_id, SUM({col}) n FROM photo_daily WHERE day >= ? AND day <= ? GROUP BY photo_id "
+                f"HAVING n > 0 ORDER BY n DESC, photo_id LIMIT ?", (since, until, limit))]
     elif kind == "engagement":
         ranked = sorted((p for p in photos.values() if (p["views"] or 0) >= min_views),
                         key=lambda p: (p["faves"] or 0) / p["views"], reverse=True)[:limit]

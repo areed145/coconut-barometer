@@ -503,6 +503,17 @@ class WebTest(unittest.TestCase):
         self.assertIn("highlights", self.c.get("/api/analytics/overview", params={"days": 3650}).json())
         self.assertEqual(self.c.get("/api/analytics/breakdown", params={"by": "year", "days": 3650}).json()[0]["views"], 40)
         self.assertEqual(self.c.get("/api/analytics/photos/1").json()["daily"][0]["views"], 40)
+
+    def test_analytics_over_custom_dates(self):
+        self.store.save_stats_day("2026-10-19", {"total": 50}, [{"photo_id": "1", "views": 40, "comments": 1, "favorites": 2}])
+        self.store.save_stats_day("2026-10-21", {"total": 7}, [{"photo_id": "2", "views": 7, "comments": 0, "favorites": 0}])
+        self.login()
+        o = self.c.get("/api/analytics/overview", params={"start": "2026-10-20", "end": "2026-10-21"}).json()
+        self.assertEqual(([r["day"] for r in o["series"]], o["period"]["views"], o["until"]), (["2026-10-21"], 7, "2026-10-21"))
+        self.assertEqual(o["previous"]["views"], 50)                  # the two days before: the 19th
+        top = self.c.get("/api/analytics/photos", params={"kind": "views", "start": "2026-10-19", "end": "2026-10-19"}).json()
+        self.assertEqual([r["photo_id"] for r in top], ["1"])
+        self.assertEqual(self.c.get("/api/analytics/overview", params={"start": "2026-10-21", "end": "2026-10-19"}).status_code, 400)
         self.assertEqual(self.c.get("/api/analytics/breakdown", params={"by": "secrets"}).status_code, 422)
 
 

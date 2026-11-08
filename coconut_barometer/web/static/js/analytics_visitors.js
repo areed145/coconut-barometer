@@ -2,7 +2,8 @@
 // (main.js → /api/seen), without cookies or IP addresses; see visitors.py on the server.
 import { html, useState, useEffect, useMemo, api, num, ago, go } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Kpi, Bars, Table, TopGrid, usePhotoBox, Range } from "./viz.js";
+import { Kpi, Bars, Table, TopGrid, usePhotoBox } from "./viz.js";
+import { Period, dates, periodParams, periodName, usePeriod } from "./period.js";
 
 const PAGES = {
   "/home": "Home", "/photos": "Photos", "/photos/photostream": "Photos", "/photos/albums": "Albums",
@@ -21,20 +22,20 @@ const DEVICES = { phone: "Phone", tablet: "Tablet", desktop: "Computer" };
 const WHY = { owner: "from your own devices", gpc: "asked not to be tracked", "cross-site": "sent from another site",
               rate: "over the rate limit", limit: "over a visitor's daily limit", malformed: "malformed", buffer: "buffer full" };
 
-// Every day from `since` to today (UTC), so days nobody came show as 0.
-function allDays(since) {
-  const out = [];
-  for (let d = new Date(since + "T00:00:00Z"); d <= new Date(); d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+// Every day from `since` to `until` (or today, UTC), so days nobody came show as 0.
+function allDays(since, until) {
+  const out = [], last = until ? new Date(until + "T00:00:00Z") : new Date();
+  for (let d = new Date(since + "T00:00:00Z"); d <= last; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
   return out;
 }
 
 export function Visitors() {
-  const [days, setDays] = useState(30);
-  const range = html`<${Range} days=${days} setDays=${setDays} />`;
+  const [period, setPeriod] = usePeriod("visitors");
+  const range = html`<${Period} value=${period} onChange=${setPeriod} />`;
   const [d, setD] = useState(null);
   const [box, open] = usePhotoBox();
-  useEffect(() => { setD(null); api("/api/analytics/visitors", { params: { days } }).then(setD).catch((e) => setD({ error: e.message })); }, [days]);
-  const dayList = useMemo(() => (d?.series ? allDays(d.series[0]?.day < d.since ? d.series[0].day : d.since) : []), [d]);
+  useEffect(() => { setD(null); api("/api/analytics/visitors", { params: periodParams(period) }).then(setD).catch((e) => setD({ error: e.message })); }, [period]);
+  const dayList = useMemo(() => (d?.series ? allDays(d.series[0]?.day < d.since ? d.series[0].day : d.since, d.until) : []), [d]);
   const series = useMemo(() => {
     if (!d?.series) return [];
     const by = Object.fromEntries(d.series.map((r) => [r.day, r]));
@@ -50,7 +51,7 @@ export function Visitors() {
   return html`<div class="toolbar">${range}</div>
     ${!c.enabled && html`<p class="problem">Visitors aren't being counted: turn it on in <a href="#/settings/visitors">Settings → Visitors</a>.</p>`}
     <div class="kpis">
-      <${Kpi} label="Visitors" now=${t.visitors} before=${prev?.visitors} note=${days > d.keep_days ? `in the ${d.keep_days} days kept` : `in ${days} days`} />
+      <${Kpi} label="Visitors" now=${t.visitors} before=${prev?.visitors} note=${!dates(period) && periodParams(period).days > d.keep_days ? `in the ${d.keep_days} days kept` : `in ${periodName(period)}`} />
       <${Kpi} label="Page views" now=${t.views} before=${prev?.views} />
       <${Kpi} label="Visits" now=${t.sessions} before=${prev?.sessions} note="(a new one after 30 min idle)" />
       <${Kpi} label="Here now" now=${t.now} note="in the last 5 minutes" />

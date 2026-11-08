@@ -16,16 +16,18 @@ BREAKDOWNS = {
 
 
 class AnalyticsStore(Database):
-    def daily_series(self, since: str) -> list[dict]:
-        """Per day: total views (account_daily), faves and comments received (by their own dates).
-        partial: today's views so far (the day isn't over)."""
+    def daily_series(self, since: str, until: str = "9999-12-31") -> list[dict]:
+        """Per day from `since` to `until` (both included): total views (account_daily), faves and comments received
+        (by their own dates). partial: today's views so far (the day isn't over)."""
         views = {r["day"]: dict(r) for r in self.db.execute(
-            "SELECT day, total, photos, photostream, sets FROM account_daily WHERE day >= ?", (since,))}
+            "SELECT day, total, photos, photostream, sets FROM account_daily WHERE day >= ? AND day <= ?", (since, until))}
         faves = dict(self.db.execute("SELECT CAST(make_timestamp(date_faved * 1000000) AS DATE)::VARCHAR d, COUNT(*) FROM faves "
-                                     "WHERE CAST(make_timestamp(date_faved * 1000000) AS DATE) >= CAST(? AS DATE) GROUP BY d", (since,)).fetchall())
+                                     "WHERE CAST(make_timestamp(date_faved * 1000000) AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) "
+                                     "GROUP BY d", (since, until)).fetchall())
         comments = dict(self.db.execute("SELECT CAST(make_timestamp(date_created * 1000000) AS DATE)::VARCHAR d, COUNT(*) FROM comments "
-                                        "WHERE CAST(make_timestamp(date_created * 1000000) AS DATE) >= CAST(? AS DATE) GROUP BY d", (since,)).fetchall())
-        partial = {r[0] for r in self.db.execute("SELECT day FROM stats_days WHERE status='partial' AND day >= ?", (since,))}
+                                        "WHERE CAST(make_timestamp(date_created * 1000000) AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE) "
+                                        "GROUP BY d", (since, until)).fetchall())
+        partial = {r[0] for r in self.db.execute("SELECT day FROM stats_days WHERE status='partial' AND day >= ? AND day <= ?", (since, until))}
         days = sorted(set(views) | set(faves) | set(comments))
         return [{"day": d, "views": (views.get(d) or {}).get("total"), "faves": faves.get(d, 0),
                  "comments": comments.get(d, 0), "partial": d in partial} for d in days]
