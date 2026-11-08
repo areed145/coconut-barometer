@@ -7,6 +7,7 @@ as the app's shell) and it's never cached. The page's only secrets are a develop
 session's CSRF token."""
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import html
 import os
@@ -30,7 +31,7 @@ from ... import music_explore as X
 from ...artist_profiles import can_ask
 from ... import music_graph as G
 from ... import settings as S
-from ..deps import runtime, session, store, viewer
+from ..deps import Span, runtime, session, store, viewer
 from .admin import _confirm_password
 
 router = APIRouter(prefix="/api/music", tags=["music"])
@@ -66,9 +67,21 @@ class Connect(BaseModel):
     password: str = Field(max_length=1000)
 
 
+def _today(tz: str) -> dt.date:
+    return dt.datetime.now(M._zone(tz)).date()
+
+
 @router.get("/analytics", dependencies=[Depends(session)])
-def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), rt=Depends(runtime), db=Depends(store)):
-    return rt.music.report(db, days, tz)
+def analytics(days: int = Query(30, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
+              rt=Depends(runtime), db=Depends(store)):
+    """The Stats page: the last `days`, or ?start=&end= (days in tz)."""
+    return rt.music.report(db, days, tz, dates=span.dates(_today(tz)))
+
+
+@router.get("/latest", dependencies=[Depends(session)])
+def latest(rt=Depends(runtime), db=Depends(store)):
+    """The Recent page: the newest plays, and the connection's state."""
+    return rt.music.latest(db)
 
 
 def _graph_extras(rt, db) -> dict:
@@ -78,9 +91,15 @@ def _graph_extras(rt, db) -> dict:
 
 @router.get("/graph", dependencies=[Depends(session)])
 def graph(days: int = Query(M.ALL, ge=1, le=M.ALL), limit: int = Query(G.NODES, ge=10, le=G.MAX_NODES),
-          rt=Depends(runtime), db=Depends(store)):
-    """The artist network (music_graph.py, #/music/graph), with what Claude and MusicBrainz said about it."""
-    return {**G.report(db, days, limit=limit), **_graph_extras(rt, db)}
+          tz: str = Query("UTC", max_length=64), span: Span = Depends(), rt=Depends(runtime), db=Depends(store)):
+    """The artist network (music_graph.py, Music → Artists), with what Claude and MusicBrainz said about it."""
+    return {**G.report(db, days, limit=limit, dates=span.dates(_today(tz)), zone=M._zone(tz)), **_graph_extras(rt, db)}
+
+
+@router.get("/graph/state", dependencies=[Depends(session)])
+def graph_state(rt=Depends(runtime), db=Depends(store)):
+    """How far MusicBrainz and the artist profiles have got, without building a graph (Music → Artists' notes)."""
+    return _graph_extras(rt, db)
 
 
 @router.post("/graph/musicbrainz", dependencies=[Depends(session)])
@@ -189,8 +208,9 @@ def state(rt=Depends(runtime), db=Depends(store)):
 
 
 @router.get("/weather", dependencies=[Depends(session)])
-def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), db=Depends(store)):
-    return M.rain_report(db, days, tz)
+def weather(days: int = Query(M.ALL, ge=1, le=M.ALL), tz: str = Query("UTC", max_length=64), span: Span = Depends(),
+            db=Depends(store)):
+    return M.rain_report(db, days, tz, dates=span.dates(_today(tz)))
 
 
 @router.get("/trip/{trip_id}", dependencies=[Depends(session)])

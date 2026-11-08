@@ -282,7 +282,32 @@ class ReadsTest(unittest.TestCase):
         self.assertEqual(sum(map(sum, d["heat"])), 2)
         self.assertEqual(len(d["series"]), 8)
         self.assertEqual(sum(r["plays"] for r in d["series"]), 2)
-        self.assertEqual(d["recent"][0]["name"], "Song a")
+        self.assertEqual(d["period"]["days"], 8)
+        self.assertFalse(d["period"]["custom"])
+
+    def test_the_latest_plays_whatever_the_period(self):
+        self.read("old")
+        self.read("a", "b", "old", at=NOON + 3600)
+        d = self.music.latest(self.store)
+        self.assertEqual({p["name"] for p in d["plays"]}, {"Song a", "Song b"})
+        self.assertIn("connected", d["state"])
+
+    def test_a_custom_period_is_whole_days_in_the_viewers_zone(self):
+        import datetime as dt
+        from zoneinfo import ZoneInfo
+
+        from coconut_barometer import periods as P
+        self.read("old")
+        self.read("a", "b", "old", at=NOON + 3600)
+        day = dt.datetime.fromtimestamp(NOON, ZoneInfo("America/Los_Angeles")).date()
+        d = self.music.report(self.store, 30, "America/Los_Angeles", NOON + 86400 * 40, dates=P.Dates(day, day))
+        self.assertEqual(d["totals"]["plays"], 2)
+        self.assertEqual(d["period"], {"start": day.isoformat(), "end": day.isoformat(), "days": 1, "custom": True})
+        self.assertEqual([r["day"] for r in d["series"]], [day.isoformat()])
+        self.assertIsNone(d["previous"])                                    # nothing the day before
+        before = self.music.report(self.store, 30, "America/Los_Angeles", NOON + 86400 * 40,
+                                   dates=P.Dates(day + dt.timedelta(days=1), day + dt.timedelta(days=1)))
+        self.assertEqual((before["totals"]["plays"], before["previous"]["plays"]), (0, 2))
 
     def test_the_report_survives_a_nonsense_timezone(self):
         self.assertEqual(self.music.report(self.store, 7, "Not/AZone", NOON)["totals"]["plays"], 0)
@@ -627,6 +652,23 @@ class WebTest(unittest.TestCase):
         d = self.c.get("/api/music/analytics", params={"days": 30, "tz": "America/Chicago"}).json()
         self.assertEqual(d["totals"]["plays"], 0)
         self.assertFalse(d["state"]["connected"])
+
+    def test_a_custom_period_and_one_that_isnt(self):
+        self.login()
+        d = self.c.get("/api/music/analytics", params={"start": "2026-01-01", "end": "2026-01-31", "tz": "UTC"}).json()
+        self.assertEqual(d["period"], {"start": "2026-01-01", "end": "2026-01-31", "days": 31, "custom": True})
+        for bad in ({"start": "2026-01-01"}, {"start": "2026-02-01", "end": "2026-01-01"}, {"start": "January", "end": "2026-01-01"}):
+            r = self.c.get("/api/music/analytics", params=bad)
+            self.assertEqual(r.status_code, 400, bad)
+        for path in ("/api/music/weather", "/api/music/graph"):
+            self.assertEqual(self.c.get(path, params={"start": "2026-01-01", "end": "2026-01-31"}).status_code, 200)
+            self.assertEqual(self.c.get(path, params={"start": "2026-01-01"}).status_code, 400)
+
+    def test_the_latest_and_the_graphs_state(self):
+        self.assertEqual(self.c.get("/api/music/latest").status_code, 401)
+        self.login()
+        self.assertEqual(self.c.get("/api/music/latest").json()["plays"], [])
+        self.assertEqual(set(self.c.get("/api/music/graph/state").json()), {"musicbrainz", "profiles"})
 
 
 if __name__ == "__main__":

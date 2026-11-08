@@ -1,8 +1,10 @@
-// Music (#/music): Apple Music listening, read by the server every hour (apple_music.py). Days and hours are in this
-// browser's timezone; the times are estimates, since Apple doesn't say when a track was played.
+// Music (#/music): Apple Music listening, read by the server every hour (apple_music.py). Recent is the newest plays;
+// Stats is one period's numbers, top lists, patterns and covers. Days and hours are in this browser's timezone; the
+// times are estimates, since Apple doesn't say when a track was played.
 import { html, useState, useEffect, useMemo, useRef, api, num, ago, toast } from "./lib.js";
 import { Chart } from "./chart.js";
-import { Kpi, Bars, Heatmap, Range } from "./viz.js";
+import { Kpi, Bars, Heatmap } from "./viz.js";
+import { Period, periodParams, periodName, periodFile, usePeriod } from "./period.js";
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -14,7 +16,6 @@ const art = (id, size = 160) => `/api/music/art/${encodeURIComponent(id)}?s=${si
 const hide = (e) => { e.target.style.visibility = "hidden"; };   // the tile's color stays if a cover won't load
 const cover = (r, size, cls) => r?.art && html`<img class=${cls} loading="lazy" alt="" src=${art(r.art, size)} style=${r.bg ? `background:#${r.bg}` : ""} onError=${hide} />`;
 const named = (r) => r.label.split(" · ")[0];
-const RANGE_NAME = { 7: "the last 7 days", 30: "the last 30 days", 90: "the last 90 days", 365: "the last year", 3650: "all time" };
 
 function Top({ title, rows, covers = true }) {
   return html`<div class="card"><h2>${title}</h2><${Bars} rows=${rows} value="plays" empty="Nothing yet." thumb=${covers ? (r) => cover(r, 64, "thumb") : null} /></div>`;
@@ -60,9 +61,9 @@ function Palettes({ months }) {
 }
 
 // Rainy days against dry ones, at the Tempest stations (music_insights.py).
-function RainOrShine({ days }) {
+function RainOrShine({ period }) {
   const [d, setD] = useState(null);
-  useEffect(() => { setD(null); api("/api/music/weather", { params: { days, tz: ZONE } }).then(setD).catch(() => {}); }, [days]);
+  useEffect(() => { setD(null); api("/api/music/weather", { params: { ...periodParams(period), tz: ZONE } }).then(setD).catch(() => {}); }, [period]);
   if (!d?.enough) return null;
   const list = (title, rows) => html`<div><h3>${title}</h3><${Bars} rows=${rows} value="lift" right=${(r) => `${r.lift}×`} title=${(r) => `${num(r.rainy)} on rainy days · ${num(r.dry)} on dry days`} empty="Nothing stands out." /></div>`;
   return html`<div class="card"><h2>Rain or shine</h2>
@@ -75,7 +76,7 @@ const loadImage = (src) => new Promise((ok) => { const i = new Image(); i.onload
 const light = (hex) => { const n = parseInt(hex, 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 140; };
 
 // A picture of the period, drawn in the browser from what's on the page, colored by its top album.
-async function drawPoster(canvas, d, days) {
+async function drawPoster(canvas, d, period) {
   const W = 1080, H = 1350, M = 72, album = d.albums[0];
   canvas.width = W; canvas.height = H;
   const c = canvas.getContext("2d"), bg = album?.bg || "1a1a1a", ink = album?.text && album.bg ? `#${album.text}` : light(bg) ? "#111111" : "#ffffff";
@@ -83,7 +84,7 @@ async function drawPoster(canvas, d, days) {
   await document.fonts.ready;
   const font = (size, weight = 500) => { c.font = `${weight} ${size}px "DM Sans", sans-serif`; };
   const fit = (text, width) => { let t = text; while (c.measureText(t).width > width && t.length > 4) t = `${t.slice(0, -2).trimEnd()}…`; return t; };
-  c.fillStyle = ink; c.globalAlpha = 0.75; font(34); c.fillText(`My listening, ${RANGE_NAME[days] || `the last ${days} days`}`, M, 104); c.globalAlpha = 1;
+  c.fillStyle = ink; c.globalAlpha = 0.75; font(34); c.fillText(`My listening, ${periodName(period)}`, M, 104); c.globalAlpha = 1;
   const image = album?.art && await loadImage(art(album.art, 640));
   if (image) c.drawImage(image, M, 136, 480, 480);
   const stat = (y, value, label) => { font(76, 700); c.fillText(value, 600, y); font(30); c.globalAlpha = 0.75; c.fillText(label, 600, y + 42); c.globalAlpha = 1; };
@@ -98,12 +99,12 @@ async function drawPoster(canvas, d, days) {
   c.fillStyle = ink; c.globalAlpha = 0.6; font(26); c.fillText("Each band is that period's album covers, blended", M, 1296); c.globalAlpha = 1;
 }
 
-function Poster({ d, days, onClose }) {
+function Poster({ d, period, onClose }) {
   const ref = useRef(null);
-  useEffect(() => { drawPoster(ref.current, d, days).catch((e) => toast(e.message)); }, [d, days]);
+  useEffect(() => { drawPoster(ref.current, d, period).catch((e) => toast(e.message)); }, [d, period]);
   const save = () => ref.current.toBlob((blob) => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `music-${days === 3650 ? "all-time" : `${days}-days`}.png`; a.click();
+    a.href = URL.createObjectURL(blob); a.download = `music-${periodFile(period)}.png`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   return html`<div class="card poster"><h2>Poster</h2><canvas ref=${ref} role="img" aria-label="A poster of this period's listening"></canvas>
@@ -119,18 +120,39 @@ function Connection({ s, empty }) {
   return null;
 }
 
-export function Music() {
-  const [days, setDays] = useState(30);
+const footnote = (s) => html`<p class="muted small">Read every ${s.every_minutes} minutes${s.last_ok ? `, last ${ago(s.last_ok)}` : ""}. Apple gives no play times, so days and hours are
+  estimates, and it can leave out repeats and some library or playlist plays.${s.imported.plays ? ` Plays up to ${when(s.imported.until)} are from Apple's export, with exact times and what was really heard.` : ""}${s.missed ? ` ${num(s.missed)} reads had more new plays than Apple's list holds, so some were lost.` : ""}</p>`;
+
+// Music → Recent: the newest plays, whatever the period.
+export function Recent() {
+  const [d, setD] = useState(null);
+  useEffect(() => { api("/api/music/latest").then(setD).catch((e) => setD({ error: e.message })); }, []);
+  if (!d) return html`<div class="boot">Loading…</div>`;
+  if (d.error) return html`<p class="problem">${d.error}</p>`;
+  const s = d.state;
+  return html`<${Connection} s=${s} empty=${!d.plays.length && !s.imported.plays} />
+    <div class="card"><h2>Latest plays</h2>
+      ${d.plays.length ? html`<div class="tablewrap"><table class="data"><thead><tr><th></th><th>Song</th><th>Artist</th><th>Album</th><th>About</th></tr></thead>
+        <tbody>${d.plays.map((r, i) => html`<tr key=${i}><td>${cover(r, 64, "thumb")}</td><td>${r.url ? html`<a href=${r.url} target="_blank" rel="noopener">${r.name}</a>` : r.name}</td>
+          <td>${r.artist}</td><td>${r.album}</td><td title=${r.window_start ? `between ${when(r.window_start)} and ${when(r.seen_at)}` : "exact, from Apple's export"}>${when(r.played_at)}</td></tr>`)}</tbody></table></div>`
+        : html`<p class="muted">Nothing yet. Plays count from the first read on.</p>`}</div>
+    ${footnote(s)}`;
+}
+
+// Music → Stats: one period (shared with Artists, remembered in this browser): totals, top lists, patterns, covers.
+export function Stats() {
+  const [period, setPeriod] = usePeriod("music");
   const [d, setD] = useState(null);
   const [poster, setPoster] = useState(false);
-  useEffect(() => { setD(null); api("/api/music/analytics", { params: { days, tz: ZONE } }).then(setD).catch((e) => setD({ error: e.message })); }, [days]);
-  const range = html`<${Range} days=${days} setDays=${setDays} />`;
+  useEffect(() => { setD(null); api("/api/music/analytics", { params: { ...periodParams(period), tz: ZONE } }).then(setD).catch((e) => setD({ error: e.message })); }, [period]);
+  const firstYear = d?.first ? new Date(d.first * 1000).getFullYear() : undefined;
+  const toolbar = (extra) => html`<div class="toolbar"><${Period} value=${period} onChange=${setPeriod} firstYear=${firstYear} />${extra}</div>`;
   const series = useMemo(() => (d?.series ? [{ label: "plays", values: d.series.map((r) => r.plays), color: "--chart-1", bars: true }] : []), [d]);
-  if (!d) return html`<div class="toolbar">${range}</div><div class="boot">Loading…</div>`;
-  if (d.error) return html`<div class="toolbar">${range}</div><p class="problem">${d.error}</p>`;
+  if (!d) return html`${toolbar()}<div class="boot">Loading…</div>`;
+  if (d.error) return html`${toolbar()}<p class="problem">${d.error}</p>`;
   const t = d.totals, p = d.previous, s = d.state;
-  return html`<div class="toolbar">${range}<button onClick=${() => setPoster(!poster)}>Poster</button></div>
-    ${poster && html`<${Poster} d=${d} days=${days} onClose=${() => setPoster(false)} />`}
+  return html`${toolbar(html`<button onClick=${() => setPoster(!poster)}>Poster</button>`)}
+    ${poster && html`<${Poster} d=${d} period=${period} onClose=${() => setPoster(false)} />`}
     <${Connection} s=${s} empty=${!t.plays && !s.imported.plays} />
     <div class="kpis">
       <${Kpi} label="Plays" now=${t.plays} before=${p?.plays} />
@@ -138,19 +160,16 @@ export function Music() {
       <${Kpi} label="Songs" now=${t.tracks} before=${p?.tracks} />
       <${Kpi} label="Artists" now=${t.artists} before=${p?.artists} />
     </div>
-    <${ColorStrip} bands=${d.strip} />
-    <${AlbumWall} albums=${d.wall} />
     <div class="card"><h2>Plays per day</h2><${Chart} days=${d.series.map((r) => r.day)} series=${series} /></div>
+    <h2 class="section">Most played</h2>
     <div class="cols"><${Top} title="Top artists" rows=${d.artists} /><${Top} title="Top songs" rows=${d.tracks} /></div>
     <div class="cols"><${Top} title="Top albums" rows=${d.albums} /><${Top} title="Genres" rows=${d.genres} covers=${false} /></div>
-    <${Palettes} months=${d.palettes} />
+    <h2 class="section">Patterns</h2>
     <div class="card"><h2>When you listen</h2><${Heatmap} cells=${d.heat} rows=${WEEK} cols=${HOURS} unit="plays" /></div>
-    <${RainOrShine} days=${days} />
-    <div class="card"><h2>Latest plays</h2>
-      ${d.recent.length ? html`<div class="tablewrap"><table class="data"><thead><tr><th></th><th>Song</th><th>Artist</th><th>Album</th><th>About</th></tr></thead>
-        <tbody>${d.recent.map((r, i) => html`<tr key=${i}><td>${cover(r, 64, "thumb")}</td><td>${r.url ? html`<a href=${r.url} target="_blank" rel="noopener">${r.name}</a>` : r.name}</td>
-          <td>${r.artist}</td><td>${r.album}</td><td title=${r.window_start ? `between ${when(r.window_start)} and ${when(r.seen_at)}` : "exact, from Apple's export"}>${when(r.played_at)}</td></tr>`)}</tbody></table></div>`
-        : html`<p class="muted">Nothing yet. Plays count from the first read on.</p>`}</div>
-    <p class="muted small">Read every ${s.every_minutes} minutes${s.last_ok ? `, last ${ago(s.last_ok)}` : ""}. Apple gives no play times, so days and hours are
-      estimates, and it can leave out repeats and some library or playlist plays.${s.imported.plays ? ` Plays up to ${when(s.imported.until)} are from Apple's export, with exact times and what was really heard.` : ""}${s.missed ? ` ${num(s.missed)} reads had more new plays than Apple's list holds, so some were lost.` : ""}</p>`;
+    <${RainOrShine} period=${period} />
+    <h2 class="section">Covers and colors</h2>
+    <${ColorStrip} bands=${d.strip} />
+    <${AlbumWall} albums=${d.wall} />
+    <${Palettes} months=${d.palettes} />
+    ${footnote(s)}`;
 }

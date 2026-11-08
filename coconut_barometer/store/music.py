@@ -89,6 +89,13 @@ class MusicStore(Database):
             "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, t.artist, t.genres, t.composer FROM music_plays p "
             "JOIN music_tracks t ON t.id = p.track_id WHERE t.artist <> '' ORDER BY p.played_at")]
 
+    def music_latest(self, limit: int) -> list[dict]:
+        """The newest plays, newest read first, each with its track."""
+        return [dict(r) for r in self.db.execute(
+            "SELECT p.track_id, p.played_at, p.seen_at, p.window_start, t.name, t.artist, t.album, t.url, "
+            "t.artwork IS NOT NULL AS has_art, t.bg_color FROM music_plays p JOIN music_tracks t ON t.id = p.track_id "
+            "ORDER BY p.seen_at DESC, p.played_at DESC LIMIT ?", (limit,))]
+
     def music_recent(self, limit: int) -> list[dict]:
         """The newest plays, each track once (at its latest play), newest first."""
         return [dict(r) for r in self.db.execute(
@@ -100,11 +107,15 @@ class MusicStore(Database):
         r = self.db.execute("SELECT artwork FROM music_tracks WHERE id = ?", (track_id,)).fetchone()
         return r[0] if r else None
 
-    def music_rain(self, since: int) -> tuple[list[tuple], int | None, int | None]:
-        """Every wet minute from `since`, and the time the stations cover."""
-        wet = [tuple(r) for r in self.db.execute("SELECT device_id, ts, rain FROM wx_obs WHERE rain > 0 AND ts >= ?", (since,))]
+    def music_rain(self, since: int, until: int | None = None) -> tuple[list[tuple], int | None, int | None]:
+        """Every wet minute from `since` (to `until`, left out), and the time the stations cover."""
+        wet = [tuple(r) for r in self.db.execute("SELECT device_id, ts, rain FROM wx_obs WHERE rain > 0 AND ts >= ? AND ts < ?",
+                                                 (since, until if until is not None else 1 << 62))]
         first, last = self.db.execute("SELECT MIN(ts), MAX(ts) FROM wx_obs").fetchone()
         return wet, first, last
+
+    def music_first_play(self) -> int | None:
+        return self.db.execute("SELECT MIN(played_at) FROM music_plays").fetchone()[0]
 
     def music_play_count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM music_plays").fetchone()[0]
