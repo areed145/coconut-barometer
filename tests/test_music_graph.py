@@ -87,6 +87,14 @@ class Profiles(unittest.TestCase):
         p["D"] = prof({"jazz": 1})
         self.assertEqual(G.profile_links(p), {})
 
+    def test_a_scene_most_of_them_share_links_nothing_either(self):
+        p = {a: prof({f"genre {a}": 1}, ["indie"]) for a in "ABC"}
+        p["D"] = prof({"jazz": 1})
+        self.assertEqual(G.profile_links(p), {})
+        p["A"]["scenes"].add("c86")
+        p["B"]["scenes"].add("c86")                                             # a rarer one still does, and says so
+        self.assertEqual(G.profile_links(p), {("A", "B"): (0.45, "c86")})
+
     def test_each_artist_keeps_its_closest_few(self):
         p = {f"A{i}": prof({"rock": 1, "surf": 1}, ["surf"], (1960, 1969)) for i in range(8)}
         p.update({f"Z{i}": prof({f"genre {i}": 1}) for i in range(30)})          # surf is rare among them all

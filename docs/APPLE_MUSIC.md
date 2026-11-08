@@ -73,7 +73,7 @@ Each artist lookup also keeps what MusicBrainz knows about the artist: group or 
 
 **Profile match** links join artists that are alike on paper. Each artist has a profile: genres (from Apple, MusicBrainz and Claude), scenes, the decades they mattered most in, and where they're from. The site compares profiles itself every time the graph loads, with no AI call. Each link names what the two share, for example *bakersfield sound · country rock · 1960s–70s · Bakersfield*.
 
-- **A rare genre counts for more than a common one.** A genre that more than a quarter of the drawn artists share is ignored, so two artists known only as "Rock" aren't linked.
+- **A rare genre counts for more than a common one.** A genre that more than a quarter of the drawn artists share is ignored, so two artists known only as "Rock" aren't linked. The same goes for a scene that more than a quarter of them share.
 - **Years and places alone never link two artists.** A pair needs genres that are clearly alike, or a scene in common. A shared scene links artists from different eras too, so lineage shows (Merle Haggard and Sturgill Simpson through outlaw country).
 - **Each artist keeps at most its 4 closest matches**, so the network doesn't turn into a hairball.
 - **Clusters are named** after a scene most of their members share, else the genres they have most of.
@@ -92,7 +92,7 @@ The graph page shows how many artists have profiles, with **Profile more now** t
 - The **Artist network**'s detail panel has **Explore from here** to open the explorer on that artist.
 - **Ask about your listening** takes a question in plain words: "What connects my bluegrass and my jazz?", "Which scenes did I get into this year?", "Who links the Grateful Dead and Phish in what I play?". Claude answers by looking things up in your own graph (artists by scene, genre, decade or country; an artist's plays by year and links; the chain between two artists; what you played or first played in a period), then gives a short answer and lights up the artists and links behind it. Only artists in your graph and links that really exist are shown, whatever the answer says. It uses the Anthropic key and model from **Settings → Vision**, costs a few thousand tokens a question, and runs only when you ask.
 
-The site builds the whole graph the first time Explore opens (a second or two for a few thousand artists) and keeps it until new plays, MusicBrainz lookups or profiles change it. At most 400 artists are shown at once, so the layout stays quick on a phone.
+The site builds the whole graph the first time Explore opens (a second or two for a few thousand artists) and keeps it. When new plays, MusicBrainz lookups or profiles change it, the site builds it again in the background, at most every 5 minutes, and Explore keeps answering from the graph it has until the new one is ready. While MusicBrainz is filling in credits, the graph can be up to 5 minutes behind. At most 400 artists are shown at once, so the layout stays quick on a phone.
 
 ## What to expect
 

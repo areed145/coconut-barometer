@@ -17,12 +17,16 @@ Hidden bridges are the modestly played artists whose connections reach several c
 listening together."""
 from __future__ import annotations
 
+import bisect
 import datetime as dt
 import hashlib
 import json
 import math
 import re
+from array import array
 from collections import Counter, defaultdict
+
+import numpy as np
 
 NODES = 100                      # the most played artists drawn
 CREDIT_MAX_ARTISTS = 8           # a composer behind more artists than this ("Traditional") says nothing
@@ -257,29 +261,34 @@ def _decades(lo: int, hi: int) -> str:
 def profile_links(profile: dict) -> dict:
     """(a, b) -> (score, why) for the pairs alike enough, each artist keeping its closest PROFILE_PER_ARTIST. Genres
     are compared by cosine, each weighted by how rare it is among the artists drawn, and one most of them share is
-    left out: two artists known only as "Rock" aren't alike."""
+    left out: two artists known only as "Rock" aren't alike. The same goes for a scene most of them share.
+
+    Only pairs sharing a genre that counts or a scene can link, and they're compared one artist at a time: holding
+    every such pair at once took hundreds of MB with a few thousand artists (#207). The ones alike enough wait as
+    numbers (8 bytes each part), and only the pairs kept are explained."""
     names = sorted(profile)
     n = len(names)
+    common = max(2, COMMON_GENRE * n)
     df: Counter = Counter(label for a in names for label in profile[a]["genres"])
-    idf = {label: 0.0 if k > max(2, COMMON_GENRE * n) else math.log(n / k) for label, k in df.items()}
-    vec = {a: {label: w * idf[label] for label, w in profile[a]["genres"].items() if idf[label] > 0} for a in names}
-    size = {a: math.sqrt(sum(w * w for w in vec[a].values())) for a in names}
-    # Only pairs sharing a genre that counts or a scene can link: with thousands of artists, every pair would be slow.
-    holders: dict = defaultdict(list)
-    for a in names:
-        for label in vec[a]:
-            holders[("genre", label)].append(a)
-        for scene in profile[a]["scenes"]:
-            holders[("scene", scene)].append(a)
-    pairs = {(x, y) for group in holders.values() for i, x in enumerate(group) for y in group[i + 1:]}
-    found = []
-    for a, b in sorted(pairs):
-        pa, pb = profile[a], profile[b]
-        shared = set(vec[a]) & set(vec[b])
-        genre = sum(vec[a][x] * vec[b][x] for x in shared) / (size[a] * size[b]) if shared else 0.0
-        scenes = sorted(pa["scenes"] & pb["scenes"])
-        if genre < PROFILE_MIN_GENRE and not scenes:
-            continue
+    idf = {label: 0.0 if k > common else math.log(n / k) for label, k in df.items()}
+    vec = [{label: w * idf[label] for label, w in profile[a]["genres"].items() if idf[label] > 0} for a in names]
+    size = [math.sqrt(sum(w * w for w in v.values())) for v in vec]
+    scene_df: Counter = Counter(s for a in names for s in profile[a]["scenes"])
+    scenes = [frozenset(s for s in profile[a]["scenes"] if scene_df[s] <= common) for a in names]
+    holders: dict = defaultdict(list)                  # each list in name order, as names is
+    for i in range(n):
+        for label in vec[i]:
+            holders[("genre", label)].append(i)
+        for scene in scenes[i]:
+            holders[("scene", scene)].append(i)
+
+    def match(i: int, j: int, explain: bool = False):
+        pa, pb = profile[names[i]], profile[names[j]]
+        shared = vec[i].keys() & vec[j].keys()
+        genre = sum(vec[i][x] * vec[j][x] for x in shared) / (size[i] * size[j]) if shared else 0.0
+        both = scenes[i] & scenes[j]
+        if genre < PROFILE_MIN_GENRE and not both:
+            return None
         era, overlap = 0.0, None
         if pa["span"] and pb["span"]:
             lo, hi = max(pa["span"][0], pb["span"][0]), min(pa["span"][1], pb["span"][1])
@@ -292,20 +301,47 @@ def profile_links(profile: dict) -> dict:
             origin, place = 1.0, pa["city"]
         elif pa["country"] and pa["country"] == pb["country"]:
             origin, place = SAME_COUNTRY, pa["country"]
-        score = (PROFILE_PARTS["genre"] * genre + PROFILE_PARTS["scene"] * bool(scenes)
+        score = (PROFILE_PARTS["genre"] * genre + PROFILE_PARTS["scene"] * bool(both)
                  + PROFILE_PARTS["era"] * era + PROFILE_PARTS["origin"] * origin)
         if score < PROFILE_MIN:
-            continue
-        top = sorted(shared, key=lambda x: -vec[a][x] * vec[b][x])[:2]
-        why = scenes[:2] + [x for x in top if x not in scenes] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
-        found.append((score, a, b, " · ".join(why)))
+            return None
+        if not explain:
+            return score
+        said = sorted(both)
+        top = sorted(shared, key=lambda x: -vec[i][x] * vec[j][x])[:2]
+        why = said[:2] + [x for x in top if x not in said] + ([_decades(*overlap)] if overlap else []) + ([place] if place else [])
+        return score, " · ".join(why)
+
+    scores, left, right = array("d"), array("q"), array("q")
+    for i in range(n):
+        later: set = set()
+        for key in [("genre", label) for label in vec[i]] + [("scene", s) for s in scenes[i]]:
+            group = holders[key]
+            later.update(group[bisect.bisect_right(group, i):])
+        for j in later:
+            score = match(i, j)
+            if score is not None:
+                scores.append(score)
+                left.append(i)
+                right.append(j)
     kept: Counter = Counter()
     out = {}
-    for score, a, b, why in sorted(found, key=lambda f: (-f[0], f[1], f[2])):
-        if kept[a] < PROFILE_PER_ARTIST and kept[b] < PROFILE_PER_ARTIST:
-            kept[a] += 1
-            kept[b] += 1
-            out[_pair(a, b)] = (round(score, 3), why)
+    if not scores:
+        return out
+    # Strongest first (then by name, as names is sorted), each pair kept while both ends have room.
+    order = np.lexsort((np.frombuffer(right, dtype=np.int64), np.frombuffer(left, dtype=np.int64),
+                        -np.frombuffer(scores, dtype=np.float64)))
+    full = n * PROFILE_PER_ARTIST // 2                 # the most pairs that can be kept: no need to look further
+    for start in range(0, len(order), 65536):          # a slice at a time as Python ints, not millions at once
+        for k in order[start:start + 65536].tolist():
+            i, j = left[k], right[k]
+            if kept[i] < PROFILE_PER_ARTIST and kept[j] < PROFILE_PER_ARTIST:
+                kept[i] += 1
+                kept[j] += 1
+                score, why = match(i, j, explain=True)
+                out[(names[i], names[j])] = (round(score, 3), why)
+        if len(out) >= full:
+            break
     return out
 
 
