@@ -55,7 +55,7 @@ class Runtime:
         self.music = self.review.music = Music(cfg)   # Apple Music listening history
         self.musicbrainz = self.review.musicbrainz = MusicBrainz(cfg)   # its credits, for the artist graph (#192)
         self.profiles = self.review.profiles = ArtistProfiles(cfg)       # Claude's profiles, for the same
-        self.explorer = Explorer()                    # the whole artist graph, for #/music/explore (#204)
+        self.explorer = Explorer(open_store=lambda: Store(self.db_path))   # the whole artist graph, #/music/explore (#204)
         self.vision_models = Models()                 # the vision provider's models, for Settings (#167)
         self.login_throttle = LoginThrottle()   # per app, so failed logins are counted per server
         self.flickr_pending: dict[str, tuple] = {}  # request token -> (client mid-login, started, username)
@@ -149,6 +149,8 @@ class Runtime:
         watchdog.describe("Jobs", jobs)
         watchdog.describe("Radar", lambda: f"{len(self.radar._stored)} loop frames held")
         watchdog.describe("Activity log", lambda: f"{sum(len(e) for e in activity.log.entries.values()):,} entries")
+        watchdog.describe("DuckDB", lambda: self.store().memory_use())    # the memory thread's own connection
+        watchdog.describe("Music explorer", self.explorer.describe)
         watchdog.start(self._stop, os.path.dirname(os.path.abspath(self.db_path)))
 
     def _alerts_loop(self) -> None:

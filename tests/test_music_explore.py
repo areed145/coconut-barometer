@@ -97,14 +97,69 @@ class Keeping(unittest.TestCase):
                                   (tid, r["name"], r["artist"], r["genres"]))
             self.store.db.execute("INSERT INTO music_plays (track_id, played_at, seen_at, source) VALUES (?, ?, ?, 'export')", (tid, r["played_at"], r["played_at"]))
 
+    def change(self, scene="outlaw country"):
+        self.store.profiles_save([{"artist": "Haggard", "scenes": [scene], "styles": [], "decades": [], "country": None}], "m", NOW)
+
     def test_built_once_and_again_when_its_data_changes(self):
-        ex = X.Explorer(clock=lambda: NOW)
+        now = [NOW]
+        ex = X.Explorer(clock=lambda: now[0])
         first = ex.whole(self.store)
         self.assertIs(ex.whole(self.store), first)
-        self.store.profiles_save([{"artist": "Haggard", "scenes": ["outlaw country"], "styles": [], "decades": [], "country": None}], "m", NOW)
+        self.change()
+        self.assertIs(ex.whole(self.store), first)                  # changed, but built moments ago (#207)
+        now[0] += X.REBUILD_EVERY
         again = ex.whole(self.store)
         self.assertIsNot(again, first)
         self.assertEqual(again.nodes["Haggard"]["profile"]["scenes"], ["outlaw country"])
+        self.assertIs(ex.whole(self.store), again)                  # and nothing changed since
+
+    def test_a_rebuild_happens_in_the_background_the_old_graph_answering_meanwhile(self):
+        import threading
+
+        now, opened, release = [NOW], [], threading.Event()
+        path = self.store.path
+
+        def open_store():
+            release.wait(5)                                         # the request has had its answer by now
+            s = Store(path, migrate=False)
+            opened.append(s)
+            return s
+
+        ex = X.Explorer(clock=lambda: now[0], open_store=open_store)
+        first = ex.whole(self.store)                                # the first build is in the request
+        self.change()
+        now[0] += X.REBUILD_EVERY
+        self.assertIs(ex.whole(self.store), first)
+        self.assertIn("rebuilding", ex.describe())
+        self.assertIs(ex.whole(self.store), first)                  # one rebuild at a time
+        release.set()
+        for t in [t for t in threading.enumerate() if t.name == "music-explorer"]:
+            t.join(10)
+        self.assertEqual(len(opened), 1)
+        again = ex.whole(self.store)
+        self.assertIsNot(again, first)
+        self.assertEqual(again.nodes["Haggard"]["profile"]["scenes"], ["outlaw country"])
+        self.assertNotIn("rebuilding", ex.describe())
+
+    def test_a_failed_background_rebuild_keeps_the_graph_and_waits_to_try_again(self):
+        import threading
+
+        now, tries = [NOW], []
+
+        def open_store():
+            tries.append(1)
+            raise OSError("no")
+
+        ex = X.Explorer(clock=lambda: now[0], open_store=open_store)
+        first = ex.whole(self.store)
+        self.change()
+        now[0] += X.REBUILD_EVERY
+        with self.assertLogs("coconut_barometer.music_explore", "ERROR"):
+            self.assertIs(ex.whole(self.store), first)
+            for t in [t for t in threading.enumerate() if t.name == "music-explorer"]:
+                t.join(10)
+        self.assertIs(ex.whole(self.store), first)
+        self.assertEqual(len(tries), 1)                             # not again until REBUILD_EVERY has passed
 
 
 class Api(unittest.TestCase):

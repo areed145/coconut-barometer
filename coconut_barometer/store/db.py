@@ -108,6 +108,23 @@ def _positional(sql: str, params: dict) -> tuple[str, list]:
     return sql, [params[n] for n in names]
 
 
+DUCKDB_MEMORY_LIMIT = "512MB"
+DUCKDB_THREADS = 1
+
+
+def duckdb_limits(environ=os.environ) -> tuple[str, int]:
+    """(memory_limit, threads) for DuckDB: DUCKDB_MEMORY_LIMIT ("512MB", "1GB") and DUCKDB_THREADS, else the defaults.
+
+    Left alone, DuckDB takes up to 80% of the machine's memory (1.5 GiB of Render's 2 GB, #157) and a thread per core
+    it sees, and keeps what it took, so the rest of the app had a few hundred MB between it and the limit (#207). Past
+    its limit DuckDB writes what it can to a temporary file next to the database instead."""
+    limit = (environ.get("DUCKDB_MEMORY_LIMIT") or "").strip()
+    if not re.fullmatch(r"\d+(\.\d+)?\s*(KB|MB|GB|KiB|MiB|GiB)", limit, re.I):
+        limit = DUCKDB_MEMORY_LIMIT
+    threads = (environ.get("DUCKDB_THREADS") or "").strip()
+    return limit, int(threads) if threads.isdigit() and int(threads) > 0 else DUCKDB_THREADS
+
+
 _locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 
@@ -129,6 +146,9 @@ class Connection:
         self.raw = duckdb.connect(path, read_only=read_only)
         self._lock = _write_lock(path)
         self._depth = 0
+        limit, threads = duckdb_limits()
+        self.raw.execute(f"SET memory_limit = '{limit}'")    # for the whole database, every connection to it
+        self.raw.execute(f"SET threads = {threads}")
 
     @staticmethod
     def _reads(sql: str) -> bool:
@@ -321,6 +341,12 @@ class Database:
                         c = Change("set_tags", pid, current + added, old=" ".join(current), source=c.source)
                     out.append(c.to_dict())
                 self.db.execute("UPDATE queue SET changes=? WHERE photo_id=?", (json.dumps(out), pid))
+
+    def memory_use(self) -> str:
+        """What DuckDB holds now, against its limit, for the memory watchdog's reports."""
+        used, spilled = self.db.execute("SELECT SUM(memory_usage_bytes), SUM(temporary_storage_bytes) FROM duckdb_memory()").fetchone()
+        limit = self.db.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+        return f"{(used or 0) / 2**20:,.0f} MB in memory of its {limit} limit, {(spilled or 0) / 2**20:,.0f} MB in temporary files"
 
     def get_meta(self, key: str, default=None):
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

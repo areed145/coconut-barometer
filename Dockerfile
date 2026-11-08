@@ -21,6 +21,7 @@ ENV PATH="/app/.venv/bin:$PATH" DATA_DIR=/var/data PYTHONUNBUFFERED=1
 # Fewer glibc heaps (one per thread by default, up to 8 per CPU): freed memory goes back to the system instead of
 # staying held in a thread's heap, which the big radar and rain-total decodes otherwise leave behind (#197).
 ENV MALLOC_ARENA_MAX=2
+# DuckDB is capped at 512MB and 1 thread (store/db.py, #207); DUCKDB_MEMORY_LIMIT and DUCKDB_THREADS change that.
 EXPOSE 10000
 ENTRYPOINT ["python", "/entrypoint.py"]
 CMD ["coconut-barometer", "serve"]

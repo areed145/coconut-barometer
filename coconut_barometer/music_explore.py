@@ -4,23 +4,29 @@ the page asks of it.
 The Artist network draws the top few hundred artists of a range, built on every load. The explorer starts anywhere
 instead: an artist, a scene, a genre, a decade or a country, and grows from there. So it needs every link between
 every artist with over MIN_PLAYS plays (the ones artist_profiles.py profiles), which takes a second or two to build.
-It's built on the first request and kept until plays, MusicBrainz's answers or the profiles change (store.music_graph_version).
+It's built on the first request and kept until plays, MusicBrainz's answers or the profiles change
+(store.music_graph_version), and then built again in the background at most every REBUILD_EVERY seconds.
 
 Each query returns a piece of the graph: its artists, and the links among them and to the artists the page already
 shows (`have`), so a piece joins the map without loose ends."""
 from __future__ import annotations
 
 import heapq
+import logging
 import threading
 import time
 from collections import Counter, defaultdict
 
 from . import music_graph as G
 from .artist_profiles import MIN_PLAYS
+from .memory import heavy
+
+logger = logging.getLogger(__name__)
 
 MAX_PIECE = 120                   # artists in one answer at most
 MAX_HAVE = 600                    # artists the page can say it already shows
 FACET_GENRES = 300
+REBUILD_EVERY = 300               # seconds: the most often the whole graph is built again
 
 
 class NotFound(LookupError):
@@ -139,18 +145,61 @@ class Whole:
 
 
 class Explorer:
-    """The whole graph, built when first asked for and again once what it's made from changes. One build at a time."""
+    """The whole graph: built when first asked for, and again once what it's made from changes, but at most every
+    REBUILD_EVERY seconds and in the background, the graph already built answering meanwhile.
 
-    def __init__(self, clock=time.time):
-        self._lock = threading.Lock()
+    While MusicBrainz is filling in credits its answers change every second or so, and rebuilding on each change put a
+    whole build (and its peak) under every request (#207). open_store: a new Store for the background build, closed
+    after it; without one (the tests), a rebuild that's due happens in the request."""
+
+    def __init__(self, clock=time.time, open_store=None):
+        self._lock = threading.Lock()           # the state below, held only briefly
+        self._build_lock = threading.Lock()     # one build at a time
         self._key = None
         self._whole: Whole | None = None
+        self._tried = 0.0                       # when the last build started, done or not
+        self._building = False
         self.clock = clock
+        self.open_store = open_store
+
+    def describe(self) -> str:
+        """For the memory watchdog's reports."""
+        w = self._whole
+        held = f"{len(w.nodes):,} artists, {len(w.edges):,} links, {len(w.plays):,} plays held" if w else "nothing built"
+        return held + (", rebuilding" if self._building else "")
 
     def whole(self, store) -> Whole:
         key = store.music_graph_version()
         with self._lock:
-            if self._whole is None or key != self._key:
+            w = self._whole
+            if w is not None and (key == self._key or self._building or self.clock() - self._tried < REBUILD_EVERY):
+                return w
+            later = w is not None and self.open_store is not None
+            if later:
+                self._building, self._tried = True, self.clock()
+        if later:
+            threading.Thread(target=self._rebuild, name="music-explorer", daemon=True).start()
+            return w
+        return self._build(store, key)          # the first build, which the request waits for
+
+    def _rebuild(self) -> None:
+        try:
+            store = self.open_store()
+            try:
+                self._build(store, store.music_graph_version())
+            finally:
+                store.close()
+        except Exception:   # noqa: BLE001 - the graph already built carries on; the next due request tries again
+            logger.exception("music explorer: rebuilding the whole graph failed")
+        finally:
+            self._building = False
+
+    def _build(self, store, key) -> Whole:
+        with self._build_lock:
+            if self._whole is not None and self._key == key:   # built by the request ahead of this one
+                return self._whole
+            self._tried = self.clock()
+            with heavy("music explorer graph"):
                 started = time.perf_counter()
                 rows = store.music_graph_plays()
                 g = G.build(rows, limit=None, mb=store.mb_graph(), profiles=store.profiles(), now=self.clock(),
@@ -158,5 +207,8 @@ class Explorer:
                 known = {r["artist"] for r in rows}
                 main = {a: G.credited(a, "", known)[0] for a in known}
                 plays = [(main[r["artist"]], r["played_at"]) for r in rows]
-                self._whole, self._key = Whole(g, self.clock(), time.perf_counter() - started, plays), key
-            return self._whole
+                del rows
+                whole = Whole(g, self.clock(), time.perf_counter() - started, plays)
+            with self._lock:
+                self._whole, self._key = whole, key
+            return whole

@@ -144,6 +144,23 @@ class FullSyncMemoryTest(unittest.TestCase):
         self.assertEqual([tuple(r) for r in store.db.execute("SELECT id, title FROM photos ORDER BY id")], [("1", "new"), ("2", "y")])
 
 
+class DuckDBLimitsTest(unittest.TestCase):
+    """DuckDB's memory and threads are capped (#207): left alone it took 80% of the container and kept it."""
+
+    def test_the_defaults_and_the_environment(self):
+        from coconut_barometer.store.db import duckdb_limits
+        self.assertEqual(duckdb_limits({}), ("512MB", 1))
+        self.assertEqual(duckdb_limits({"DUCKDB_MEMORY_LIMIT": "1GB", "DUCKDB_THREADS": "2"}), ("1GB", 2))
+        self.assertEqual(duckdb_limits({"DUCKDB_MEMORY_LIMIT": "1GB'; DROP TABLE x; --", "DUCKDB_THREADS": "0"}), ("512MB", 1))
+
+    def test_every_connection_has_them_and_says_what_it_holds(self):
+        store = Store(os.path.join(tempfile.mkdtemp(), "t.duckdb"))
+        self.addCleanup(store.close)
+        limit, threads = store.db.execute("SELECT current_setting('memory_limit'), current_setting('threads')").fetchone()
+        self.assertEqual((limit, threads), ("488.2 MiB", 1))       # DuckDB shows 512 MB in MiB
+        self.assertRegex(store.memory_use(), r"^\d[\d,]* MB in memory of its 488.2 MiB limit, \d[\d,]* MB in temporary files$")
+
+
 class OneProcessTest(unittest.TestCase):
     def test_a_second_process_gets_a_clear_message_not_a_stack_trace(self):
         import subprocess
