@@ -690,7 +690,18 @@ class FrontendTest(unittest.TestCase):
 
     def test_lightbox_preloads_neighbours_once_the_photo_is_in(self):
         gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
-        self.assertIn("onLoad=${preload}", gallery)
+        self.assertIn("useEffect(() => { if (shown) preload(); }, [p.id, shown]);", gallery)
+        self.assertIn('img.fetchPriority = "low";', gallery)                # behind the photo being looked at
+
+    def test_lightbox_shows_only_whole_images(self):
+        gallery = open(os.path.join(STATIC, "js", "gallery.js")).read()
+        css = open(os.path.join(STATIC, "css", "app.css")).read()
+        self.assertIn("img.decode ? img.decode() : Promise.resolve()", gallery)  # swapped in only once decoded
+        self.assertIn("timer = setTimeout(again, STALL);", gallery)               # a stalled download is retried
+        self.assertIn("if (tries < 1) attempt(i, tries + 1); else attempt(i + 1, 0);", gallery)
+        self.assertIn("const big = photo.src || pick(p.sizes, STANDIN);", gallery)
+        self.assertIn("<img key=${p.id} src=${big}", gallery)                     # the zoom swap doesn't remount it
+        self.assertIn(".lightbox .stage img.standin {", css)
         self.assertIn("for (const i of [index + step, index - step, index + 2 * step])", gallery)
         self.assertIn("if (frugal()) return;", gallery)                     # not on Save-Data or 2G
         self.assertIn("photoDetail(p.id).then(setDetail)", gallery)         # the info panel uses what was preloaded

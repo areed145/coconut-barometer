@@ -416,6 +416,44 @@ function photoDetail(id) {
 const frugal = () => { const c = navigator.connection; return !!c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || "")); };
 // The lightbox's image sizes, best first: as shown, and zoomed in.
 const SHOWN = ["b", "l", "c", "z", "w", "n"], ZOOMED = ["k", "h", "l", "b", "c", "z", "w", "n"];
+// What stands in while the full size comes in: a size the grid has likely already fetched.
+const STANDIN = ["z", "c", "w", "n", "m"];
+
+// The lightbox's photo, handed over only once it has fully arrived and decoded, so it's never shown half drawn.
+// Until then, null (the caller shows a stand-in, or the last size of this photo while a zoom size comes in). A size
+// that fails or stalls is asked for once more, as a fresh request, then the next size down is tried.
+const STALL = 15000;
+function useFullImage(id, sizes, prefs) {
+  const urls = prefs.map((k) => sizes?.[k]).filter(Boolean);
+  const want = urls[0] || "";
+  const [got, setGot] = useState(null);             // { id, want, src }
+  useEffect(() => {
+    if (!want) return;
+    let live = true, timer, img;
+    const attempt = (i, tries) => {
+      if (!live) return;
+      if (i >= urls.length) return setGot({ id, want, src: urls.at(-1) });   // nothing whole: the smallest, as it comes
+      const src = urls[i] + (tries ? (urls[i].includes("?") ? "&" : "?") + "retry=" + tries : "");
+      img = new Image();
+      img.decoding = "async";
+      img.fetchPriority = "high";
+      const again = () => {
+        clearTimeout(timer); img.onload = img.onerror = null; img.src = "";   // drop the stalled request
+        if (tries < 1) attempt(i, tries + 1); else attempt(i + 1, 0);
+      };
+      timer = setTimeout(again, STALL);
+      img.onerror = again;
+      img.onload = () => {
+        clearTimeout(timer);
+        (img.decode ? img.decode() : Promise.resolve()).catch(() => {}).then(() => live && setGot({ id, want, src }));
+      };
+      img.src = src;
+    };
+    attempt(0, 0);
+    return () => { live = false; clearTimeout(timer); if (img) img.onload = img.onerror = null; };
+  }, [id, want]);
+  return { src: got?.id === id ? got.src : null, ready: got?.id === id && got.want === want };
+}
 
 // Touch on the lightbox's photo (#129): swipe left or right for the next or previous photo and down to close; pinch or
 // double-tap to zoom, and drag to pan while zoomed. Returns the photo's transform. The mouse keeps click-to-zoom.
@@ -581,7 +619,10 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
                           onClose, reset: p.id, off: zoom });
   const { tf } = touch;
   const prefs = zoom || tf.s > 1.5 ? ZOOMED : SHOWN;
-  const big = pick(p.sizes, prefs);
+  const photo = useFullImage(p.id, p.sizes, prefs);
+  const big = photo.src || pick(p.sizes, STANDIN);
+  const shown = !!photo.src;                        // this photo's own full size is in (if not yet the zoomed one)
+  useEffect(() => { if (shown) preload(); }, [p.id, shown]);
   // Once this image is in, fetch the neighbours' (the next two the way we're going, one the other way) so the next
   // arrow press shows a photo at once (#131). Never the zoom sizes: they're large, and the next photo opens unzoomed.
   const preload = () => {
@@ -593,6 +634,7 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
       if (!n) continue;
       const img = new Image();
       img.decoding = "async";
+      img.fetchPriority = "low";                    // behind the photo being looked at
       img.src = pick(n.sizes, SHOWN);
       photoDetail(n.id).catch(() => {});
     }
@@ -602,8 +644,9 @@ function LightboxView({ photos, index, onIndex, onClose, onNearEnd, autoplay = f
   return html`<div class=${"lightbox" + (info && !playing ? "" : " noinfo") + (playing ? " playing" : "") + (idle ? " idle" : "")}
       ref=${root} onPointerMove=${wake} onPointerDown=${wake} role="dialog" aria-modal="true" aria-label=${p.title || "Photo"}>
     <div class=${"stage" + (zoom ? " zoomed" : "")} ...${touch.handlers}>
-      <img key=${big} src=${big} alt=${p.title || ""} onClick=${() => touch.touched() || setZoom(!zoom)} onLoad=${preload}
-           onError=${fallback(p.sizes, prefs)} class=${tf.live ? "live" : ""}
+      <img key=${p.id} src=${big} alt=${p.title || ""} onClick=${() => touch.touched() || setZoom(!zoom)}
+           onError=${shown ? undefined : fallback(p.sizes, STANDIN)} class=${(tf.live ? "live" : "") + (shown ? "" : " standin")}
+           aria-busy=${!photo.ready}
            style=${{ transform: tf.s === 1 && !tf.x && !tf.y ? "" : `translate(${tf.x}px, ${tf.y}px) scale(${tf.s})`,
                      opacity: tf.s === 1 && tf.y > 0 ? Math.max(0.4, 1 - tf.y / 400) : "" }} />
       <button class="close" onClick=${onClose} aria-label="Close">✕</button>

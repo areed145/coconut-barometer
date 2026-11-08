@@ -428,6 +428,8 @@ nav.tabs .health-dot, .homelinks .health-dot { margin-left: var(--s2); vertical-
 .lightbox .stage.zoomed { touch-action: auto; }
 .lightbox .stage img { transition: transform .2s ease-out, opacity .2s; will-change: transform; }
 .lightbox .stage img.live { transition: none; }
+/* a smaller size stands in, softened, until the full one has arrived whole (then it swaps in at once) */
+.lightbox .stage img.standin { filter: blur(6px); cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .lightbox .stage img { transition: none; } }
 /* slideshow (#130): the photos fade in; the controls and the cursor go once the pointer is still */
 .lightbox .showbar { position: absolute; left: 50%; bottom: calc(var(--s3) + var(--safe-b)); transform: translateX(-50%); display: flex;
