@@ -13,6 +13,8 @@ import json
 
 from .db import Database
 
+MB_RELS_VERSION = 2              # which artist relations an artist was looked up for (musicbrainz.ARTIST_ROLES): 2 added
+                                 # supporting musicians, subgroups, other names, teachers and family
 TRACK_COLUMNS = ("id", "kind", "name", "artist", "album", "genres", "duration_ms", "release_date", "isrc", "artwork", "url", "bg_color", "text_color", "composer")
 EXPORT_COLUMNS = ("{started: 'BIGINT', track_id: 'VARCHAR', song: 'VARCHAR', artist: 'VARCHAR', album: 'VARCHAR', "
                   "duration_ms: 'BIGINT', listened_ms: 'BIGINT', end_reason: 'VARCHAR', utc_offset: 'BIGINT', "
@@ -142,12 +144,15 @@ class MusicStore(Database):
                             (track_id, recording, how, now))
 
     def mb_artists_to_ask(self, limit: int) -> list[dict]:
-        """The artists your tracks are credited to (main or featured) not looked up yet, or looked up before their
-        facts were kept, most played first."""
+        """The artists your tracks are credited to (main or featured) not looked up yet, then those looked up before
+        their facts or today's relations (MB_RELS_VERSION) were kept, most played first. Until then they keep what
+        they had."""
         return [dict(r) for r in self.db.execute(
             f"SELECT c.mbid, any_value(c.name) AS name FROM mb_credits c {self._MB_PLAYS.format('c.track_id')} "
-            "WHERE c.role IN ('artist', 'featured') AND c.mbid NOT IN (SELECT mbid FROM mb_artists WHERE profiled IS NOT NULL) "
-            "GROUP BY c.mbid ORDER BY SUM(COALESCE(p.n, 0)) DESC, c.mbid LIMIT ?", (limit,))]
+            "LEFT JOIN mb_artists a ON a.mbid = c.mbid "
+            "WHERE c.role IN ('artist', 'featured') AND (a.profiled IS NULL OR COALESCE(a.rels_v, 1) < ?) "
+            "GROUP BY c.mbid ORDER BY bool_or(a.profiled IS NULL) DESC, SUM(COALESCE(p.n, 0)) DESC, c.mbid LIMIT ?",
+            (MB_RELS_VERSION, limit))]
 
     def mb_save_artist(self, mbid: str, name: str, rels: list[dict], now: int, facts: dict | None = None) -> None:
         """facts: musicbrainz.artist_facts (type, country, area, begin_year, end_year, genres, tags)."""
@@ -158,9 +163,10 @@ class MusicStore(Database):
                 self.db.execute("INSERT INTO mb_artist_rels (mbid, role, other, other_name) VALUES (?, ?, ?, ?)",
                                 (mbid, r["role"], r["mbid"], r["name"]))
             self.db.execute("INSERT OR REPLACE INTO mb_artists (mbid, name, asked, type, country, area, begin_year, end_year, "
-                            "genres, tags, profiled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "genres, tags, profiled, rels_v) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (mbid, name, now, f.get("type"), f.get("country"), f.get("area"), f.get("begin_year"),
-                             f.get("end_year"), json.dumps(f.get("genres") or []), json.dumps(f.get("tags") or []), now))
+                             f.get("end_year"), json.dumps(f.get("genres") or []), json.dumps(f.get("tags") or []), now,
+                             MB_RELS_VERSION))
 
     def mb_graph(self) -> dict:
         """What the artist graph reads: each (track artist, role, credited name, MBID) with its track count, and the

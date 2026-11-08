@@ -42,10 +42,17 @@ RECORDING_ROLES = {"producer": "producer", "co-producer": "producer", "instrumen
                    "performer": "performer", "performing orchestra": "performer", "conductor": "performer",
                    "remixer": "remixer", "arranger": "arranger"}
 WORK_ROLES = {"composer": "writer", "lyricist": "writer", "writer": "writer", "librettist": "writer"}
-ARTIST_ROLES = {"member of band": "member", "collaboration": "collaboration"}
+# An artist's relations kept, as the role stored (music_graph.py types them). Tributes and "named after" are left out.
+# Changing this asks about every artist again: bump store.music.MB_RELS_VERSION with it.
+ARTIST_ROLES = {"member of band": "member", "conductor position": "member", "collaboration": "collaboration",
+                "subgroup": "subgroup", "is person": "same person", "artist rename": "same person",
+                "supporting musician": "supports", "instrumental supporting musician": "supports",
+                "vocal supporting musician": "supports", "teacher": "teacher",
+                "sibling": "sibling", "married": "married", "parent": "parent", "involved with": "partner"}
 ARTIST_INC = "artist-rels+genres+tags"
 MAX_TAGS = 15
-# Kept from the looked-up artist's side: "in band" (it's in the other), "band of" (the other is in it), "collaboration".
+# Kept from the looked-up artist's side, where it has one: "in band" (it's in the other) or "band of" (the other is in
+# it), "supports" (it plays with the other, on tour or in the studio) or "supported by".
 FEAT_IN_TITLE = re.compile(r"\s*[(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^)\]]*[)\]]", re.I)
 
 
@@ -122,14 +129,17 @@ def credits(recording: dict) -> list[dict]:
 
 
 def artist_rels(artist: dict) -> list[dict]:
-    """[{role, mbid, name}]: the bands this artist is in or that it's made of, and its collaborations."""
+    """[{role, mbid, name}]: the bands this artist is in or that it's made of, who it plays with, its collaborations,
+    offshoots, other names, teachers and family."""
     out = []
     for rel in artist.get("relations") or []:
         other = rel.get("artist") or {}
         if rel.get("target-type") == "artist" and rel.get("type") in ARTIST_ROLES and other.get("id"):
-            role = ARTIST_ROLES[rel["type"]]
+            role, back = ARTIST_ROLES[rel["type"]], rel.get("direction") == "backward"
             if role == "member":
-                role = "band of" if rel.get("direction") == "backward" else "in band"
+                role = "band of" if back else "in band"
+            elif role == "supports":
+                role = "supported by" if back else "supports"
             out.append({"role": role, "mbid": other["id"], "name": other.get("name") or ""})
     return out
 

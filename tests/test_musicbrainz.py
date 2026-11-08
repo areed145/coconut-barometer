@@ -71,8 +71,18 @@ class Reading(unittest.TestCase):
         rels = MB.artist_rels({"relations": [
             {"type": "member of band", "direction": "backward", "target-type": "artist", "artist": {"id": "p", "name": "Person"}},
             {"type": "member of band", "direction": "forward", "target-type": "artist", "artist": {"id": "b", "name": "Big Band"}},
-            {"type": "is person", "target-type": "artist", "artist": {"id": "x", "name": "Alias"}}]})
+            {"type": "tribute", "direction": "backward", "target-type": "artist", "artist": {"id": "x", "name": "Copy Band"}}]})
         self.assertEqual([(r["role"], r["name"]) for r in rels], [("band of", "Person"), ("in band", "Big Band")])
+
+    def test_artist_rels_keep_who_plays_with_whom_and_family(self):
+        rel = lambda t, d, name: {"type": t, "direction": d, "target-type": "artist", "artist": {"id": name.lower(), "name": name}}
+        rels = MB.artist_rels({"relations": [
+            rel("instrumental supporting musician", "backward", "Drummer"), rel("vocal supporting musician", "forward", "Star"),
+            rel("is person", "forward", "Real Name"), rel("sibling", "forward", "Sis"), rel("involved with", "forward", "Ex"),
+            rel("subgroup", "forward", "Offshoot"), rel("named after artist", "backward", "Fan")]})
+        self.assertEqual([(r["role"], r["name"]) for r in rels], [
+            ("supported by", "Drummer"), ("supports", "Star"), ("same person", "Real Name"), ("sibling", "Sis"),
+            ("partner", "Ex"), ("subgroup", "Offshoot")])
 
     def test_artist_facts(self):
         f = MB.artist_facts({"type": "Group", "country": "US", "area": {"name": "United States"},
@@ -161,6 +171,17 @@ class Lookups(unittest.TestCase):
         self.assertIn('recording:"', search["query"])
         self.assertNotIn("feat", search["query"].lower())
 
+    def test_an_artist_looked_up_for_fewer_relations_is_asked_again_after_new_ones(self):
+        self.mb.run_once(self.store, now=100)
+        self.assertEqual(self.store.mb_artists_to_ask(10), [])
+        self.store.db.execute("UPDATE mb_artists SET rels_v = NULL WHERE mbid = 'id-Band'")    # as the upgrade leaves it
+        self.assertEqual([a["mbid"] for a in self.store.mb_artists_to_ask(10)], ["id-Band"])
+        self.assertIn("id-Band", self.store.mb_graph()["artists"])                             # its facts stay meanwhile
+        self.store.db.execute("INSERT INTO mb_credits (track_id, role, name, mbid) VALUES ('t1', 'featured', 'New', 'id-New')")
+        self.assertEqual([a["mbid"] for a in self.store.mb_artists_to_ask(10)], ["id-New", "id-Band"])   # never asked first
+        self.mb.run_once(self.store, now=200)
+        self.assertEqual(self.store.mb_artists_to_ask(10), [])
+
     def test_a_job_stops_at_its_budget(self):
         out = self.mb.run_once(self.store, budget=3, now=1)
         self.assertLessEqual(out["calls"], 3)
@@ -208,12 +229,26 @@ class Edges(unittest.TestCase):
             {"artist": "Other", "role": "producer", "name": "Prod", "mbid": "id-SomeoneElse", "tracks": 1}],  # same name, not him
             "rels": [{"mbid": "id-Band", "name": "Band", "role": "band of", "other": "id-Prod", "other_name": "Prod"}]}
         g = G.build(self.rows(), mb=mb)
-        by = {(e["a"], e["b"]): e["kinds"].get("musicbrainz") for e in g["edges"]}
-        self.assertIn("Prod produced Band", by[("Band", "Prod")])
-        self.assertIn("Prod is in Band", by[("Band", "Prod")])
-        self.assertEqual(by[("Band", "Guest")], "Guest featured on Band")
-        self.assertIn("both credit Ghost Writer (writer)", by[("Band", "Solo")])
+        by = {(e["a"], e["b"]): [r["said"] for r in e["rels"]] for e in g["edges"]}
+        self.assertEqual(by[("Band", "Prod")], ["Prod is in Band", "Prod produced Band (2 tracks)"])   # strongest first
+        self.assertEqual(by[("Band", "Guest")], ["Guest featured on Band"])
+        self.assertEqual(by[("Band", "Solo")], ["both have songs by Ghost Writer"])
         self.assertNotIn(("Other", "Prod"), by)
+
+    def test_artist_relations_are_typed(self):
+        mb = {"credits": [{"artist": a, "role": "artist", "name": a, "mbid": f"id-{a}", "tracks": 3} for a in ("Band", "Prod", "Guest", "Solo", "Other")],
+              "rels": [{"mbid": "id-Solo", "name": "Solo", "role": "sibling", "other": "id-Other", "other_name": "Other"},
+                       {"mbid": "id-Guest", "name": "Guest", "role": "supports", "other": "id-Band", "other_name": "Band"},
+                       {"mbid": "id-Prod", "name": "Prod", "role": "same person", "other": "id-Solo", "other_name": "Solo"},
+                       {"mbid": "id-Band", "name": "Band", "role": "band of", "other": "id-Drummer", "other_name": "Drummer"},
+                       {"mbid": "id-Other", "name": "Other", "role": "in band", "other": "id-Drummer", "other_name": "Drummer"}]}
+        by = {(e["a"], e["b"]): e["rels"] for e in G.build(self.rows(), mb=mb)["edges"]}
+        said = {pair: [(r["type"], r["said"]) for r in rels] for pair, rels in by.items()}
+        self.assertEqual(said[("Other", "Solo")], [("family", "Other and Solo are siblings")])
+        self.assertEqual(said[("Band", "Guest")], [("played", "Guest played with Band")])
+        self.assertEqual(by[("Band", "Guest")][0]["from"], "Guest")                          # the arrow's direction
+        self.assertEqual(said[("Prod", "Solo")], [("same person", "Prod and Solo are the same artist")])
+        self.assertEqual(said[("Band", "Other")], [("shared member", "Drummer is in both")])
 
 
 class Jobs(unittest.TestCase):

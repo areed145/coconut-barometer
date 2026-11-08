@@ -3,7 +3,7 @@
 // artists connect; or ask a question (music_ask.py), whose answer lights up the artists and links behind it. Each
 // answer joins what's shown, with its links to it, and the network moves to make room.
 import { html, useState, useEffect, useMemo, useRef, api, num, toast } from "./lib.js";
-import { Network, Detail, KINDS, pairKey, why } from "./music_graph.js";
+import { Network, Detail, NetOptions, ALL_KINDS, useNetLook, pairKey, reasons } from "./music_graph.js";
 
 const STARTS = [["artist", "Artist"], ["scene", "Scene"], ["genre", "Genre"], ["decade", "Decade"], ["country", "Country"]];
 const MAX_SHOWN = 400;                          // past this the layout gets slow on a phone
@@ -31,7 +31,9 @@ export function Explorer({ start, lead }) {
   const [error, setError] = useState(null);
   const [map, setMap] = useState(EMPTY);
   const [clusters, setClusters] = useState([]);
-  const [kinds, setKinds] = useState({ collab: true, musicbrainz: true, credit: true, profile: true });
+  const [types, setTypes] = useState({});
+  const [kinds, setKinds] = useState(ALL_KINDS);
+  const look = useNetLook();
   const [selected, setSelected] = useState(null);
   const [focusOn, setFocusOn] = useState(null);
   const [fitOn, setFitOn] = useState(null);
@@ -63,6 +65,7 @@ export function Explorer({ start, lead }) {
       for (const e of r.edges) if (nodes.has(e.a) && nodes.has(e.b)) edges.set(pairKey(e.a, e.b), e);
       setMap({ nodes, edges });
       setClusters(r.clusters);
+      if (r.types) setTypes(r.types);
       return r;
     } catch (e) { toast(e.message); return null; } finally { setBusy(false); }
   };
@@ -124,13 +127,8 @@ export function Explorer({ start, lead }) {
     const ids = [...new Set([...map.nodes.values()].map((n) => n.cluster))].sort((a, b) => a - b);
     const local = new Map(ids.map((c, i) => [c, i]));
     return { nodes: [...map.nodes.values()].map((n) => ({ ...n, cluster: local.get(n.cluster) })), edges: [...map.edges.values()],
-             clusters: ids.map((c) => clusters[c] || { id: c, label: "" }) };
-  }, [map, clusters]);
-  const counts = useMemo(() => {
-    const c = {};
-    for (const e of graph.edges) for (const k in e.kinds) c[k] = (c[k] || 0) + 1;
-    return c;
-  }, [graph]);
+             clusters: ids.map((c) => clusters[c] || { id: c, label: "" }), types };
+  }, [map, clusters, types]);
   const options = facets && {
     artist: facets.artists.map((a) => a.id), scene: facets.scenes.map(([s]) => s), genre: facets.genres.map(([g]) => g),
     decade: facets.decades.map(([d]) => String(d)), country: facets.countries.map(([c]) => c),
@@ -168,9 +166,8 @@ export function Explorer({ start, lead }) {
     <div class="card"><h2>Whole graph</h2>
       <p class="muted small">${num(map.nodes.size)} of ${num(facets.artists.length)} artists shown (every artist with over ${num(facets.min_plays)} plays, all time). Click an artist for its connections and to show its neighbours.
         ${highlight && html` <button class="link" onClick=${() => { setHighlight(null); setPath(null); setAnswer(null); }}>Clear highlight</button>`}</p>
-      <div class="netkinds">${Object.entries(KINDS).map(([k, v]) => html`<label key=${k}><input type="checkbox" checked=${kinds[k]} onChange=${() => setKinds({ ...kinds, [k]: !kinds[k] })} />
-          ${v.label} <span class="muted">${num(counts[k] || 0)}</span></label>`)}</div>
-      <${Network} graph=${graph} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${null} focusOn=${focusOn} highlight=${highlight} fitOn=${fitOn} />
+      <${NetOptions} graph=${graph} kinds=${kinds} setKinds=${setKinds} look=${look} />
+      <${Network} graph=${graph} kinds=${kinds} selected=${selected} setSelected=${setSelected} cluster=${null} focusOn=${focusOn} highlight=${highlight} fitOn=${fitOn} lines=${look.lines} shapes=${look.shapes} />
       ${selected && map.nodes.has(selected) && html`<${Detail} graph=${graph} id=${selected} kinds=${kinds} go=${(id) => (map.nodes.has(id) ? go(id) : expand(id))} extra=${detailExtra} />`}</div>`}
     <div class="card"><h2>How are they connected?</h2>
       <form class="netstart" onSubmit=${connect}>
@@ -179,5 +176,5 @@ export function Explorer({ start, lead }) {
         <datalist id="explore-artists">${options.artist.map((o) => html`<option key=${o} value=${o} />`)}</datalist>
         <button class="primary" disabled=${busy}>Connect</button></form>
       ${path && html`<ul class="netpath">${path.path.map((id, i) => html`<li key=${id}><button class="link" onClick=${() => go(id)}>${id}</button></li>
-          ${i < path.steps.length && html`<li key=${id + "→"} class="muted step">↓ ${Object.entries(path.steps[i].kinds).map(([k, v]) => why(k, v)).join(" · ")}</li>`}`)}</ul>`}</div>`;
+          ${i < path.steps.length && html`<li key=${id + "→"} class="muted step">↓ ${reasons(path.steps[i])}</li>`}`)}</ul>`}</div>`;
 }

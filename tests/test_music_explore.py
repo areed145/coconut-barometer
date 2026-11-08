@@ -73,7 +73,7 @@ class Queries(unittest.TestCase):
         p = self.w.path("Haggard", "Tweedy")
         self.assertEqual(p["path"], ["Haggard", "Owens", "Parsons", "Wilco", "Tweedy"])
         self.assertEqual(len(p["steps"]), 4)
-        self.assertIn("collab", p["steps"][0]["kinds"])
+        self.assertEqual(p["steps"][0]["rels"][0]["type"], "featured")
         with self.assertRaises(X.NotFound):
             self.w.path("Haggard", "Coltrane")                                # nothing links them
         with self.assertRaises(X.NotFound):
