@@ -81,6 +81,37 @@ class ToolsTest(unittest.TestCase):
         everything = self.t.run("listening", {"group_by": "artist"})
         self.assertEqual(everything["rows"][0]["value"], "Haggard")
 
+    def test_link_details_and_summaries_name_the_records(self):
+        w = whole()
+        e = w.edges[G._pair("Haggard", "Owens")]
+        e["rels"][0]["credits"] = [{"artist": "Haggard", "track": f"Song {i}", "album": "LP", "who": "Owens", "role": "guitar"}
+                                   for i in range(6)]
+        t = Q.Tools(w)
+        got = t.run("link_details", {"a": "owens", "b": "haggard"})
+        self.assertEqual(got["relationships"][0]["records"][0], "Song 0 (LP, by Haggard): Owens, guitar")
+        self.assertEqual(len(got["relationships"][0]["records"]), 6)
+        summary = Q._link(e)
+        self.assertEqual((len(summary["records"][0]["records"]), summary["records"][0]["more_records"]), (Q.MAX_RECORDS, 2))
+        self.assertNotIn("records", Q._link(e, 0))                                       # neighbourhoods stay short
+        with self.assertRaises(X.NotFound):
+            t.run("link_details", {"a": "Haggard", "b": "Coltrane"})
+
+    def test_track_credits_reads_the_store(self):
+        class Store:
+            def mb_track_credits(self, **kw):
+                self.kw = kw
+                return [{"track": "Banging My Head Against the Moon", "artist": "JD Souther", "album": "Black Rose",
+                         "plays": 3, "looked_up": True, "found": True,
+                         "credits": [{"name": "JD Souther", "role": "artist"}, {"name": "Andrew Gold", "role": "performer", "detail": "piano"}]}]
+        st = Store()
+        got = Q.Tools(whole(), st).run("track_credits", {"title": "banging my head", "artist": "jd souther"})
+        self.assertEqual(got["tracks"][0]["credits"], ["JD Souther, artist", "Andrew Gold, piano"])
+        self.assertEqual((st.kw["title"], st.kw["artist"]), ("banging my head", "jd souther"))
+        with self.assertRaises(X.NotFound):
+            Q.Tools(whole()).run("track_credits", {"title": "x"})                      # no store
+        with self.assertRaises(X.NotFound):
+            Q.Tools(whole(), st).run("track_credits", {"artist": "JD Souther"})        # a title or album
+
     def test_bad_input_is_an_error_not_a_crash(self):
         with self.assertRaises(X.NotFound):
             self.t.run("listening", {"group_by": "scene", "since": "last year"})

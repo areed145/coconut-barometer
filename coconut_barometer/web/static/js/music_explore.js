@@ -3,11 +3,16 @@
 // artists connect; or ask a question (music_ask.py), whose answer lights up the artists and links behind it. Each
 // answer joins what's shown, with its links to it, and the network moves to make room.
 import { html, useState, useEffect, useMemo, useRef, api, num, toast } from "./lib.js";
-import { Network, Detail, NetOptions, ALL_KINDS, useNetLook, pairKey, reasons } from "./music_graph.js";
+import { Network, Detail, NetOptions, ALL_KINDS, useNetLook, pairKey, Credits } from "./music_graph.js";
 
 const STARTS = [["artist", "Artist"], ["scene", "Scene"], ["genre", "Genre"], ["decade", "Decade"], ["country", "Country"]];
 const MAX_SHOWN = 400;                          // past this the layout gets slow on a phone
 const EMPTY = { nodes: new Map(), edges: new Map() };
+
+// One link's reasons, each with the records behind it.
+function LinkWhy({ e, arrow }) {
+  return html`${e.rels.map((r, i) => html`<div key=${r.type + r.said} class="small"><span class="muted">${arrow && i === 0 ? "↓ " : ""}${r.said}</span><${Credits} rel=${r} /></div>`)}`;
+}
 
 function Chips({ items, onPick }) {
   return html`<span class="netchips">${items.map(([value, label]) => html`<button key=${value} class="chip" onClick=${() => onPick(value)}>${label}</button>`)}</span>`;
@@ -154,7 +159,9 @@ export function Explorer({ start, lead }) {
         <button class="primary" disabled=${asking || busy}>${asking ? "Asking Claude…" : "Ask"}</button></form>
       ${answer && html`<div class="netanswer"><p class="muted small">${answer.question}</p><p>${answer.text}</p>
         ${answer.artists.length > 0 && html`<p class="small"><span class="netchips">${answer.artists.map((a) =>
-          html`<button key=${a} class="chip" onClick=${() => go(a)}>${a}</button>`)}</span></p>`}</div>`}`
+          html`<button key=${a} class="chip" onClick=${() => go(a)}>${a}</button>`)}</span></p>`}
+        ${answer.links.some((l) => l.rels.some((r) => r.credits?.length)) && html`<ul class="netpath">${answer.links.filter((l) => l.rels.some((r) => r.credits?.length))
+          .map((l) => html`<li key=${pairKey(l.a, l.b)}><strong>${l.a} – ${l.b}</strong><${LinkWhy} e=${l} /></li>`)}</ul>`}</div>`}`
       : html`<p class="muted small">Add the Anthropic key in <a href="#/settings/vision">Settings → Vision</a> to ask questions about your listening.</p>`}</div>`;
   const detailExtra = selected && map.nodes.has(selected) && html`<p class="small netactions">
     <button class="link" disabled=${busy} onClick=${() => expand(selected)}>Show neighbours</button>
@@ -176,5 +183,5 @@ export function Explorer({ start, lead }) {
         <datalist id="explore-artists">${options.artist.map((o) => html`<option key=${o} value=${o} />`)}</datalist>
         <button class="primary" disabled=${busy}>Connect</button></form>
       ${path && html`<ul class="netpath">${path.path.map((id, i) => html`<li key=${id}><button class="link" onClick=${() => go(id)}>${id}</button></li>
-          ${i < path.steps.length && html`<li key=${id + "→"} class="muted step">↓ ${reasons(path.steps[i])}</li>`}`)}</ul>`}</div>`;
+          ${i < path.steps.length && html`<li key=${id + "→"} class="step"><${LinkWhy} e=${path.steps[i]} arrow /></li>`}`)}</ul>`}</div>`;
 }

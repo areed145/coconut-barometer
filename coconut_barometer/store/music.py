@@ -4,9 +4,9 @@
   music_plays    each play. source 'hourly': an estimated start, the read that found it and the read before (it began
                  after that). source 'export': from Apple's data export (apple_export.py), with the exact start, how
                  long was heard, how it ended, and what it was played from
-  mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not, and each
-                 artist's facts (type, origin, years, genres, tags)
-  artist_profiles  what Claude says about each artist with over 10 plays: scenes, styles, decades, country (artist_profiles.py)"""
+  mb_*           what MusicBrainz says about them (musicbrainz.py): each track asked once, found or not, the album
+                 it was heard from and that album's own credits, and each artist's facts (type, origin, years, genres, tags)
+  artist_profiles  what Claude says about each artist with over 5 plays: scenes, styles, decades, country (artist_profiles.py)"""
 from __future__ import annotations
 
 import json
@@ -15,6 +15,9 @@ from .db import Database
 
 MB_RELS_VERSION = 2              # which artist relations an artist was looked up for (musicbrainz.ARTIST_ROLES): 2 added
                                  # supporting musicians, subgroups, other names, teachers and family
+MB_CREDITS_VERSION = 2           # what a track's credits were read for (musicbrainz.credits): 2 kept each person's
+                                 # detail (instrument, vocals, co-producer), and found tracks are read again for it
+MB_TRACK_ITEMS = 40              # tracks named for one credit in the graph (store.mb_graph)
 TRACK_COLUMNS = ("id", "kind", "name", "artist", "album", "genres", "duration_ms", "release_date", "isrc", "artwork", "url", "bg_color", "text_color", "composer")
 EXPORT_COLUMNS = ("{started: 'BIGINT', track_id: 'VARCHAR', song: 'VARCHAR', artist: 'VARCHAR', album: 'VARCHAR', "
                   "duration_ms: 'BIGINT', listened_ms: 'BIGINT', end_reason: 'VARCHAR', utc_offset: 'BIGINT', "
@@ -86,10 +89,12 @@ class MusicStore(Database):
         return [r for r in self.music_plays(start) if r["played_at"] < end]
 
     def music_graph_plays(self) -> list[dict]:
-        """Every play in order, with what the artist graph reads."""
+        """Every play in order, with what the artist graph reads. mb_writers: MusicBrainz credits the track's writers."""
         return [dict(r) for r in self.db.execute(
-            "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, t.artist, t.genres, t.composer FROM music_plays p "
-            "JOIN music_tracks t ON t.id = p.track_id WHERE t.artist <> '' ORDER BY p.played_at")]
+            "SELECT p.played_at, COALESCE(p.listened_ms, t.duration_ms) AS ms, t.name, t.artist, t.genres, t.composer, "
+            "w.track_id IS NOT NULL AS mb_writers FROM music_plays p JOIN music_tracks t ON t.id = p.track_id "
+            "LEFT JOIN (SELECT DISTINCT track_id FROM mb_credits WHERE role = 'writer') w ON w.track_id = t.id "
+            "WHERE t.artist <> '' ORDER BY p.played_at")]
 
     def music_latest(self, limit: int) -> list[dict]:
         """The newest plays, newest read first, each with its track."""
@@ -127,21 +132,78 @@ class MusicStore(Database):
 
     def mb_to_ask(self, limit: int) -> list[dict]:
         """Tracks MusicBrainz hasn't been asked about, most played first. One Apple's catalog will still fill in (its
-        ISRC, from an imported track) waits for that."""
+        ISRC, from an imported track) waits for that. Then tracks found before their credits kept what each person
+        did (MB_CREDITS_VERSION), with the recording found ("recording", "how"), to be read again by it alone."""
         return [dict(r) for r in self.db.execute(
-            f"SELECT t.id, t.name, t.artist, t.isrc FROM music_tracks t {self._MB_PLAYS.format('t.id')} "
-            "WHERE t.artist <> '' AND t.id NOT IN (SELECT track_id FROM mb_recordings) "
-            "AND (t.isrc IS NOT NULL OR t.enriched IS NOT NULL OR NOT regexp_full_match(t.id, '[0-9]+')) "
-            "ORDER BY COALESCE(p.n, 0) DESC, t.id LIMIT ?", (limit,))]
+            f"SELECT t.id, t.name, t.artist, t.album, t.isrc, r.recording, r.how FROM music_tracks t "
+            f"LEFT JOIN mb_recordings r ON r.track_id = t.id {self._MB_PLAYS.format('t.id')} "
+            "WHERE t.artist <> '' AND ((r.track_id IS NULL "
+            "AND (t.isrc IS NOT NULL OR t.enriched IS NOT NULL OR NOT regexp_full_match(t.id, '[0-9]+'))) "
+            "OR (r.recording IS NOT NULL AND COALESCE(r.credits_v, 1) < ?)) "
+            "ORDER BY (r.track_id IS NULL) DESC, COALESCE(p.n, 0) DESC, t.id LIMIT ?", (MB_CREDITS_VERSION, limit))]
 
-    def mb_save_track(self, track_id: str, recording: str | None, how: str, credits: list[dict], now: int) -> None:
+    def mb_save_track(self, track_id: str, recording: str | None, how: str, credits: list[dict], now: int,
+                      release: str | None = None) -> None:
+        """release: the album it was heard from (musicbrainz.pick_release), whose own credits count for it too."""
         with self.db:
             self.db.execute("DELETE FROM mb_credits WHERE track_id = ?", (track_id,))
             for c in credits:
-                self.db.execute("INSERT INTO mb_credits (track_id, role, name, mbid) VALUES (?, ?, ?, ?)",
-                                (track_id, c["role"], c["name"], c["mbid"]))
-            self.db.execute("INSERT OR REPLACE INTO mb_recordings (track_id, recording, how, asked) VALUES (?, ?, ?, ?)",
-                            (track_id, recording, how, now))
+                self.db.execute("INSERT INTO mb_credits (track_id, role, name, mbid, detail) VALUES (?, ?, ?, ?, ?)",
+                                (track_id, c["role"], c["name"], c["mbid"], c.get("detail") or None))
+            self.db.execute("INSERT OR REPLACE INTO mb_recordings (track_id, recording, how, asked, credits_v, release) "
+                            "VALUES (?, ?, ?, ?, ?, ?)", (track_id, recording, how, now, MB_CREDITS_VERSION, release))
+
+    def mb_releases_to_ask(self, limit: int) -> list[dict]:
+        """Albums your matched tracks were heard from whose own credits haven't been asked for, most played first."""
+        return [dict(r) for r in self.db.execute(
+            f"SELECT r.release, any_value(t.album) AS album FROM mb_recordings r JOIN music_tracks t ON t.id = r.track_id "
+            f"{self._MB_PLAYS.format('t.id')} WHERE r.release IS NOT NULL "
+            "AND r.release NOT IN (SELECT release FROM mb_releases) "
+            "GROUP BY r.release ORDER BY SUM(COALESCE(p.n, 0)) DESC, r.release LIMIT ?", (limit,))]
+
+    def mb_save_release(self, release: str, title: str, credits: list[dict], now: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM mb_release_credits WHERE release = ?", (release,))
+            for c in credits:
+                self.db.execute("INSERT INTO mb_release_credits (release, role, name, mbid, detail) VALUES (?, ?, ?, ?, ?)",
+                                (release, c["role"], c["name"], c["mbid"], c.get("detail") or None))
+            self.db.execute("INSERT OR REPLACE INTO mb_releases (release, title, asked) VALUES (?, ?, ?)", (release, title, now))
+
+    # Every credit on every track: its own, and its album's (marked "(album)" in detail).
+    _MB_ALL_CREDITS = ("(SELECT track_id, role, name, mbid, detail FROM mb_credits UNION ALL "
+                       "SELECT r.track_id, rc.role, rc.name, rc.mbid, COALESCE(rc.detail, rc.role) || ' (album)' "
+                       "FROM mb_recordings r JOIN mb_release_credits rc ON rc.release = r.release)")
+
+    def mb_track_credits(self, title: str | None = None, artist: str | None = None, album: str | None = None,
+                         limit: int = 12) -> list[dict]:
+        """Tracks in the library matching a title, artist and album (each a part, ignoring case and punctuation), most
+        played first, each with what MusicBrainz credits on it: [{track, artist, album, plays, looked_up, found,
+        credits: [{name, role, detail}]}]. looked_up False: not asked yet; found False: MusicBrainz didn't have it."""
+        def like(col, text):
+            return (f"regexp_replace(lower({col}), '[^a-z0-9]+', '', 'g') LIKE ?",
+                    "%" + "".join(ch for ch in (text or "").lower() if ch.isalnum()) + "%")
+        where, args = ["t.artist <> ''"], []
+        for col, text in (("t.name", title), ("t.artist", artist), ("t.album", album)):
+            if text and any(ch.isalnum() for ch in text):
+                w, a = like(col, text)
+                where.append(w)
+                args.append(a)
+        if len(where) == 1:
+            return []
+        tracks = [dict(r) for r in self.db.execute(
+            f"SELECT t.id, t.name AS track, t.artist, t.album, COALESCE(p.n, 0) AS plays, r.track_id IS NOT NULL AS looked_up, "
+            f"r.recording IS NOT NULL AS found FROM music_tracks t LEFT JOIN mb_recordings r ON r.track_id = t.id "
+            f"{self._MB_PLAYS.format('t.id')} WHERE {' AND '.join(where)} ORDER BY plays DESC, t.name LIMIT ?", (*args, limit))]
+        if not tracks:
+            return []
+        marks = ", ".join("?" * len(tracks))
+        by: dict = {}
+        for r in self.db.execute(f"SELECT track_id, role, name, detail FROM {self._MB_ALL_CREDITS} c WHERE track_id IN ({marks}) "
+                                 "ORDER BY track_id, CASE role WHEN 'artist' THEN 0 WHEN 'featured' THEN 1 ELSE 2 END, role, name",
+                                 [t["id"] for t in tracks]):
+            by.setdefault(r["track_id"], []).append({"name": r["name"], "role": r["role"], **({"detail": r["detail"]} if r["detail"] else {})})
+        return [{**{k: v for k, v in t.items() if k != "id"}, "looked_up": bool(t["looked_up"]), "found": bool(t["found"]),
+                 "credits": by.get(t["id"], [])} for t in tracks]
 
     def mb_artists_to_ask(self, limit: int) -> list[dict]:
         """The artists your tracks are credited to (main or featured) not looked up yet, then those looked up before
@@ -169,11 +231,14 @@ class MusicStore(Database):
                              MB_RELS_VERSION))
 
     def mb_graph(self) -> dict:
-        """What the artist graph reads: each (track artist, role, credited name, MBID) with its track count, and the
-        artists' relations."""
+        """What the artist graph reads: each (track artist, role, credited name, MBID) with its track count and, but
+        for the main credit, its tracks (items: [{track, album, detail}], the first MB_TRACK_ITEMS), and the artists'
+        relations."""
         credits = [dict(r) for r in self.db.execute(
-            "SELECT t.artist, c.role, c.name, c.mbid, COUNT(*) AS tracks FROM mb_credits c JOIN music_tracks t ON t.id = c.track_id "
-            "GROUP BY t.artist, c.role, c.name, c.mbid")]
+            "SELECT t.artist, c.role, c.name, c.mbid, COUNT(DISTINCT c.track_id) AS tracks, "
+            "CASE WHEN c.role = 'artist' THEN NULL ELSE list({'track': t.name, 'album': t.album, 'detail': c.detail} "
+            f"ORDER BY t.album, t.name)[1:{MB_TRACK_ITEMS}] END AS items "
+            f"FROM {self._MB_ALL_CREDITS} c JOIN music_tracks t ON t.id = c.track_id GROUP BY t.artist, c.role, c.name, c.mbid")]
         rels = [dict(r) for r in self.db.execute(
             "SELECT r.mbid, a.name, r.role, r.other, r.other_name FROM mb_artist_rels r JOIN mb_artists a ON a.mbid = r.mbid")]
         artists = {r["mbid"]: {**dict(r), "genres": json.loads(r["genres"] or "[]"), "tags": json.loads(r["tags"] or "[]")}
@@ -182,10 +247,12 @@ class MusicStore(Database):
         return {"credits": credits, "rels": rels, "artists": artists}
 
     def mb_progress(self) -> dict:
-        r = self.db.execute("SELECT COUNT(*), COUNT(recording) FROM mb_recordings").fetchone()
+        r = self.db.execute("SELECT COUNT(*), COUNT(recording), COUNT(recording) FILTER (WHERE COALESCE(credits_v, 1) < ?) "
+                            "FROM mb_recordings", (MB_CREDITS_VERSION,)).fetchone()
         total = self.db.execute("SELECT COUNT(*) FROM music_tracks WHERE artist <> ''").fetchone()[0]
         artists = self.db.execute("SELECT COUNT(*) FROM mb_artists").fetchone()[0]
-        return {"asked": r[0], "found": r[1], "tracks": total, "artists": artists}
+        albums = self.db.execute("SELECT COUNT(*) FROM mb_releases").fetchone()[0]
+        return {"asked": r[0], "found": r[1], "tracks": total, "artists": artists, "rereading": r[2], "albums": albums}
 
     # ---- artist profiles (artist_profiles.py) -------------------------------------------------------------
     def music_artist_plays(self) -> list[tuple[str, int]]:
@@ -214,6 +281,7 @@ class MusicStore(Database):
             "SELECT (SELECT COUNT(*) FROM music_plays), (SELECT MAX(played_at) FROM music_plays), "
             "(SELECT COUNT(*) FROM music_tracks), (SELECT MAX(enriched) FROM music_tracks), "
             "(SELECT COUNT(*) FROM mb_recordings), (SELECT MAX(asked) FROM mb_recordings), "
+            "(SELECT COUNT(*) FROM mb_releases), (SELECT MAX(asked) FROM mb_releases), "
             "(SELECT COUNT(*) FROM mb_artists), (SELECT MAX(asked) FROM mb_artists), "
             "(SELECT COUNT(*) FROM artist_profiles), (SELECT MAX(asked) FROM artist_profiles)").fetchone())
 

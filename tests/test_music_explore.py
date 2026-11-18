@@ -84,7 +84,7 @@ class Queries(unittest.TestCase):
         self.assertEqual(f["artists"][0], {"id": "Haggard", "plays": 41})
         self.assertIn(["bakersfield sound", 2], [list(s) for s in f["scenes"]])
         self.assertIn([1950, 1], [list(d) for d in f["decades"]])
-        self.assertEqual(f["min_plays"], 10)
+        self.assertEqual(f["min_plays"], X.MIN_PLAYS)
 
 
 class Keeping(unittest.TestCase):

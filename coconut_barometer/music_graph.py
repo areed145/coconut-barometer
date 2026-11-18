@@ -7,7 +7,7 @@ artists back to back isn't one: it says more about a playlist or a shuffle than 
   together  made music together: "A feat. B" or "(with B)" in a song's title, "A & B" when both are artists on their
             own, MusicBrainz's artist credits and collaborations
   credit    worked on their records: produced, wrote for (Apple's composer field, MusicBrainz's work credits), played on
-            or toured with, remixed, arranged. These have a direction: from the one who did the work
+            or toured with, remixed, arranged, mixed, engineered. These have a direction: from the one who did the work
   shared    share a collaborator: the same producer, songwriter, player or guest, who isn't drawn themselves
   alike     alike on paper: each artist's profile (genres from Apple, MusicBrainz and Claude; Claude's scenes; their
             years; where they're from) compared here, with no model in the loop (profile_links). A rare genre counts
@@ -15,8 +15,9 @@ artists back to back isn't one: it says more about a playlist or a shuffle than 
 Each type pulls with its own strength and settles at its own distance (TYPES): bandmates close, a producer near who
 they produced, artists who only sound alike loosely. More shared tracks pull harder. The same relationship found in
 two places (a "feat." in the title and MusicBrainz's featured credit) is one, with both as its sources. MusicBrainz
-artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when exactly one drawn
-artist has it.
+artists are matched by MusicBrainz ID only (the main credit on their own tracks, or a featured credit Apple names
+too), never by name alone: two people can share a name. Apple's composer field is only a name, so it's read only for
+tracks MusicBrainz has no writers for.
 
 Clusters are found by greedy modularity on those pulls, and named by the scene or genres their members share.
 Hidden bridges are the modestly played artists whose connections reach several clusters: the ones that tie your
@@ -44,20 +45,23 @@ TYPES = {
     "featured": ("together", 2.0, 50),
     "produced": ("credit", 1.5, 66), "wrote": ("credit", 1.4, 66), "played": ("credit", 1.2, 70),
     "remixed": ("credit", 0.7, 82), "arranged": ("credit", 0.7, 82),
-    "shared producer": ("shared", 0.8, 95), "shared writer": ("shared", 0.7, 95), "shared player": ("shared", 0.45, 100),
+    "mixed": ("credit", 0.6, 86), "engineered": ("credit", 0.5, 90),
+    "shared producer": ("shared", 0.8, 95), "shared engineer": ("shared", 0.4, 105), "shared writer": ("shared", 0.7, 95), "shared player": ("shared", 0.45, 100),
     "scene": ("alike", 0.45, 130), "sound": ("alike", 0.25, 150),
 }
-BY_TRACKS = {"featured", "produced", "wrote", "played", "remixed", "arranged"}   # 1 + 0.25·log2(tracks), up to 1.75×
+BY_TRACKS = {"featured", "produced", "wrote", "played", "remixed", "arranged", "mixed", "engineered"}   # 1 + 0.25·log2(tracks), up to 1.75×
 MAX_PULL = 4.0
 OTHERS = 0.3                     # of each further type's pull, on a pair with several
 SOUND_FULL = 0.9                 # the profile score at which "sound" pulls fully
 # A MusicBrainz credit on another artist's track: its type here, and its type when two drawn artists share the person.
 MB_CREDIT = {"featured": "featured", "producer": "produced", "performer": "played", "writer": "wrote",
-             "remixer": "remixed", "arranger": "arranged"}
+             "remixer": "remixed", "arranger": "arranged", "mixer": "mixed", "engineer": "engineered"}
 MB_SHARED = {"producer": "shared producer", "remixer": "shared producer", "arranger": "shared producer",
              "writer": "shared writer", "performer": "shared player", "featured": "shared player",
+             "mixer": "shared engineer", "engineer": "shared engineer",
              "member": "shared member", "supports": "shared player"}
 SHARED_SAYS = {"producer": "both produced by {}", "remixer": "both remixed by {}", "arranger": "both arranged by {}",
+               "mixer": "both mixed by {}", "engineer": "both engineered by {}",
                "writer": "both have songs by {}", "performer": "{} played on both", "featured": "{} features on both",
                "member": "{} is in both", "supports": "{} plays with both"}
 FAMILY = {"sibling": "siblings", "married": "married", "parent": "parent and child", "partner": "partners"}
@@ -125,24 +129,28 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
         for o in others:
             collab[(main, o)] += 1
             plays[o] += 0
-        for c in composers(r.get("composer")):
-            credit_artists[c][main] += 1
+        if not r.get("mb_writers"):                   # MusicBrainz's writers, by ID, beat Apple's names
+            for c in composers(r.get("composer")):
+                credit_artists[c][main] += 1
     nodes = [a for a, n in plays.most_common(limit) if n > max(0, min_plays)]
     keep = set(nodes)
     found: dict = defaultdict(dict)                    # pair -> (type, from) -> what's known of that relationship
 
-    def add(a, b, kind, frm=None, tracks=1, via="", person=None, note=None, score=None, said=None):
+    def add(a, b, kind, frm=None, tracks=1, via="", person=None, note=None, score=None, said=None, items=()):
         """One relationship between a and b, merged with the same one found elsewhere. frm: who did the work, for the
-        directed types. person: the collaborator two artists share, with their role, for the shared types."""
+        directed types. person: the collaborator two artists share, with their role, for the shared types. items: the
+        records behind it, [{artist (whose track), track, album, who, role}]."""
         if a == b or a not in keep or b not in keep:
             return
         r = found[_pair(a, b)].setdefault((kind, frm), {"type": kind, "from": frm, "to": None if frm is None else (b if frm == a else a),
-                                                         "tracks": 0, "via": [], "people": [], "note": note, "score": score, "said": said})
+                                                         "tracks": 0, "via": [], "people": [], "note": note, "score": score, "said": said,
+                                                         "credits": []})
         r["tracks"] = max(r["tracks"], tracks)
         if via and via not in r["via"]:
             r["via"].append(via)
         if person and person not in r["people"]:
             r["people"].append(person)
+        merge_credits(r["credits"], items)
 
     for (main, guest), n in collab.items():
         add(main, guest, "featured", guest, n, "song title")
@@ -182,6 +190,26 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
             "bridges": bridges(nodes, weight, group, plays, names), "total_artists": len(plays)}
 
 
+MAX_CREDITS = 25                 # records kept on one relationship
+
+
+def merge_credits(into: list, items) -> None:
+    """Records into a relationship's list, each (artist, track, who) once, its roles joined."""
+    for it in items or ():
+        same = next((c for c in into if (c["artist"], c["track"], c["who"]) == (it["artist"], it["track"], it["who"])), None)
+        if same is None:
+            if len(into) < MAX_CREDITS:
+                into.append(dict(it))
+        elif it.get("role") and it["role"] not in (same.get("role") or "").split(", "):
+            same["role"] = ", ".join(x for x in (same.get("role"), it["role"]) if x)
+
+
+def credit_line(c: dict) -> str:
+    """One record behind a link, as the questions read it: 'Track (Album, by Artist): Who, guitar'."""
+    where = ", ".join(x for x in (c.get("album"), f"by {c['artist']}") if x)
+    return f"{c['track']} ({where}): {c['who']}" + (f", {c['role']}" if c.get("role") else "")
+
+
 TYPE_INFO = {t: {"kind": k, "pull": p, "rest": d} for t, (k, p, d) in TYPES.items()}   # for the page's layout
 
 
@@ -201,7 +229,7 @@ def say(a: str, b: str, r: dict) -> str:
     tracks = f" ({n} tracks)" if n > 1 else ""
     if r.get("said"):
         return r["said"]
-    if t in ("shared producer", "shared writer", "shared player", "shared member"):
+    if t in ("shared producer", "shared writer", "shared player", "shared member", "shared engineer"):
         return " · ".join(SHARED_SAYS.get(role, "both credit {}").format(name) for name, role in r["people"][:2])
     if t == "member":
         return f"{frm} is in {to}"
@@ -216,6 +244,7 @@ def say(a: str, b: str, r: dict) -> str:
     if t == "featured":
         return f"{a} and {b} collaborated" if r["note"] == "collaboration" else f"{frm} featured on {to}{tracks}"
     verb = {"produced": "produced", "wrote": "wrote for", "remixed": "remixed", "arranged": "arranged for",
+            "mixed": "mixed", "engineered": "engineered",
             "played": "played with" if r["note"] == "supports" else "played on"}[t]
     return f"{frm} {verb} {to}{tracks}"
 
@@ -227,12 +256,14 @@ def tie(a: str, b: str, found: dict) -> dict:
     feats = [r for r in rels if r["type"] == "featured" and r["note"] != "collaboration"]
     if len(feats) == 2:                                # a on b's track and b on a's
         one = {**feats[0], "from": None, "to": None, "tracks": feats[0]["tracks"] + feats[1]["tracks"],
-               "via": list(dict.fromkeys(feats[0]["via"] + feats[1]["via"])), "said": None}
+               "via": list(dict.fromkeys(feats[0]["via"] + feats[1]["via"])), "said": None, "credits": list(feats[0].get("credits") or [])}
+        merge_credits(one["credits"], feats[1].get("credits"))
         n = one["tracks"]
         one["said"] = f"{a} and {b} on {n} tracks together" if n > 1 else f"{a} and {b} on a track together"
         rels = [r for r in rels if r not in feats] + [one]
     out = sorted(({"type": r["type"], "said": say(a, b, r), "via": r["via"], "pull": round(pull(r), 3),
-                   **({"from": r["from"]} if r["from"] and TYPES[r["type"]][0] == "credit" else {})} for r in rels),
+                   **({"from": r["from"]} if r["from"] and TYPES[r["type"]][0] == "credit" else {}),
+                   **({"credits": r["credits"]} if r.get("credits") else {})} for r in rels),
                  key=lambda r: (-r["pull"], r["type"]))
     pulls = [r["pull"] for r in out]
     return {"a": a, "b": b, "rels": out, "weight": round(min(MAX_PULL, pulls[0] + OTHERS * sum(pulls[1:])), 3)}
@@ -241,36 +272,32 @@ def tie(a: str, b: str, found: dict) -> dict:
 def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
     """What MusicBrainz says relates drawn artists, as add()'s arguments: a credit on another drawn artist's track, an
     artist relation between two, or a person (not drawn) both credit or both have as a member."""
-    from .musicbrainz import norm
-
-    by_name: dict = defaultdict(set)
-    for a in keep:
-        by_name[norm(a)].add(a)
-    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    rows = credit_rows(mb, known)
     node_of = mbid_nodes(rows, keep)
-    has_id = defaultdict(set)
-    for mbid, a in node_of.items():
-        has_id[a].add(mbid)
 
     def node(mbid, name):
-        if mbid in node_of:
-            return node_of[mbid]
-        hit = by_name.get(norm(name)) or set()
-        if len(hit) != 1:
-            return None
-        a = next(iter(hit))
-        return None if has_id[a] else a                  # same name, another MusicBrainz artist: someone else
+        """The drawn artist this MusicBrainz artist is, by ID only: a name alone is never enough, as two people can
+        share one. An artist gets its ID once one of its own tracks is matched (mbid_nodes)."""
+        return node_of.get(mbid)
 
     out: list = []
     shared: dict = defaultdict(lambda: defaultdict(Counter))   # (mbid, name) not drawn -> drawn artist -> role -> tracks
+    shared_items: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))   # ... -> drawn artist -> role -> records
+
+    def records(c):
+        return [{"artist": c["main"], "track": it.get("track") or "", "album": it.get("album") or "", "who": c["name"],
+                 "role": it.get("detail") or c["role"]} for it in c.get("items") or []]
+
     for c in rows:
         if c["role"] == "artist" or c["main"] not in keep or c["role"] not in MB_CREDIT:
             continue
         other = node(c["mbid"], c["name"])
         if other and other != c["main"]:
-            out.append({"a": c["main"], "b": other, "kind": MB_CREDIT[c["role"]], "frm": other, "tracks": c["tracks"]})
+            out.append({"a": c["main"], "b": other, "kind": MB_CREDIT[c["role"]], "frm": other, "tracks": c["tracks"],
+                        "items": records(c)})
         elif not other:
             shared[(c["mbid"], c["name"])][c["main"]][c["role"]] += c["tracks"]
+            shared_items[(c["mbid"], c["name"])][c["main"]][c["role"]] += records(c)
     for r in mb.get("rels") or []:
         a, b, role = node(r["mbid"], r["name"]), node(r["other"], r["other_name"]), r["role"]
         if a and b and a != b:
@@ -292,19 +319,37 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
         names = sorted(by)
         for i, a in enumerate(names):
             for b in names[i + 1:]:
+                both = shared_items[(mbid, name)]
                 for role in sorted(set(by[a]) & set(by[b])) or sorted(set(by[a]) | set(by[b]))[:1]:
-                    out.append({"a": a, "b": b, "kind": MB_SHARED[role], "person": (name, role)})
+                    out.append({"a": a, "b": b, "kind": MB_SHARED[role], "person": (name, role),
+                                "items": both[a][role][:MAX_CREDITS // 2] + both[b][role][:MAX_CREDITS // 2]})
+    return out
+
+
+def credit_rows(mb: dict, known: set[str]) -> list[dict]:
+    """mb["credits"], each with the main artist ("main") and the others ("others") its track's Apple artist names."""
+    out = []
+    for c in mb.get("credits") or []:
+        main, others = credited(c["artist"], "", known)
+        out.append({**c, "main": main, "others": others})
     return out
 
 
 def mbid_nodes(rows: list[dict], keep: set[str]) -> dict[str, str]:
-    """MBID -> the drawn artist whose own tracks credit it first, by that name. rows: credits with their "main"."""
+    """MBID -> the drawn artist it is: the one whose own tracks credit it first by that name, or whose name Apple
+    gives as a featured artist on a track MusicBrainz credits it as featured on. Every credit with that MBID, on any
+    track, then belongs to that one artist, and a person with the same name and another MBID never does.
+    rows: credit_rows."""
     from .musicbrainz import norm
 
     votes: dict = defaultdict(Counter)
     for c in rows:
         if c["role"] == "artist" and c["main"] in keep and norm(c["name"]) == norm(c["main"]):
-            votes[c["mbid"]][c["main"]] += c["tracks"]
+            votes[c["mbid"]][c["main"]] += 2 * c["tracks"]
+        elif c["role"] == "featured":
+            for o in c.get("others") or ():
+                if o in keep and norm(o) == norm(c["name"]):
+                    votes[c["mbid"]][o] += c["tracks"]
     return {mbid: v.most_common(1)[0][0] for mbid, v in votes.items()}
 
 
@@ -315,7 +360,7 @@ def artist_profiles(nodes: list[str], genres: dict, mb: dict, said: dict, known:
     tracks, MusicBrainz and Claude say. Claude's decades place an artist best; MusicBrainz's years only for a group
     (a person's begin is their birth)."""
     keep = set(nodes)
-    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    rows = credit_rows(mb, known)
     facts: dict = {}
     for mbid, a in mbid_nodes(rows, keep).items():
         if mbid in (mb.get("artists") or {}) and a not in facts:

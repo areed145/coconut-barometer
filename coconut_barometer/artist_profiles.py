@@ -25,7 +25,7 @@ from .errors import caught
 
 logger = logging.getLogger(__name__)
 
-MIN_PLAYS = 10                    # an artist is profiled once it has more plays than this, wherever it ranks
+MIN_PLAYS = 5                     # an artist is profiled once it has more plays than this, wherever it ranks
 BATCH = 25
 CHECK_EVERY = 300
 MAX_SCENES, MAX_STYLES = 3, 5
