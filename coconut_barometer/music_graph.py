@@ -7,7 +7,7 @@ artists back to back isn't one: it says more about a playlist or a shuffle than 
   together  made music together: "A feat. B" or "(with B)" in a song's title, "A & B" when both are artists on their
             own, MusicBrainz's artist credits and collaborations
   credit    worked on their records: produced, wrote for (Apple's composer field, MusicBrainz's work credits), played on
-            or toured with, remixed, arranged. These have a direction: from the one who did the work
+            or toured with, remixed, arranged, mixed, engineered. These have a direction: from the one who did the work
   shared    share a collaborator: the same producer, songwriter, player or guest, who isn't drawn themselves
   alike     alike on paper: each artist's profile (genres from Apple, MusicBrainz and Claude; Claude's scenes; their
             years; where they're from) compared here, with no model in the loop (profile_links). A rare genre counts
@@ -44,20 +44,23 @@ TYPES = {
     "featured": ("together", 2.0, 50),
     "produced": ("credit", 1.5, 66), "wrote": ("credit", 1.4, 66), "played": ("credit", 1.2, 70),
     "remixed": ("credit", 0.7, 82), "arranged": ("credit", 0.7, 82),
-    "shared producer": ("shared", 0.8, 95), "shared writer": ("shared", 0.7, 95), "shared player": ("shared", 0.45, 100),
+    "mixed": ("credit", 0.6, 86), "engineered": ("credit", 0.5, 90),
+    "shared producer": ("shared", 0.8, 95), "shared engineer": ("shared", 0.4, 105), "shared writer": ("shared", 0.7, 95), "shared player": ("shared", 0.45, 100),
     "scene": ("alike", 0.45, 130), "sound": ("alike", 0.25, 150),
 }
-BY_TRACKS = {"featured", "produced", "wrote", "played", "remixed", "arranged"}   # 1 + 0.25·log2(tracks), up to 1.75×
+BY_TRACKS = {"featured", "produced", "wrote", "played", "remixed", "arranged", "mixed", "engineered"}   # 1 + 0.25·log2(tracks), up to 1.75×
 MAX_PULL = 4.0
 OTHERS = 0.3                     # of each further type's pull, on a pair with several
 SOUND_FULL = 0.9                 # the profile score at which "sound" pulls fully
 # A MusicBrainz credit on another artist's track: its type here, and its type when two drawn artists share the person.
 MB_CREDIT = {"featured": "featured", "producer": "produced", "performer": "played", "writer": "wrote",
-             "remixer": "remixed", "arranger": "arranged"}
+             "remixer": "remixed", "arranger": "arranged", "mixer": "mixed", "engineer": "engineered"}
 MB_SHARED = {"producer": "shared producer", "remixer": "shared producer", "arranger": "shared producer",
              "writer": "shared writer", "performer": "shared player", "featured": "shared player",
+             "mixer": "shared engineer", "engineer": "shared engineer",
              "member": "shared member", "supports": "shared player"}
 SHARED_SAYS = {"producer": "both produced by {}", "remixer": "both remixed by {}", "arranger": "both arranged by {}",
+               "mixer": "both mixed by {}", "engineer": "both engineered by {}",
                "writer": "both have songs by {}", "performer": "{} played on both", "featured": "{} features on both",
                "member": "{} is in both", "supports": "{} plays with both"}
 FAMILY = {"sibling": "siblings", "married": "married", "parent": "parent and child", "partner": "partners"}
@@ -224,7 +227,7 @@ def say(a: str, b: str, r: dict) -> str:
     tracks = f" ({n} tracks)" if n > 1 else ""
     if r.get("said"):
         return r["said"]
-    if t in ("shared producer", "shared writer", "shared player", "shared member"):
+    if t in ("shared producer", "shared writer", "shared player", "shared member", "shared engineer"):
         return " · ".join(SHARED_SAYS.get(role, "both credit {}").format(name) for name, role in r["people"][:2])
     if t == "member":
         return f"{frm} is in {to}"
@@ -239,6 +242,7 @@ def say(a: str, b: str, r: dict) -> str:
     if t == "featured":
         return f"{a} and {b} collaborated" if r["note"] == "collaboration" else f"{frm} featured on {to}{tracks}"
     verb = {"produced": "produced", "wrote": "wrote for", "remixed": "remixed", "arranged": "arranged for",
+            "mixed": "mixed", "engineered": "engineered",
             "played": "played with" if r["note"] == "supports" else "played on"}[t]
     return f"{frm} {verb} {to}{tracks}"
 

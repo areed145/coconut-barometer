@@ -43,7 +43,12 @@ SEARCH_MIN_SCORE = 90
 RECORDING_INC = "artist-credits+artist-rels+work-rels+work-level-rels"
 RECORDING_ROLES = {"producer": "producer", "co-producer": "producer", "instrument": "performer", "vocal": "performer",
                    "performer": "performer", "performing orchestra": "performer", "conductor": "performer",
-                   "remixer": "remixer", "arranger": "arranger"}
+                   "remixer": "remixer", "arranger": "arranger", "programming": "performer",
+                   "mix": "mixer", "mix-DJ": "mixer", "recording": "engineer", "engineer": "engineer", "sound": "engineer",
+                   "audio": "engineer", "balance": "engineer", "mastering": "engineer", "editor": "engineer"}
+# How a relation type with no attributes of its own reads as what the person did.
+DETAIL_NAMES = {"mix": "mixing", "mix-DJ": "DJ mix", "recording": "recording engineer", "sound": "sound engineer",
+                "audio": "audio engineer", "balance": "balance engineer", "editor": "editing"}
 WORK_ROLES = {"composer": "writer", "lyricist": "writer", "writer": "writer", "librettist": "writer"}
 # An artist's relations kept, as the role stored (music_graph.py types them). Tributes and "named after" are left out.
 # Changing this asks about every artist again: bump store.music.MB_RELS_VERSION with it.
@@ -125,8 +130,10 @@ def detail(rel: dict) -> str:
         what = ", ".join(rest) or "vocals"
     elif kind == "performer":
         what = ", ".join(rest) or "performer"
+    elif kind == "engineer":
+        what = ", ".join(f"{a} engineer" if "engineer" not in a else a for a in rest) or "engineer"
     else:
-        what = kind
+        what = DETAIL_NAMES.get(kind, kind)
     if "co" in mods and what in ("producer", "arranger"):
         mods, what = [m for m in mods if m != "co"], "co-" + what
     return " ".join([*mods, what]).strip()

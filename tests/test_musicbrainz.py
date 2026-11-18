@@ -26,7 +26,8 @@ def ac(*names):
 
 RECORDING = {"id": "rec-1", "title": "Hit", "artist-credit": ac("Band", "Guest"), "relations": [
     {"type": "producer", "target-type": "artist", "artist": {"id": "id-Prod", "name": "Prod"}},
-    {"type": "mix", "target-type": "artist", "artist": {"id": "id-Mixer", "name": "Mixer"}},          # not a credit we keep
+    {"type": "mix", "target-type": "artist", "artist": {"id": "id-Mixer", "name": "Mixer"}},
+    {"type": "tribute", "target-type": "artist", "artist": {"id": "id-Fan", "name": "Fan"}},              # not a credit we keep
     {"type": "performance", "target-type": "work", "work": {"relations": [
         {"type": "composer", "target-type": "artist", "artist": {"id": "id-Writer", "name": "Writer"}}]}}]}
 
@@ -65,7 +66,8 @@ class Reading(unittest.TestCase):
 
     def test_credits(self):
         got = {(c["role"], c["name"]) for c in MB.credits(RECORDING)}
-        self.assertEqual(got, {("artist", "Band"), ("featured", "Guest"), ("producer", "Prod"), ("writer", "Writer")})
+        self.assertEqual(got, {("artist", "Band"), ("featured", "Guest"), ("producer", "Prod"), ("writer", "Writer"),
+                               ("mixer", "Mixer")})
 
     def test_credits_keep_what_each_person_did(self):
         rel = lambda t, name, *attrs: {"type": t, "target-type": "artist", "attributes": list(attrs),
@@ -73,14 +75,17 @@ class Reading(unittest.TestCase):
         rec = {"artist-credit": ac("Souther"), "relations": [
             rel("instrument", "Gold", "guitar"), rel("instrument", "Gold", "piano"), rel("vocal", "Gold", "background vocals"),
             rel("vocal", "Ronstadt"), rel("producer", "Asher", "co"), rel("producer", "Exec", "executive"),
-            rel("instrument", "Guerin", "drums (drum set)", "additional"),
+            rel("instrument", "Guerin", "drums (drum set)", "additional"), rel("mix", "Mixer"), rel("recording", "Eng"),
+            rel("engineer", "Eng", "assistant"), rel("mastering", "Master"),
             {"type": "performance", "target-type": "work", "work": {"relations": [
                 {"type": "lyricist", "target-type": "artist", "artist": {"id": "id-Souther", "name": "Souther"}}]}}]}
         got = {(c["role"], c["name"]): c["detail"] for c in MB.credits(rec)}
         self.assertEqual(got, {("artist", "Souther"): "", ("performer", "Gold"): "guitar, piano, background vocals",
                                ("performer", "Ronstadt"): "vocals", ("producer", "Asher"): "co-producer",
                                ("producer", "Exec"): "executive producer",
-                               ("performer", "Guerin"): "additional drums (drum set)", ("writer", "Souther"): "lyricist"})
+                               ("performer", "Guerin"): "additional drums (drum set)", ("writer", "Souther"): "lyricist",
+                               ("mixer", "Mixer"): "mixing", ("engineer", "Eng"): "recording engineer, assistant engineer",
+                               ("engineer", "Master"): "mastering"})
 
     def test_artist_rels_keep_the_direction(self):
         rels = MB.artist_rels({"relations": [
@@ -297,13 +302,23 @@ class Edges(unittest.TestCase):
              "items": [item("One", "guitar"), item("Two", "lead vocals")]},
             {"artist": "Band", "role": "performer", "name": "Session", "mbid": "id-S", "tracks": 1, "items": [item("One", "drums")]},
             {"artist": "Solo", "role": "performer", "name": "Session", "mbid": "id-S", "tracks": 1,
-             "items": [item("Lone", "drums, percussion", "Solo LP")]}], "rels": []}
+             "items": [item("Lone", "drums, percussion", "Solo LP")]},
+            {"artist": "Guest", "role": "artist", "name": "Guest", "mbid": "id-Guest", "tracks": 3, "items": None},
+            {"artist": "Band", "role": "mixer", "name": "Guest", "mbid": "id-Guest", "tracks": 1, "items": [item("Two", "mixing")]},
+            {"artist": "Band", "role": "engineer", "name": "Desk", "mbid": "id-D", "tracks": 1, "items": [item("One", "recording engineer")]},
+            {"artist": "Other", "role": "engineer", "name": "Desk", "mbid": "id-D", "tracks": 1, "items": [item("Far", "mastering", "B")]}],
+              "rels": []}
         by = {(e["a"], e["b"]): e["rels"] for e in G.build(self.rows(), mb=mb)["edges"]}
         played = by[("Band", "Prod")][0]
         self.assertEqual(played["said"], "Prod played on Band (2 tracks)")
         self.assertEqual(played["credits"], [{"artist": "Band", "track": "One", "album": "LP", "who": "Prod", "role": "guitar"},
                                              {"artist": "Band", "track": "Two", "album": "LP", "who": "Prod", "role": "lead vocals"}])
         self.assertEqual(G.credit_line(played["credits"][0]), "One (LP, by Band): Prod, guitar")
+        mixed = by[("Band", "Guest")][0]
+        self.assertEqual((mixed["said"], mixed["credits"][0]["role"]), ("Guest mixed Band", "mixing"))
+        desk = by[("Band", "Other")][0]
+        self.assertEqual((desk["type"], desk["said"]), ("shared engineer", "both engineered by Desk"))
+        self.assertEqual([c["role"] for c in desk["credits"]], ["recording engineer", "mastering"])
         shared = by[("Band", "Solo")][0]
         self.assertEqual(shared["said"], "Session played on both")
         self.assertEqual([(c["artist"], c["track"], c["role"]) for c in shared["credits"]],

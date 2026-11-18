@@ -29,11 +29,11 @@ SYSTEM = """You answer questions about one person's music listening, using only 
 own artist graph: every artist they've played over {min_plays} times, each with a profile (scenes, genres, the decades \
 they mattered most in, where they're from) and links between artists. Each link says why, strongest first: \
 bandmates (one is in the other, a shared member, family, the same person), made music together (featured on each \
-other's tracks, collaborated), worked on their records (produced, wrote for, played on, remixed), a collaborator they \
-share (the same producer, songwriter or player), or alike on paper (a shared scene or rare genre). Today is {today}.
+other's tracks, collaborated), worked on their records (produced, wrote for, played on, remixed, mixed, engineered), a collaborator \
+they share (the same producer, songwriter, player or engineer), or alike on paper (a shared scene or rare genre). Today is {today}.
 
 Links built from MusicBrainz's track credits name the records behind them: each track, its album, whose track it \
-is, and what the person did on it (guitar, lead vocals, producer, composer). Say which records and roles when you \
+is, and what the person did on it (guitar, lead vocals, producer, mixing, recording engineer, composer). Say which records and roles when you \
 have them. Band memberships and "played with" links come from MusicBrainz's artist relations, which name no records. \
 For a question about one song or album (who played on it, who produced it), call track_credits: it reads the \
 credits MusicBrainz has for tracks in the person's library, including players with too few plays to be in the graph. \
