@@ -23,6 +23,18 @@ const kindOf = (graph, r) => graph.types?.[r.type]?.kind || "alike";
 export const shownRels = (graph, e, kinds) => e.rels.filter((r) => kinds[kindOf(graph, r)]);
 export const reasons = (e) => e.rels.map((r) => r.said).join(" · ");
 
+// The records behind a credit (music_graph.py: from MusicBrainz's track credits): each track, its album, whose track
+// it is, who's credited and what they did. Folded away under a count; open when there are only a couple.
+export function Credits({ rel }) {
+  const list = rel.credits || [];
+  if (!list.length) return null;
+  const body = html`<ul class="netcredits">${list.map((c) => html`<li key=${c.artist + c.track + c.who}>
+    <span>${c.track}</span>${c.album ? html` <span class="muted">· ${c.album}</span>` : ""}${c.artist ? html` <span class="muted">· ${c.artist}</span>` : ""}
+    <span class="netrole">${c.who}${c.role ? `: ${c.role}` : ""}</span></li>`)}</ul>`;
+  if (list.length <= 2) return body;
+  return html`<details class="netcreditbox"><summary class="small muted">${list.length >= 25 ? "25+" : list.length} tracks</summary>${body}</details>`;
+}
+
 // A link as the layout uses it, from the relationships shown (strongest first, as the server sends them): the
 // strongest sets the distance, each other adds 30% of its pull, up to 4. null when none of its kinds are shown.
 export function tie(graph, e, kinds) {
@@ -462,7 +474,7 @@ export function Detail({ graph, id, kinds, go, extra }) {
     ${extra}
     ${rows.length ? html`<ul>${rows.map((r) => html`<li key=${r.other}><button class="link" onClick=${() => go(r.other)}>${r.other}</button>
         ${r.rels.map((x) => html`<span class="netwhy" key=${x.type + x.said}><i class="netdot" style=${`background:var(${KINDS[kindOf(graph, x)].color})`}></i>
-          <span class="muted">${x.said}</span>${x.via.map((v) => html`<span class="netvia" key=${v}>${v}</span>`)}</span>`)}</li>`)}</ul>`
+          <span class="muted">${x.said}</span>${x.via.map((v) => html`<span class="netvia" key=${v}>${v}</span>`)}<${Credits} rel=${x} /></span>`)}</li>`)}</ul>`
       : html`<p class="muted small">No connections shown.</p>`}</div>`;
 }
 
@@ -470,8 +482,9 @@ function MusicBrainzNote({ mb, onAsk, asking }) {
   if (!mb) return null;
   if (!mb.enabled) return html`<p class="muted small">Turn on MusicBrainz in <a href="#/settings/music">Settings → Music</a> to link artists by producers, writers, players and band members.</p>`;
   if (!mb.ready) return html`<p class="muted small">Add a contact for MusicBrainz in <a href="#/settings/music">Settings → Music</a> to start looking up credits.</p>`;
-  const left = mb.tracks - mb.asked;
+  const left = mb.tracks - mb.asked + (mb.rereading || 0);
   return html`<p class="muted small">MusicBrainz: ${num(mb.asked)} of ${num(mb.tracks)} tracks looked up (${num(mb.found)} found), ${num(mb.artists)} artists.
+    ${mb.rereading > 0 ? ` ${num(mb.rereading)} found earlier are being read again for who played what on them.` : ""}
     ${left > 0 ? " Lookups run as jobs at one request a second, and the network fills in as they finish." : ""}
     ${left > 0 && !mb.local && html` <button class="link" disabled=${asking} onClick=${onAsk}>Look up more now</button>`}</p>`;
 }

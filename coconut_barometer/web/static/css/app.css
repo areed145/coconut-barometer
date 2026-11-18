@@ -995,6 +995,11 @@ html.wxfull header.top, html.wxfull .subtabs { display: none; }
 .netwhy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; font-size: var(--text-sm); }
 .netdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .netvia { font-size: var(--text-2xs); color: var(--muted); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 6px; }
+.netcreditbox, .netcredits { flex-basis: 100%; }
+.netcredits { margin: 2px 0 var(--s1) var(--s3); padding: 0; list-style: none; font-size: var(--text-xs); }
+.netcredits li { padding: 1px 0; }
+.netrole { display: block; color: var(--muted); padding-left: var(--s2); }
+.netcreditbox summary { cursor: pointer; }
 .netstart { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; flex: 1 1 320px; }
 .netstart input[type=search] { flex: 1 1 160px; max-width: 320px; }
 .netchips { display: inline-flex; flex-wrap: wrap; gap: var(--s1); vertical-align: middle; }

@@ -198,7 +198,7 @@ def explore_ask(body: Question, rt=Depends(runtime), db=Depends(store)):
 
     whole = rt.explorer.whole(db)
     try:
-        got = Q.ask(rt.cfg, whole, body.question)
+        got = Q.ask(rt.cfg, whole, body.question, store=db)
     except Q.AskError as e:
         raise HTTPException(409, str(e))
     except anthropic.APIError as e:

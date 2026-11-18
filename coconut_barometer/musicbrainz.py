@@ -8,6 +8,9 @@ featured artists, and which artists are members of which bands. Each track is lo
   - and later each matched artist, for its band memberships and collaborations, and its facts: group or person,
     where it's from, its years, and the genres and tags MusicBrainz's editors voted for (the graph's profiles)
 Answers, found or not, are kept (mb_recordings, mb_credits, mb_artists, mb_artist_rels), so nothing is asked twice.
+Each credit keeps its track and what the person did on it (mb_credits.detail: "guitar", "lead vocals", "co-producer"),
+so a link can name the records behind it and a question can ask who played on one song. Tracks found before the detail
+was kept are read again once, by the recording already found (store.music.MB_CREDITS_VERSION).
 
 MusicBrainz asks for at most one request a second and a User-Agent naming the app and a way to reach whoever runs it
 (musicbrainz.contact). So lookups never run on a thread of their own: they're ("musicbrainz", "") jobs on the review
@@ -106,25 +109,58 @@ def pick(recordings: list[dict], artist: str) -> dict | None:
     return None
 
 
-def credits(recording: dict) -> list[dict]:
-    """[{role, name, mbid}] of one recording: its main artist ("artist"), the rest of its artist credit ("featured"),
-    and the people its relations, and its work's, name."""
-    out, seen = [], set()
+MODIFIERS = ("additional", "guest", "solo", "assistant", "associate", "co", "executive")   # read before the rest
 
-    def add(role, artist):
-        if artist and artist.get("id") and (role, artist["id"]) not in seen:
-            seen.add((role, artist["id"]))
-            out.append({"role": role, "name": artist.get("name") or "", "mbid": artist["id"]})
+
+def detail(rel: dict) -> str:
+    """What one relation says the person did, in a few words: "lead vocals", "guitar, piano", "co-producer",
+    "composer". MusicBrainz's attributes when it has them, else the relation's type."""
+    kind = rel.get("type") or ""
+    attrs = [a for a in rel.get("attributes") or [] if isinstance(a, str) and a]
+    mods = [a for a in attrs if a in MODIFIERS]
+    rest = [a for a in attrs if a not in MODIFIERS]
+    if kind == "instrument":
+        what = ", ".join(rest) or "instruments"
+    elif kind == "vocal":
+        what = ", ".join(rest) or "vocals"
+    elif kind == "performer":
+        what = ", ".join(rest) or "performer"
+    else:
+        what = kind
+    if "co" in mods and what in ("producer", "arranger"):
+        mods, what = [m for m in mods if m != "co"], "co-" + what
+    return " ".join([*mods, what]).strip()
+
+
+def credits(recording: dict) -> list[dict]:
+    """[{role, name, mbid, detail}] of one recording: its main artist ("artist"), the rest of its artist credit
+    ("featured"), and the people its relations, and its work's, name. role is the kind the graph types links by;
+    detail is what they did ("guitar, backing vocals", "co-producer", "lyricist"), all of it for each person."""
+    out, at = [], {}
+
+    def add(role, artist, what=""):
+        if not (artist and artist.get("id")):
+            return
+        key = (role, artist["id"])
+        if key not in at:
+            at[key] = {"role": role, "name": artist.get("name") or "", "mbid": artist["id"], "detail": ""}
+            out.append(at[key])
+        c = at[key]
+        parts = [p for p in c["detail"].split(", ") if p]
+        for p in what.split(", "):
+            if p and p not in parts:
+                parts.append(p)
+        c["detail"] = ", ".join(parts)
 
     for i, c in enumerate(_credit_names(recording)):
         add("artist" if i == 0 else "featured", {"id": c["mbid"], "name": c["name"]})
     for rel in recording.get("relations") or []:
         if rel.get("target-type") == "artist" and rel.get("type") in RECORDING_ROLES:
-            add(RECORDING_ROLES[rel["type"]], rel.get("artist"))
+            add(RECORDING_ROLES[rel["type"]], rel.get("artist"), detail(rel))
         elif rel.get("target-type") == "work":
             for wrel in (rel.get("work") or {}).get("relations") or []:
                 if wrel.get("target-type") == "artist" and wrel.get("type") in WORK_ROLES:
-                    add(WORK_ROLES[wrel["type"]], wrel.get("artist"))
+                    add(WORK_ROLES[wrel["type"]], wrel.get("artist"), detail(wrel))
     return out
 
 
@@ -236,9 +272,12 @@ class MusicBrainz:
         start, tracks, artists = self.calls, 0, 0
         try:
             for t in store.mb_to_ask(max(1, budget // 2)):
-                if self.calls - start + 3 > budget:
+                if self.calls - start + (1 if t.get("recording") else 3) > budget:
                     break
-                mbid, how = self.find(t)
+                if t.get("recording"):                  # found before its roles were kept: only read again
+                    mbid, how = t["recording"], t["how"]
+                else:
+                    mbid, how = self.find(t)
                 rec = self._ask(f"recording/{mbid}", "recording", t["name"][:80], inc=RECORDING_INC) if mbid else None
                 store.mb_save_track(t["id"], mbid if rec else None, how if rec else "", credits(rec) if rec else [], now)
                 tracks += 1

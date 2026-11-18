@@ -131,18 +131,21 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
     keep = set(nodes)
     found: dict = defaultdict(dict)                    # pair -> (type, from) -> what's known of that relationship
 
-    def add(a, b, kind, frm=None, tracks=1, via="", person=None, note=None, score=None, said=None):
+    def add(a, b, kind, frm=None, tracks=1, via="", person=None, note=None, score=None, said=None, items=()):
         """One relationship between a and b, merged with the same one found elsewhere. frm: who did the work, for the
-        directed types. person: the collaborator two artists share, with their role, for the shared types."""
+        directed types. person: the collaborator two artists share, with their role, for the shared types. items: the
+        records behind it, [{artist (whose track), track, album, who, role}]."""
         if a == b or a not in keep or b not in keep:
             return
         r = found[_pair(a, b)].setdefault((kind, frm), {"type": kind, "from": frm, "to": None if frm is None else (b if frm == a else a),
-                                                         "tracks": 0, "via": [], "people": [], "note": note, "score": score, "said": said})
+                                                         "tracks": 0, "via": [], "people": [], "note": note, "score": score, "said": said,
+                                                         "credits": []})
         r["tracks"] = max(r["tracks"], tracks)
         if via and via not in r["via"]:
             r["via"].append(via)
         if person and person not in r["people"]:
             r["people"].append(person)
+        merge_credits(r["credits"], items)
 
     for (main, guest), n in collab.items():
         add(main, guest, "featured", guest, n, "song title")
@@ -180,6 +183,26 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
             "clusters": [{"id": cid, "label": names[cid], "size": len(people), "members": people[:12],
                           "key": member_key(people)} for cid, people in sorted(members.items())],
             "bridges": bridges(nodes, weight, group, plays, names), "total_artists": len(plays)}
+
+
+MAX_CREDITS = 25                 # records kept on one relationship
+
+
+def merge_credits(into: list, items) -> None:
+    """Records into a relationship's list, each (artist, track, who) once, its roles joined."""
+    for it in items or ():
+        same = next((c for c in into if (c["artist"], c["track"], c["who"]) == (it["artist"], it["track"], it["who"])), None)
+        if same is None:
+            if len(into) < MAX_CREDITS:
+                into.append(dict(it))
+        elif it.get("role") and it["role"] not in (same.get("role") or "").split(", "):
+            same["role"] = ", ".join(x for x in (same.get("role"), it["role"]) if x)
+
+
+def credit_line(c: dict) -> str:
+    """One record behind a link, as the questions read it: 'Track (Album, by Artist): Who, guitar'."""
+    where = ", ".join(x for x in (c.get("album"), f"by {c['artist']}") if x)
+    return f"{c['track']} ({where}): {c['who']}" + (f", {c['role']}" if c.get("role") else "")
 
 
 TYPE_INFO = {t: {"kind": k, "pull": p, "rest": d} for t, (k, p, d) in TYPES.items()}   # for the page's layout
@@ -227,12 +250,14 @@ def tie(a: str, b: str, found: dict) -> dict:
     feats = [r for r in rels if r["type"] == "featured" and r["note"] != "collaboration"]
     if len(feats) == 2:                                # a on b's track and b on a's
         one = {**feats[0], "from": None, "to": None, "tracks": feats[0]["tracks"] + feats[1]["tracks"],
-               "via": list(dict.fromkeys(feats[0]["via"] + feats[1]["via"])), "said": None}
+               "via": list(dict.fromkeys(feats[0]["via"] + feats[1]["via"])), "said": None, "credits": list(feats[0].get("credits") or [])}
+        merge_credits(one["credits"], feats[1].get("credits"))
         n = one["tracks"]
         one["said"] = f"{a} and {b} on {n} tracks together" if n > 1 else f"{a} and {b} on a track together"
         rels = [r for r in rels if r not in feats] + [one]
     out = sorted(({"type": r["type"], "said": say(a, b, r), "via": r["via"], "pull": round(pull(r), 3),
-                   **({"from": r["from"]} if r["from"] and TYPES[r["type"]][0] == "credit" else {})} for r in rels),
+                   **({"from": r["from"]} if r["from"] and TYPES[r["type"]][0] == "credit" else {}),
+                   **({"credits": r["credits"]} if r.get("credits") else {})} for r in rels),
                  key=lambda r: (-r["pull"], r["type"]))
     pulls = [r["pull"] for r in out]
     return {"a": a, "b": b, "rels": out, "weight": round(min(MAX_PULL, pulls[0] + OTHERS * sum(pulls[1:])), 3)}
@@ -263,14 +288,22 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
 
     out: list = []
     shared: dict = defaultdict(lambda: defaultdict(Counter))   # (mbid, name) not drawn -> drawn artist -> role -> tracks
+    shared_items: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))   # ... -> drawn artist -> role -> records
+
+    def records(c):
+        return [{"artist": c["main"], "track": it.get("track") or "", "album": it.get("album") or "", "who": c["name"],
+                 "role": it.get("detail") or c["role"]} for it in c.get("items") or []]
+
     for c in rows:
         if c["role"] == "artist" or c["main"] not in keep or c["role"] not in MB_CREDIT:
             continue
         other = node(c["mbid"], c["name"])
         if other and other != c["main"]:
-            out.append({"a": c["main"], "b": other, "kind": MB_CREDIT[c["role"]], "frm": other, "tracks": c["tracks"]})
+            out.append({"a": c["main"], "b": other, "kind": MB_CREDIT[c["role"]], "frm": other, "tracks": c["tracks"],
+                        "items": records(c)})
         elif not other:
             shared[(c["mbid"], c["name"])][c["main"]][c["role"]] += c["tracks"]
+            shared_items[(c["mbid"], c["name"])][c["main"]][c["role"]] += records(c)
     for r in mb.get("rels") or []:
         a, b, role = node(r["mbid"], r["name"]), node(r["other"], r["other_name"]), r["role"]
         if a and b and a != b:
@@ -292,8 +325,10 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
         names = sorted(by)
         for i, a in enumerate(names):
             for b in names[i + 1:]:
+                both = shared_items[(mbid, name)]
                 for role in sorted(set(by[a]) & set(by[b])) or sorted(set(by[a]) | set(by[b]))[:1]:
-                    out.append({"a": a, "b": b, "kind": MB_SHARED[role], "person": (name, role)})
+                    out.append({"a": a, "b": b, "kind": MB_SHARED[role], "person": (name, role),
+                                "items": both[a][role][:MAX_CREDITS // 2] + both[b][role][:MAX_CREDITS // 2]})
     return out
 
 

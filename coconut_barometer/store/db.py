@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS site_hits (ts BIGINT, day TEXT, visitor TEXT, session
 CREATE TABLE IF NOT EXISTS site_days (day TEXT PRIMARY KEY, visitors INTEGER, views INTEGER);
 CREATE TABLE IF NOT EXISTS music_tracks (id TEXT PRIMARY KEY, kind TEXT, name TEXT, artist TEXT, album TEXT, genres TEXT, duration_ms BIGINT, release_date TEXT, isrc TEXT, artwork TEXT, url TEXT, first_seen BIGINT, enriched BIGINT, bg_color TEXT, text_color TEXT, composer TEXT);
 CREATE TABLE IF NOT EXISTS music_plays (track_id TEXT, played_at BIGINT, seen_at BIGINT, window_start BIGINT, source TEXT, listened_ms BIGINT, end_reason TEXT, context TEXT);
-CREATE TABLE IF NOT EXISTS mb_recordings (track_id TEXT PRIMARY KEY, recording TEXT, how TEXT, asked BIGINT);
-CREATE TABLE IF NOT EXISTS mb_credits (track_id TEXT, role TEXT, name TEXT, mbid TEXT);
+CREATE TABLE IF NOT EXISTS mb_recordings (track_id TEXT PRIMARY KEY, recording TEXT, how TEXT, asked BIGINT, credits_v INTEGER);
+CREATE TABLE IF NOT EXISTS mb_credits (track_id TEXT, role TEXT, name TEXT, mbid TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS mb_artists (mbid TEXT PRIMARY KEY, name TEXT, asked BIGINT, type TEXT, country TEXT, area TEXT, begin_year INTEGER, end_year INTEGER, genres TEXT, tags TEXT, profiled BIGINT, rels_v INTEGER);
 CREATE TABLE IF NOT EXISTS mb_artist_rels (mbid TEXT, role TEXT, other TEXT, other_name TEXT);
 CREATE TABLE IF NOT EXISTS artist_profiles (artist TEXT PRIMARY KEY, scenes TEXT, styles TEXT, decades TEXT, country TEXT, model TEXT, asked BIGINT);
@@ -210,7 +210,7 @@ class Connection:
         self.raw.close()
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 def is_sqlite_file(path) -> bool:
@@ -291,6 +291,9 @@ class Database:
             self.db.execute("DELETE FROM meta WHERE key IN ('music_graph_similar', 'music_graph_labels')")
         if 0 < version < 19:                    # v19: which artist relations each artist was looked up for: the
             self.db.execute("ALTER TABLE mb_artists ADD COLUMN IF NOT EXISTS rels_v INTEGER")   # rest are asked again
+        if 0 < version < 20:                    # v20: what each person did on each track (guitar, lead vocals, co-producer):
+            self.db.execute("ALTER TABLE mb_credits ADD COLUMN IF NOT EXISTS detail TEXT")       # tracks found before
+            self.db.execute("ALTER TABLE mb_recordings ADD COLUMN IF NOT EXISTS credits_v INTEGER")   # are read again
         if version != SCHEMA_VERSION:           # written only when it differs, so opening a connection never writes
             self.set_meta("schema_version", SCHEMA_VERSION)
 
