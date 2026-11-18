@@ -47,7 +47,7 @@ class Jobs(unittest.TestCase):
     def setUp(self):
         self.store = Store(os.path.join(tempfile.mkdtemp(), "t.duckdb"))
         self.addCleanup(self.store.close)
-        fill(self.store, {"Band": 9, "Band feat. Guest": 3, "Solo": 15, "Quiet": 11, "Rare": 10})
+        fill(self.store, {"Band": 4, "Band feat. Guest": 3, "Solo": 8, "Quiet": 6, "Rare": 5})
         self.prompts = []
 
     def profiles(self, answer=None, cfg=ON, batch=None):
@@ -58,8 +58,8 @@ class Jobs(unittest.TestCase):
                 {"name": "Ghost", "known": True, "scenes": ["made up"]}]}), 100, 50
         return AP.ArtistProfiles(cfg, ask=ask)
 
-    def test_artists_over_ten_plays_count_their_features(self):
-        self.assertEqual(AP.eligible_artists(self.store), ["Solo", "Band", "Quiet"])         # Rare has only 10
+    def test_artists_over_min_plays_count_their_features(self):
+        self.assertEqual(AP.eligible_artists(self.store), ["Solo", "Band", "Quiet"])         # Rare has only 5
 
     def test_a_job_asks_once_and_keeps_only_listed_names(self):
         p = self.profiles()
@@ -99,7 +99,7 @@ class Jobs(unittest.TestCase):
     def test_the_state(self):
         self.profiles().run_once(self.store, NOON)
         s = self.profiles().state(self.store)
-        self.assertEqual((s["eligible"], s["asked"], s["daily_calls"], s["min_plays"]), (3, 3, 2, 10))
+        self.assertEqual((s["eligible"], s["asked"], s["daily_calls"], s["min_plays"]), (3, 3, 2, AP.MIN_PLAYS))
 
 
 class Api(unittest.TestCase):

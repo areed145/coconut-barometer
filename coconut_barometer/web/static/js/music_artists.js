@@ -1,5 +1,5 @@
 // Music → Artists (#/music/artists): the artist graph two ways. "Top in this period" draws the most played artists of
-// the period shared with Stats (music_graph.js); "Whole graph" grows a map from anywhere in every artist with over 10
+// the period shared with Stats (music_graph.js); "Whole graph" grows a map from anywhere in every artist with over 5
 // plays, all time (music_explore.js), since that graph is built once and kept. Below both, where the links come from.
 import { html } from "./lib.js";
 import { ArtistNetwork, LinkData } from "./music_graph.js";
