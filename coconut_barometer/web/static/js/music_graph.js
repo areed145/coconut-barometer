@@ -483,7 +483,7 @@ function MusicBrainzNote({ mb, onAsk, asking }) {
   if (!mb.enabled) return html`<p class="muted small">Turn on MusicBrainz in <a href="#/settings/music">Settings → Music</a> to link artists by producers, writers, players and band members.</p>`;
   if (!mb.ready) return html`<p class="muted small">Add a contact for MusicBrainz in <a href="#/settings/music">Settings → Music</a> to start looking up credits.</p>`;
   const left = mb.tracks - mb.asked + (mb.rereading || 0);
-  return html`<p class="muted small">MusicBrainz: ${num(mb.asked)} of ${num(mb.tracks)} tracks looked up (${num(mb.found)} found), ${num(mb.artists)} artists.
+  return html`<p class="muted small">MusicBrainz: ${num(mb.asked)} of ${num(mb.tracks)} tracks looked up (${num(mb.found)} found), ${num(mb.albums || 0)} albums, ${num(mb.artists)} artists.
     ${mb.rereading > 0 ? ` ${num(mb.rereading)} found earlier are being read again for who played what on them.` : ""}
     ${left > 0 ? " Lookups run as jobs at one request a second, and the network fills in as they finish." : ""}
     ${left > 0 && !mb.local && html` <button class="link" disabled=${asking} onClick=${onAsk}>Look up more now</button>`}</p>`;

@@ -15,8 +15,9 @@ artists back to back isn't one: it says more about a playlist or a shuffle than 
 Each type pulls with its own strength and settles at its own distance (TYPES): bandmates close, a producer near who
 they produced, artists who only sound alike loosely. More shared tracks pull harder. The same relationship found in
 two places (a "feat." in the title and MusicBrainz's featured credit) is one, with both as its sources. MusicBrainz
-artists are matched by MusicBrainz ID first (the main credit on their own tracks), by name only when exactly one drawn
-artist has it.
+artists are matched by MusicBrainz ID only (the main credit on their own tracks, or a featured credit Apple names
+too), never by name alone: two people can share a name. Apple's composer field is only a name, so it's read only for
+tracks MusicBrainz has no writers for.
 
 Clusters are found by greedy modularity on those pulls, and named by the scene or genres their members share.
 Hidden bridges are the modestly played artists whose connections reach several clusters: the ones that tie your
@@ -128,8 +129,9 @@ def build(rows: list[dict], limit: int | None = NODES, mb: dict | None = None, p
         for o in others:
             collab[(main, o)] += 1
             plays[o] += 0
-        for c in composers(r.get("composer")):
-            credit_artists[c][main] += 1
+        if not r.get("mb_writers"):                   # MusicBrainz's writers, by ID, beat Apple's names
+            for c in composers(r.get("composer")):
+                credit_artists[c][main] += 1
     nodes = [a for a, n in plays.most_common(limit) if n > max(0, min_plays)]
     keep = set(nodes)
     found: dict = defaultdict(dict)                    # pair -> (type, from) -> what's known of that relationship
@@ -270,25 +272,13 @@ def tie(a: str, b: str, found: dict) -> dict:
 def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
     """What MusicBrainz says relates drawn artists, as add()'s arguments: a credit on another drawn artist's track, an
     artist relation between two, or a person (not drawn) both credit or both have as a member."""
-    from .musicbrainz import norm
-
-    by_name: dict = defaultdict(set)
-    for a in keep:
-        by_name[norm(a)].add(a)
-    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    rows = credit_rows(mb, known)
     node_of = mbid_nodes(rows, keep)
-    has_id = defaultdict(set)
-    for mbid, a in node_of.items():
-        has_id[a].add(mbid)
 
     def node(mbid, name):
-        if mbid in node_of:
-            return node_of[mbid]
-        hit = by_name.get(norm(name)) or set()
-        if len(hit) != 1:
-            return None
-        a = next(iter(hit))
-        return None if has_id[a] else a                  # same name, another MusicBrainz artist: someone else
+        """The drawn artist this MusicBrainz artist is, by ID only: a name alone is never enough, as two people can
+        share one. An artist gets its ID once one of its own tracks is matched (mbid_nodes)."""
+        return node_of.get(mbid)
 
     out: list = []
     shared: dict = defaultdict(lambda: defaultdict(Counter))   # (mbid, name) not drawn -> drawn artist -> role -> tracks
@@ -336,14 +326,30 @@ def musicbrainz_links(mb: dict, keep: set[str], known: set[str]) -> list[dict]:
     return out
 
 
+def credit_rows(mb: dict, known: set[str]) -> list[dict]:
+    """mb["credits"], each with the main artist ("main") and the others ("others") its track's Apple artist names."""
+    out = []
+    for c in mb.get("credits") or []:
+        main, others = credited(c["artist"], "", known)
+        out.append({**c, "main": main, "others": others})
+    return out
+
+
 def mbid_nodes(rows: list[dict], keep: set[str]) -> dict[str, str]:
-    """MBID -> the drawn artist whose own tracks credit it first, by that name. rows: credits with their "main"."""
+    """MBID -> the drawn artist it is: the one whose own tracks credit it first by that name, or whose name Apple
+    gives as a featured artist on a track MusicBrainz credits it as featured on. Every credit with that MBID, on any
+    track, then belongs to that one artist, and a person with the same name and another MBID never does.
+    rows: credit_rows."""
     from .musicbrainz import norm
 
     votes: dict = defaultdict(Counter)
     for c in rows:
         if c["role"] == "artist" and c["main"] in keep and norm(c["name"]) == norm(c["main"]):
-            votes[c["mbid"]][c["main"]] += c["tracks"]
+            votes[c["mbid"]][c["main"]] += 2 * c["tracks"]
+        elif c["role"] == "featured":
+            for o in c.get("others") or ():
+                if o in keep and norm(o) == norm(c["name"]):
+                    votes[c["mbid"]][o] += c["tracks"]
     return {mbid: v.most_common(1)[0][0] for mbid, v in votes.items()}
 
 
@@ -354,7 +360,7 @@ def artist_profiles(nodes: list[str], genres: dict, mb: dict, said: dict, known:
     tracks, MusicBrainz and Claude say. Claude's decades place an artist best; MusicBrainz's years only for a group
     (a person's begin is their birth)."""
     keep = set(nodes)
-    rows = [{**c, "main": credited(c["artist"], "", known)[0]} for c in mb.get("credits") or []]
+    rows = credit_rows(mb, known)
     facts: dict = {}
     for mbid, a in mbid_nodes(rows, keep).items():
         if mbid in (mb.get("artists") or {}) and a not in facts:

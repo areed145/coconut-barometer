@@ -4,10 +4,13 @@ Apple's catalog gives one free-text composer per song. MusicBrainz has real cred
 featured artists, and which artists are members of which bands. Each track is looked up once:
   - by the ISRC Apple gave it (music_tracks.isrc), else a search for its title and main artist, kept only when the
     best match is credited to that same artist
-  - then the recording, with its artist relations and its work's (the writers)
+  - then the recording, with its artist relations and its work's (the writers), and the release it was heard from
+    (the one titled like Apple's album), whose own credits are asked for once per album: many records credit their
+    producers, engineers and players on the album rather than on each track
   - and later each matched artist, for its band memberships and collaborations, and its facts: group or person,
     where it's from, its years, and the genres and tags MusicBrainz's editors voted for (the graph's profiles)
-Answers, found or not, are kept (mb_recordings, mb_credits, mb_artists, mb_artist_rels), so nothing is asked twice.
+Answers, found or not, are kept (mb_recordings, mb_credits, mb_releases, mb_release_credits, mb_artists,
+mb_artist_rels), so nothing is asked twice.
 Each credit keeps its track and what the person did on it (mb_credits.detail: "guitar", "lead vocals", "co-producer"),
 so a link can name the records behind it and a question can ask who played on one song. Tracks found before the detail
 was kept are read again once, by the recording already found (store.music.MB_CREDITS_VERSION).
@@ -40,7 +43,8 @@ TIMEOUT = 20
 RETRIES = (2, 6)                        # seconds before asking again when MusicBrainz is busy (503) or failing
 CHECK_EVERY = 120
 SEARCH_MIN_SCORE = 90
-RECORDING_INC = "artist-credits+artist-rels+work-rels+work-level-rels"
+RECORDING_INC = "artist-credits+artist-rels+work-rels+work-level-rels+releases"
+RELEASE_INC = "artist-rels"                # the album's own credits: often its producers, engineers and players
 RECORDING_ROLES = {"producer": "producer", "co-producer": "producer", "instrument": "performer", "vocal": "performer",
                    "performer": "performer", "performing orchestra": "performer", "conductor": "performer",
                    "remixer": "remixer", "arranger": "arranger", "programming": "performer",
@@ -171,6 +175,28 @@ def credits(recording: dict) -> list[dict]:
     return out
 
 
+EDITION = re.compile(r"\s*(?:[(\[][^)\]]*(?:remaster|deluxe|edition|expanded|anniversary|version|bonus|mono|stereo|"
+                     r"reissue)[^)\]]*[)\]]|-\s*(?:single|ep)\s*$)", re.I)
+
+
+def pick_release(recording: dict, album: str | None) -> str | None:
+    """The release this track was heard from: the one titled like Apple's album (editions aside), else the earliest
+    official one, else the first. Its credits are the album's (release_credits)."""
+    releases = [r for r in recording.get("releases") or [] if r.get("id")]
+    if not releases:
+        return None
+    want = norm(EDITION.sub("", album or ""))
+    named = [r for r in releases if want and norm(EDITION.sub("", r.get("title") or "")) == want]
+    official = [r for r in releases if (r.get("status") or "").lower() == "official"]
+    pool = named or official or releases
+    return min(pool, key=lambda r: (r.get("date") or "9999"))["id"]
+
+
+def release_credits(release: dict) -> list[dict]:
+    """[{role, name, mbid, detail}] MusicBrainz gives a whole release (producer, engineers, players), read as credits()."""
+    return [c for c in credits({"relations": release.get("relations") or []}) if c["role"] not in ("artist", "featured")]
+
+
 def artist_rels(artist: dict) -> list[dict]:
     """[{role, mbid, name}]: the bands this artist is in or that it's made of, who it plays with, its collaborations,
     offshoots, other names, teachers and family."""
@@ -272,11 +298,12 @@ class MusicBrainz:
         return (r["id"], "search") if r else (None, "")
 
     def run_once(self, store, budget: int = CALLS_PER_JOB, now: float | None = None) -> dict:
-        """One job: tracks first, most played first, then the artists they matched, until `budget` requests."""
+        """One job: tracks first, most played first, then the albums they were heard from, then the artists they
+        matched, until `budget` requests."""
         now = int(now if now is not None else time.time())
         if not self.ready():
             return {"status": "skipped", "error": "turned off, or no contact in Settings → Music"}
-        start, tracks, artists = self.calls, 0, 0
+        start, tracks, albums, artists = self.calls, 0, 0, 0
         try:
             for t in store.mb_to_ask(max(1, budget // 2)):
                 if self.calls - start + (1 if t.get("recording") else 3) > budget:
@@ -286,8 +313,16 @@ class MusicBrainz:
                 else:
                     mbid, how = self.find(t)
                 rec = self._ask(f"recording/{mbid}", "recording", t["name"][:80], inc=RECORDING_INC) if mbid else None
-                store.mb_save_track(t["id"], mbid if rec else None, how if rec else "", credits(rec) if rec else [], now)
+                store.mb_save_track(t["id"], mbid if rec else None, how if rec else "", credits(rec) if rec else [], now,
+                                    release=pick_release(rec, t.get("album")) if rec else None)
                 tracks += 1
+            for r in store.mb_releases_to_ask(budget):
+                if self.calls - start + 1 > budget:
+                    break
+                found = self._ask(f"release/{r['release']}", "album", (r["album"] or "")[:80], inc=RELEASE_INC)
+                store.mb_save_release(r["release"], (found or {}).get("title") or r["album"] or "",
+                                      release_credits(found or {}), now)
+                albums += 1
             for a in store.mb_artists_to_ask(budget):
                 if self.calls - start + 1 > budget:
                     break
@@ -296,11 +331,12 @@ class MusicBrainz:
                                      artist_facts(found or {}))
                 artists += 1
         except Busy as e:
-            return {"status": "failed", "error": str(e), "rows": tracks, "artists": artists, "calls": self.calls - start}
-        return {"status": "done", "rows": tracks, "artists": artists, "calls": self.calls - start}
+            return {"status": "failed", "error": str(e), "rows": tracks, "albums": albums, "artists": artists,
+                    "calls": self.calls - start}
+        return {"status": "done", "rows": tracks, "albums": albums, "artists": artists, "calls": self.calls - start}
 
     def due(self, store) -> bool:
-        return self.ready() and bool(store.mb_to_ask(1) or store.mb_artists_to_ask(1))
+        return self.ready() and bool(store.mb_to_ask(1) or store.mb_releases_to_ask(1) or store.mb_artists_to_ask(1))
 
     def run(self, stop, store, queue) -> None:
         """Every couple of minutes: a job on the worker, queue(), if there's anything left to look up."""

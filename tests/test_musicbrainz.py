@@ -87,6 +87,23 @@ class Reading(unittest.TestCase):
                                ("mixer", "Mixer"): "mixing", ("engineer", "Eng"): "recording engineer, assistant engineer",
                                ("engineer", "Master"): "mastering"})
 
+    def test_pick_release_by_album_then_earliest_official(self):
+        rec = {"releases": [{"id": "comp", "title": "Greatest Hits", "status": "Official", "date": "1990"},
+                            {"id": "boot", "title": "Live Somewhere", "status": "Bootleg", "date": "1970"},
+                            {"id": "lp", "title": "Black Rose", "status": "Official", "date": "1976-05"},
+                            {"id": "lp2", "title": "Black Rose (Remastered)", "status": "Official", "date": "2009"}]}
+        self.assertEqual(MB.pick_release(rec, "Black Rose (Deluxe Edition)"), "lp")
+        self.assertEqual(MB.pick_release(rec, "Something Else - Single"), "lp")          # earliest official
+        self.assertIsNone(MB.pick_release({}, "x"))
+
+    def test_release_credits(self):
+        got = MB.release_credits({"relations": [
+            {"type": "producer", "target-type": "artist", "artist": {"id": "p", "name": "Peter Asher"}},
+            {"type": "recording", "target-type": "artist", "artist": {"id": "v", "name": "Val Garay"}},
+            {"type": "photography", "target-type": "artist", "artist": {"id": "x", "name": "Snapper"}}]})
+        self.assertEqual([(c["role"], c["name"], c["detail"]) for c in got],
+                         [("producer", "Peter Asher", "producer"), ("engineer", "Val Garay", "recording engineer")])
+
     def test_artist_rels_keep_the_direction(self):
         rels = MB.artist_rels({"relations": [
             {"type": "member of band", "direction": "backward", "target-type": "artist", "artist": {"id": "p", "name": "Person"}},
@@ -152,7 +169,7 @@ class Lookups(unittest.TestCase):
         self.assertEqual(paths[:2], ["isrc/ISRC1", "recording/rec-1"])                 # t1: 5 plays, has an ISRC
         self.assertIn("artist/id-Band", paths)
         self.assertTrue(all("me@example.com" in h["User-Agent"] for _, _, h in self.api.calls))
-        self.assertEqual(self.store.mb_progress(), {"asked": 3, "found": 2, "tracks": 3, "artists": 2, "rereading": 0})
+        self.assertEqual(self.store.mb_progress(), {"asked": 3, "found": 2, "tracks": 3, "artists": 2, "rereading": 0, "albums": 0})
         self.assertEqual(self.store.mb_to_ask(10), [])
         self.assertFalse(self.mb.due(self.store))
         self.api.calls.clear()
@@ -231,10 +248,30 @@ class Lookups(unittest.TestCase):
         self.assertEqual((nope["found"], nope["credits"]), (False, []))
         self.assertEqual(self.store.mb_track_credits(title="!!"), [])                       # nothing to match by
 
+    def test_album_credits_are_asked_once_per_album_and_count_for_its_tracks(self):
+        RELEASED = {**RECORDING, "releases": [{"id": "rel-1", "title": "Album One", "status": "Official", "date": "1976"}]}
+        self.api.pages["recording/rec-1"] = RELEASED
+        self.api.pages["release/rel-1"] = {"title": "Album One", "relations": [
+            {"type": "producer", "target-type": "artist", "artist": {"id": "id-Asher", "name": "Asher"}},
+            {"type": "producer", "target-type": "artist", "artist": {"id": "id-Prod", "name": "Prod"}}]}
+        self.store.db.execute("UPDATE music_tracks SET album = 'Album One' WHERE id = 't1'")
+        out = self.mb.run_once(self.store, now=100)
+        self.assertEqual(out["albums"], 1)
+        self.assertEqual([p for p, _, _ in self.api.calls].count("release/rel-1"), 1)
+        self.assertEqual(self.store.mb_releases_to_ask(10), [])
+        credits = {(c["role"], c["name"]): c for c in self.store.mb_graph()["credits"]}
+        self.assertEqual(credits[("producer", "Asher")]["items"],
+                         [{"track": "Hit (feat. Guest)", "album": "Album One", "detail": "producer (album)"}])
+        self.assertEqual(credits[("producer", "Prod")]["tracks"], 1)                 # on the track and the album: once
+        names = {c["name"]: c.get("detail") for c in self.store.mb_track_credits(title="hit")[0]["credits"]}
+        self.assertEqual(names["Asher"], "producer (album)")
+        self.assertEqual(self.store.mb_progress()["albums"], 1)
+
     def test_the_upgrade_keeps_credits_and_marks_them_for_reading_again(self):
         self.mb.run_once(self.store, now=100)
         self.store.db.execute("ALTER TABLE mb_credits DROP COLUMN detail")
         self.store.db.execute("ALTER TABLE mb_recordings DROP COLUMN credits_v")
+        self.store.db.execute("ALTER TABLE mb_recordings DROP COLUMN release")
         self.store.set_meta("schema_version", 19)
         self.store.migrate()
         self.assertEqual(self.store.mb_progress()["rereading"], 2)
@@ -276,12 +313,46 @@ class Edges(unittest.TestCase):
             out.append({"played_at": i * 100000, "ms": 1000, "artist": a, "name": "x", "composer": "", "genres": "[]"})
         return out
 
-    def test_credits_link_by_mbid_and_by_unambiguous_name(self):
+    def test_same_name_another_person_never_links(self):
+        """A session player named like one of your artists, whose own tracks aren't matched: no link by name. Once a
+        track of theirs is, every credit with that ID joins them: one person, not a second."""
+        mb = {"credits": [
+            {"artist": "Band", "role": "artist", "name": "Band", "mbid": "id-Band", "tracks": 3},
+            {"artist": "Band", "role": "performer", "name": "Solo", "mbid": "id-Session", "tracks": 2},
+            {"artist": "Other", "role": "performer", "name": "Solo", "mbid": "id-Session", "tracks": 1}], "rels": []}
+        by = {(e["a"], e["b"]): [r["said"] for r in e["rels"]] for e in G.build(self.rows(), mb=mb)["edges"]}
+        self.assertNotIn(("Band", "Solo"), by)
+        self.assertEqual(by[("Band", "Other")], ["Solo played on both"])                 # the session player, unmerged
+        mb["credits"].append({"artist": "Solo", "role": "artist", "name": "Solo", "mbid": "id-Solo", "tracks": 3})
+        by = {(e["a"], e["b"]): [r["said"] for r in e["rels"]] for e in G.build(self.rows(), mb=mb)["edges"]}
+        self.assertNotIn(("Band", "Solo"), by)                                          # your Solo is someone else
+        mb["credits"][-1]["mbid"] = "id-Session"                                        # ... or the same person
+        by = {(e["a"], e["b"]): [r["said"] for r in e["rels"]] for e in G.build(self.rows(), mb=mb)["edges"]}
+        self.assertEqual(by[("Band", "Solo")], ["Solo played on Band (2 tracks)"])
+        self.assertEqual(by[("Other", "Solo")], ["Solo played on Other"])
+        self.assertNotIn(("Band", "Other"), by)
+
+    def test_apple_featuring_gives_a_guest_its_id(self):
+        rows = self.rows() + [{"played_at": 9, "ms": 1, "artist": "Band feat. Guest", "name": "y", "composer": "", "genres": "[]"}]
+        mb = {"credits": [{"artist": "Band feat. Guest", "role": "artist", "name": "Band", "mbid": "id-Band", "tracks": 1},
+                          {"artist": "Band feat. Guest", "role": "featured", "name": "Guest", "mbid": "id-Guest", "tracks": 1},
+                          {"artist": "Other", "role": "producer", "name": "Guest", "mbid": "id-Guest", "tracks": 1}], "rels": []}
+        by = {(e["a"], e["b"]): [r["said"] for r in e["rels"]] for e in G.build(rows, mb=mb)["edges"]}
+        self.assertEqual(by[("Guest", "Other")], ["Guest produced Other"])
+
+    def test_apple_composers_only_where_musicbrainz_has_no_writers(self):
+        rows = [{**r, "composer": "Common Name"} for r in self.rows() if r["artist"] in ("Band", "Solo")]
+        names = lambda rs: {(e["a"], e["b"]) for e in G.build(rs, mb={})["edges"]}
+        self.assertIn(("Band", "Solo"), names(rows))                                    # name only: "Apple"
+        self.assertNotIn(("Band", "Solo"), names([{**r, "mb_writers": True} for r in rows]))
+
+    def test_credits_link_by_mbid(self):
         mb = {"credits": [
             {"artist": "Band", "role": "artist", "name": "Band", "mbid": "id-Band", "tracks": 3},
             {"artist": "Prod", "role": "artist", "name": "Prod", "mbid": "id-Prod", "tracks": 3},
             {"artist": "Band", "role": "producer", "name": "Prod", "mbid": "id-Prod", "tracks": 2},
-            {"artist": "Band", "role": "featured", "name": "guest", "mbid": "id-Guest", "tracks": 1},    # by name
+            {"artist": "Guest", "role": "artist", "name": "Guest", "mbid": "id-Guest", "tracks": 3},
+            {"artist": "Band", "role": "featured", "name": "guest", "mbid": "id-Guest", "tracks": 1},
             {"artist": "Band", "role": "writer", "name": "Ghost Writer", "mbid": "id-GW", "tracks": 1},
             {"artist": "Solo", "role": "writer", "name": "Ghost Writer", "mbid": "id-GW", "tracks": 1},
             {"artist": "Other", "role": "producer", "name": "Prod", "mbid": "id-SomeoneElse", "tracks": 1}],  # same name, not him
