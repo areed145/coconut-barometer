@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..errors import caught, reporter
 from ..store import SchemaTooNew
+from ..store.db import SLOW_SECONDS, running
 from .api import admin, analytics, aprs, auth, gallery, home, maps, music, push, review, setup, status, sync, visitors, weather
 from .deps import session
 from . import assets, share
@@ -82,6 +83,8 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
         if scheduler:
             rt.start_scheduler()
         yield
+        for took, sql in running(min_seconds=SLOW_SECONDS):   # what was stuck when the platform stopped us
+            logger.warning("still running at shutdown: %.1f s: %s", took, sql)
         rt.stop()
 
     app = FastAPI(title="Coconut Barometer", lifespan=lifespan, docs_url=None, redoc_url=None,
@@ -142,9 +145,10 @@ def create_app(cfg: dict, client, provider_factory=None, background: bool = True
                             headers={"Cache-Control": "no-cache"})
 
     @app.get("/healthz", include_in_schema=False)
-    def healthz():
-        """For the platform's health checks: no login, no details."""
-        rt.store().db.execute("SELECT 1").fetchone()
+    async def healthz():
+        """For the platform's health checks: no login, no details. On the event loop and without the database, so a
+        long query holding DuckDB's connection, or every worker thread busy, doesn't get the app restarted (it did,
+        Nov 20): this says the server answers, and the Status page says how the rest is doing."""
         return {"ok": True}
 
     @app.get("/api/flickr/callback", name="flickr_callback", include_in_schema=False)

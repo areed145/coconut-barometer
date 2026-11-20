@@ -194,5 +194,37 @@ class SyncKeepsChangesTest(unittest.TestCase):
         self.assertIn("midsync", store.photo("1")["tags"].split())
 
 
+class SlowQueryTest(unittest.TestCase):
+    """A statement over SLOW_SECONDS is logged, and one still running can be listed (for the log at shutdown)."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Store(os.path.join(self.tmp.name, "t.duckdb"))
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def test_slow_statement_is_logged(self):
+        from unittest import mock
+        from coconut_barometer.store import db
+        with mock.patch.object(db, "SLOW_SECONDS", 0.0), self.assertLogs("coconut_barometer.store.db", "WARNING") as logs:
+            self.store.db.execute("SELECT 42").fetchone()
+        self.assertIn("slow query", logs.output[0])
+        self.assertIn("SELECT 42", logs.output[0])
+
+    def test_fast_statement_is_not_logged(self):
+        from coconut_barometer.store import db
+        with self.assertNoLogs("coconut_barometer.store.db", "WARNING"):
+            self.store.db.execute("SELECT 1").fetchone()
+        self.assertEqual(db.running(), [])
+
+    def test_running_lists_a_statement_in_progress(self):
+        from coconut_barometer.store import db
+        seen = []
+        db._timed("SELECT   pretend\n  slow", lambda: seen.append(db.running()))
+        self.assertEqual([sql for _, sql in seen[0]], ["SELECT pretend slow"])
+        self.assertEqual(db.running(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

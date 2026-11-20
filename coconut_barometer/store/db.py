@@ -5,9 +5,11 @@ The store classes were written for SQLite, so Connection keeps its calling style
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 
 import duckdb
@@ -127,6 +129,40 @@ def duckdb_limits(environ=os.environ) -> tuple[str, int]:
     return limit, int(threads) if threads.isdigit() and int(threads) > 0 else DUCKDB_THREADS
 
 
+SLOW_SECONDS = 5.0          # a statement that takes longer is logged, with how long it took
+logger = logging.getLogger(__name__)
+_running: dict[int, tuple[float, str]] = {}    # id of the statement's call -> (when it started, the statement)
+_running_guard = threading.Lock()
+
+
+def _short_sql(sql: str, n: int = 200) -> str:
+    sql = " ".join(str(sql).split())
+    return sql if len(sql) <= n else sql[:n] + "…"
+
+
+def running(min_seconds: float = 0.0, now: float | None = None) -> list[tuple[float, str]]:
+    """[(seconds so far, statement)] for the statements still running for at least min_seconds, longest first. For
+    the log when the app stops: a statement that never finishes is never logged as slow (the Nov 20 restart)."""
+    now = time.monotonic() if now is None else now
+    with _running_guard:
+        out = [(now - t, sql) for t, sql in _running.values()]
+    return sorted([r for r in out if r[0] >= min_seconds], reverse=True)
+
+
+def _timed(sql: str, call):
+    key, start = object(), time.monotonic()
+    with _running_guard:
+        _running[id(key)] = (start, _short_sql(sql))
+    try:
+        return call()
+    finally:
+        with _running_guard:
+            _running.pop(id(key), None)
+        took = time.monotonic() - start
+        if took >= SLOW_SECONDS:
+            logger.warning("slow query: %.1f s: %s", took, _short_sql(sql))
+
+
 _locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 
@@ -159,9 +195,9 @@ class Connection:
 
     def _run(self, sql, call):
         if self._reads(sql):
-            return call()
+            return _timed(sql, call)
         with self._lock:
-            return call()
+            return _timed(sql, call)
 
     def execute(self, sql, params=()):
         if isinstance(params, dict):
