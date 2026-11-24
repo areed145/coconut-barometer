@@ -181,6 +181,14 @@ class ServerTest(unittest.TestCase):
         r = anon.get("/healthz")
         self.assertEqual((r.status_code, r.json()), (200, {"ok": True}))
 
+    def test_health_check_does_not_wait_for_the_database(self):
+        """A long query holding DuckDB's connection got the app restarted (Nov 20): /healthz doesn't touch it."""
+        from unittest import mock
+        rt = self.app.state.runtime
+        with mock.patch.object(rt, "store", side_effect=AssertionError("healthz touched the database")):
+            r = TestClient(self.app, base_url="https://testserver").get("/healthz")
+        self.assertEqual((r.status_code, r.json()), (200, {"ok": True}))
+
     def test_connect_flickr_round_trip(self):
         url = self.c.post("/api/admin/flickr/connect", headers=self.h).json()["url"]
         self.assertIn("flickr.com/services/oauth/authorize", url)
